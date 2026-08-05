@@ -1,7 +1,7 @@
 import { useRef, useEffect, useCallback } from 'react'
 import { usePlayerStore } from '../stores/playerStore'
 import { getFileURLFromOPFS } from '../lib/opfs'
-import { shufflePlaylist } from '../lib/shuffle'
+
 
 let audioContext: AudioContext | null = null
 let gainNode: GainNode | null = null
@@ -26,7 +26,6 @@ export function useAudioEngine() {
     volume,
     isMuted,
     queue,
-    repeatMode,
     setPlaying,
     setCurrentTime,
     setDuration,

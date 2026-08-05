@@ -1,3 +1,6 @@
+import { openDB, type IDBPDatabase, type DBSchema } from 'idb'
+import type { Track, Playlist } from './types'
+
 const DB_NAME = 'media-player-db'
 const DB_VERSION = 1
 const TRACKS_STORE = 'tracks'
@@ -19,9 +22,6 @@ interface MediaDB extends DBSchema {
     value: unknown
   }
 }
-
-import { openDB, type IDBPDatabase } from 'idb'
-import type { Track, Playlist } from './types'
 
 let dbInstance: IDBPDatabase<MediaDB> | null = null
 

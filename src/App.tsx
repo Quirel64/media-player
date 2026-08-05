@@ -22,7 +22,7 @@ export default function App() {
   useEffect(() => {
     const init = async () => {
       await requestPersistentStorage()
-      const tracks = await loadSavedTracks()
+      await loadSavedTracks()
       setReady(true)
     }
     init()
