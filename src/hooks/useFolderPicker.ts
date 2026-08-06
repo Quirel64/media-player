@@ -5,7 +5,7 @@ import { saveFileToOPFS, clearOPFS } from '../lib/opfs'
 import { generateTrackId, generatePlaylistId } from '../lib/shuffle'
 import { usePlayerStore } from '../stores/playerStore'
 
-const AUDIO_EXTENSIONS = /\.(mp3|wav|ogg|flac|m4a|aac|wma|opus|webm)$/i
+const AUDIO_EXTENSIONS = /\.(mp3|wav|ogg|flac|m4a|aac|wma|opus|webm|mp4|m4v)$/i
 
 function isAudioFile(file: File): boolean {
   if (file.type.startsWith('audio/')) return true
@@ -129,7 +129,7 @@ export function useFolderPicker() {
       input.setAttribute('webkitdirectory', '')
       input.setAttribute('directory', '')
       input.multiple = true
-      input.accept = 'audio/*'
+      input.accept = 'audio/*,video/mp4'
 
       input.onchange = async () => {
         const files = Array.from(input.files || [])
@@ -147,7 +147,7 @@ export function useFolderPicker() {
       const input = document.createElement('input')
       input.type = 'file'
       input.multiple = true
-      input.accept = 'audio/*,.mp3,.wav,.ogg,.flac,.m4a,.aac,.wma,.opus,.webm'
+      input.accept = 'audio/*,video/mp4,.mp3,.wav,.ogg,.flac,.m4a,.aac,.wma,.opus,.webm,.mp4,.m4v'
 
       input.onchange = async () => {
         const files = Array.from(input.files || [])
