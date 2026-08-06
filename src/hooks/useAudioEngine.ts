@@ -50,6 +50,17 @@ export function useAudioEngine() {
 
     const el = isVideo ? document.createElement('video') : document.createElement('audio')
     el.preload = 'auto'
+    if (isVideo) {
+      el.setAttribute('playsinline', 'true')
+      el.setAttribute('webkit-playsinline', 'true')
+    }
+
+    if (isVideo) {
+      const v = el as HTMLVideoElement
+      v.playsInline = true
+      v.setAttribute('webkit-playsinline', 'true')
+      v.controls = true
+    }
 
     el.addEventListener('timeupdate', () => {
       setCurrentTime(el.currentTime ?? 0)
@@ -79,7 +90,7 @@ export function useAudioEngine() {
   }, [])
 
   const handleTrackEnd = useCallback(() => {
-    const { repeatMode, queue, currentTrackIndex } = usePlayerStore.getState()
+    const { repeatMode, getNextTrackIndex } = usePlayerStore.getState()
     if (repeatMode === 'one') {
       const el = mediaRef.current
       if (el) {
@@ -88,10 +99,9 @@ export function useAudioEngine() {
       }
       return
     }
-    if (currentTrackIndex < queue.length - 1) {
-      setCurrentTrackIndex(currentTrackIndex + 1)
-    } else if (repeatMode === 'all') {
-      setCurrentTrackIndex(0)
+    const nextIndex = getNextTrackIndex()
+    if (nextIndex !== null) {
+      setCurrentTrackIndex(nextIndex)
     } else {
       setPlaying(false)
     }
@@ -116,10 +126,24 @@ export function useAudioEngine() {
 
     const isVideo = track.mediaType === 'video'
     const el = createMediaElement(isVideo)
+
+    // iOS: set audio session type for background playback
+    if ('audioSession' in navigator) {
+      try {
+        (navigator as any).audioSession.type = 'playback'
+      } catch {}
+    }
+
     el.src = url
     el.load()
 
     try {
+      // iOS: ensure audio session type is set before play
+      if ('audioSession' in navigator) {
+        try {
+          (navigator as any).audioSession.type = 'playback'
+        } catch {}
+      }
       await el.play()
       setPlaying(true)
     } catch {
@@ -133,6 +157,13 @@ export function useAudioEngine() {
 
     if (audioContext?.state === 'suspended') {
       await audioContext.resume()
+    }
+
+    // iOS: set audio session type to allow background playback
+    if ('audioSession' in navigator) {
+      try {
+        (navigator as any).audioSession.type = 'playback'
+      } catch {}
     }
 
     try {
@@ -164,18 +195,22 @@ export function useAudioEngine() {
   }, [setCurrentTime])
 
   const nextTrack = useCallback(() => {
-    const { currentTrackIndex, queue } = usePlayerStore.getState()
-    if (currentTrackIndex < queue.length - 1) {
-      setCurrentTrackIndex(currentTrackIndex + 1)
+    const { getNextTrackIndex } = usePlayerStore.getState()
+    const nextIndex = getNextTrackIndex()
+    if (nextIndex !== null) {
+      setCurrentTrackIndex(nextIndex)
     }
   }, [setCurrentTrackIndex])
 
   const prevTrack = useCallback(() => {
-    const { currentTrackIndex, currentTime } = usePlayerStore.getState()
+    const { currentTime, getPrevTrackIndex } = usePlayerStore.getState()
     if (currentTime > 3) {
       seek(0)
-    } else if (currentTrackIndex > 0) {
-      setCurrentTrackIndex(currentTrackIndex - 1)
+    } else {
+      const prevIndex = getPrevTrackIndex()
+      if (prevIndex !== null) {
+        setCurrentTrackIndex(prevIndex)
+      }
     }
   }, [setCurrentTrackIndex, seek])
 

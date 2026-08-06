@@ -78,16 +78,20 @@ export default function App() {
         return <AddView onPickFolder={handlePickFolder} onPickFiles={handlePickFiles} />
       case 'library':
         return (
-          <>
-            <NowPlaying currentTrack={currentTrack} videoContainerRef={videoContainerRef} />
-            <TrackList
-              tracks={queue}
-              currentTrackIndex={currentTrackIndex}
-              onSelectTrack={handleSelectTrack}
-              onPickFolder={handlePickFolder}
-              onPickFiles={handlePickFiles}
-            />
-          </>
+          <div className="flex h-full flex-col overflow-hidden">
+            <div className="flex-shrink-0">
+              <NowPlaying currentTrack={currentTrack} videoContainerRef={videoContainerRef} />
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <TrackList
+                tracks={queue}
+                currentTrackIndex={currentTrackIndex}
+                onSelectTrack={handleSelectTrack}
+                onPickFolder={handlePickFolder}
+                onPickFiles={handlePickFiles}
+              />
+            </div>
+          </div>
         )
       case 'playlists':
         return (

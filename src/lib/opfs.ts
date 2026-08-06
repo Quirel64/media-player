@@ -65,3 +65,25 @@ export async function listFilesInOPFS(): Promise<string[]> {
     return []
   }
 }
+
+export async function debugOPFS(): Promise<void> {
+  const files = await listFilesInOPFS()
+  if (files.length === 0) {
+    console.log('OPFS is empty — no files stored.')
+    return
+  }
+  console.group(`OPFS: ${files.length} file(s) stored`)
+  for (const name of files) {
+    const file = await getFileFromOPFS(name)
+    if (file) {
+      const sizeMB = (file.size / (1024 * 1024)).toFixed(2)
+      console.log(`${name} — ${sizeMB} MB`)
+    }
+  }
+  console.groupEnd()
+}
+
+// Expose to browser console: type `debugOPFS()` in DevTools
+if (typeof window !== 'undefined') {
+  (window as any).debugOPFS = debugOPFS
+}

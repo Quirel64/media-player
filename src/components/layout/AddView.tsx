@@ -57,7 +57,7 @@ export function AddView({ onPickFolder, onPickFiles }: AddViewProps) {
       </div>
 
       <p className="mt-4 max-w-xs text-center text-xs text-slate-600">
-        Supported formats: MP3, WAV, OGG, FLAC, M4A, AAC, WMA, OPUS, MP4
+        Supported formats: MP3, WAV, OGG, FLAC, M4A, AAC, WMA, OPUS, MP4, WebM, MKV, MOV, AVI
       </p>
     </div>
   )

@@ -27,7 +27,7 @@ export function Layout({ sidebar, main, player, activeTab, onTabChange, trackCou
         </motion.aside>
 
         {/* Main content */}
-        <main className="flex-1 overflow-y-auto bg-slate-950">
+        <main className="flex-1 overflow-hidden bg-slate-950">
           {main}
         </main>
       </div>
