@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Layout } from './components/layout/Layout'
 import { Sidebar } from './components/layout/Sidebar'
+import { AddView } from './components/layout/AddView'
 import { TrackList } from './components/playlist/TrackList'
 import { NowPlaying } from './components/player/NowPlaying'
 import { PlayBar } from './components/player/PlayBar'
@@ -9,20 +10,27 @@ import { useMediaSession } from './hooks/useMediaSession'
 import { useFolderPicker } from './hooks/useFolderPicker'
 import { usePlayerStore } from './stores/playerStore'
 import { requestPersistentStorage } from './lib/idb'
+import type { TabId } from './components/layout/BottomNav'
 
 export default function App() {
   const [ready, setReady] = useState(false)
+  const [activeTab, setActiveTab] = useState<TabId>('library')
   const { queue, currentTrackIndex } = usePlayerStore()
   const currentTrack = queue[currentTrackIndex] || null
 
-  const { pickFolder, loadSavedTracks, clearAll } = useFolderPicker()
+  const { pickFolder, pickFiles, loadSavedTracks, clearAll } = useFolderPicker()
   const { togglePlay, nextTrack, prevTrack, seek, goToTrack } = useAudioEngine()
   const { setHandlers } = useMediaSession()
 
   useEffect(() => {
     const init = async () => {
       await requestPersistentStorage()
-      await loadSavedTracks()
+      const tracks = await loadSavedTracks()
+      if (tracks.length > 0) {
+        setActiveTab('library')
+      } else {
+        setActiveTab('add')
+      }
       setReady(true)
     }
     init()
@@ -43,6 +51,16 @@ export default function App() {
     [goToTrack]
   )
 
+  const handlePickFolder = useCallback(async () => {
+    const tracks = await pickFolder()
+    if (tracks) setActiveTab('library')
+  }, [pickFolder])
+
+  const handlePickFiles = useCallback(async () => {
+    const tracks = await pickFiles()
+    if (tracks) setActiveTab('library')
+  }, [pickFiles])
+
   if (!ready) {
     return (
       <div className="flex h-full items-center justify-center bg-slate-950">
@@ -54,26 +72,49 @@ export default function App() {
     )
   }
 
+  const renderMain = () => {
+    switch (activeTab) {
+      case 'add':
+        return <AddView onPickFolder={handlePickFolder} onPickFiles={handlePickFiles} />
+      case 'library':
+        return (
+          <>
+            <NowPlaying currentTrack={currentTrack} />
+            <TrackList
+              tracks={queue}
+              currentTrackIndex={currentTrackIndex}
+              onSelectTrack={handleSelectTrack}
+              onPickFolder={handlePickFolder}
+              onPickFiles={handlePickFiles}
+            />
+          </>
+        )
+      case 'playlists':
+        return (
+          <div className="flex h-full items-center justify-center p-8">
+            <div className="text-center text-slate-500">
+              <div className="mb-2 text-4xl">📋</div>
+              <p className="text-sm">Playlists coming soon</p>
+            </div>
+          </div>
+        )
+    }
+  }
+
   return (
     <Layout
+      activeTab={activeTab}
+      onTabChange={setActiveTab}
+      trackCount={queue.length}
       sidebar={
         <Sidebar
           trackCount={queue.length}
-          onPickFolder={pickFolder}
+          onPickFolder={handlePickFolder}
+          onPickFiles={handlePickFiles}
           onClearAll={clearAll}
         />
       }
-      main={
-        <>
-          <NowPlaying currentTrack={currentTrack} />
-          <TrackList
-            tracks={queue}
-            currentTrackIndex={currentTrackIndex}
-            onSelectTrack={handleSelectTrack}
-            onPickFolder={pickFolder}
-          />
-        </>
-      }
+      main={renderMain()}
       player={
         <PlayBar
           currentTrack={currentTrack}

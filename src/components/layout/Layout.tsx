@@ -1,16 +1,22 @@
-import { motion } from 'framer-motion'
 import type { ReactNode } from 'react'
+import { motion } from 'framer-motion'
+import type { TabId } from './BottomNav'
+import { BottomNav } from './BottomNav'
 
 interface LayoutProps {
   sidebar: ReactNode
   main: ReactNode
   player: ReactNode
+  activeTab: TabId
+  onTabChange: (tab: TabId) => void
+  trackCount: number
 }
 
-export function Layout({ sidebar, main, player }: LayoutProps) {
+export function Layout({ sidebar, main, player, activeTab, onTabChange, trackCount }: LayoutProps) {
   return (
     <div className="flex h-full flex-col bg-slate-950">
       <div className="flex flex-1 overflow-hidden">
+        {/* Desktop sidebar */}
         <motion.aside
           initial={{ x: -260 }}
           animate={{ x: 0 }}
@@ -19,10 +25,14 @@ export function Layout({ sidebar, main, player }: LayoutProps) {
         >
           {sidebar}
         </motion.aside>
+
+        {/* Main content */}
         <main className="flex-1 overflow-y-auto bg-slate-950">
           {main}
         </main>
       </div>
+
+      {/* Player bar */}
       <motion.div
         initial={{ y: 90 }}
         animate={{ y: 0 }}
@@ -31,6 +41,9 @@ export function Layout({ sidebar, main, player }: LayoutProps) {
       >
         {player}
       </motion.div>
+
+      {/* Mobile bottom nav */}
+      <BottomNav activeTab={activeTab} onTabChange={onTabChange} trackCount={trackCount} />
     </div>
   )
 }

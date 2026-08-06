@@ -3,10 +3,11 @@ import { motion } from 'framer-motion'
 interface SidebarProps {
   trackCount: number
   onPickFolder: () => void
+  onPickFiles: () => void
   onClearAll: () => void
 }
 
-export function Sidebar({ trackCount, onPickFolder, onClearAll }: SidebarProps) {
+export function Sidebar({ trackCount, onPickFolder, onPickFiles, onClearAll }: SidebarProps) {
   return (
     <div className="flex h-full flex-col p-4">
       <div className="mb-6">
@@ -26,6 +27,12 @@ export function Sidebar({ trackCount, onPickFolder, onClearAll }: SidebarProps) 
           className="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary-light active:scale-[0.98]"
         >
           + Open Folder
+        </button>
+        <button
+          onClick={onPickFiles}
+          className="w-full rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 transition-colors hover:border-accent hover:text-accent"
+        >
+          + Select Files
         </button>
         {trackCount > 0 && (
           <button

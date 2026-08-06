@@ -6,6 +6,7 @@ interface TrackListProps {
   currentTrackIndex: number
   onSelectTrack: (index: number) => void
   onPickFolder: () => void
+  onPickFiles: () => void
 }
 
 function formatDuration(seconds: number): string {
@@ -20,7 +21,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder }: TrackListProps) {
+export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles }: TrackListProps) {
   if (tracks.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 p-8">
@@ -32,14 +33,22 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
           <div className="mb-4 text-6xl">🎵</div>
           <h2 className="mb-2 text-xl font-semibold text-white">No Music Yet</h2>
           <p className="mb-6 text-sm text-slate-400">
-            Open a folder with audio files to get started
+            Open a folder or select audio files to get started
           </p>
-          <button
-            onClick={onPickFolder}
-            className="rounded-lg bg-primary px-6 py-3 font-medium text-white transition-colors hover:bg-primary-light active:scale-[0.98]"
-          >
-            Open Folder
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={onPickFolder}
+              className="rounded-lg bg-primary px-4 py-2.5 font-medium text-white transition-colors hover:bg-primary-light active:scale-[0.98]"
+            >
+              Open Folder
+            </button>
+            <button
+              onClick={onPickFiles}
+              className="rounded-lg border border-slate-700 px-4 py-2.5 font-medium text-slate-300 transition-colors hover:border-accent hover:text-accent"
+            >
+              Select Files
+            </button>
+          </div>
         </motion.div>
       </div>
     )
@@ -54,12 +63,20 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
             {tracks.length} track{tracks.length !== 1 ? 's' : ''}
           </p>
         </div>
-        <button
-          onClick={onPickFolder}
-          className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-300 transition-colors hover:bg-slate-700"
-        >
-          + Add More
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={onPickFolder}
+            className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-300 transition-colors hover:bg-slate-700"
+          >
+            + Folder
+          </button>
+          <button
+            onClick={onPickFiles}
+            className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-300 transition-colors hover:bg-slate-700"
+          >
+            + Files
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 py-2">
