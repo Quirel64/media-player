@@ -8,6 +8,7 @@ export interface Track {
   artist: string
   album: string
   folderName: string
+  mediaType: 'audio' | 'video'
 }
 
 export interface Playlist {

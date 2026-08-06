@@ -108,7 +108,12 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
               </div>
 
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{track.name}</p>
+                <div className="flex items-center gap-1.5">
+                  <p className="truncate text-sm font-medium">{track.name}</p>
+                  {track.mediaType === 'video' && (
+                    <span className="flex-shrink-0 text-xs text-slate-500">🎬</span>
+                  )}
+                </div>
                 <p className="truncate text-xs text-slate-500">
                   {track.artist} {track.album !== 'Unknown Album' ? `• ${track.album}` : ''}
                 </p>

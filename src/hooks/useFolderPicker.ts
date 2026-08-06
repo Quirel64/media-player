@@ -5,11 +5,18 @@ import { saveFileToOPFS, clearOPFS } from '../lib/opfs'
 import { generateTrackId, generatePlaylistId } from '../lib/shuffle'
 import { usePlayerStore } from '../stores/playerStore'
 
-const AUDIO_EXTENSIONS = /\.(mp3|wav|ogg|flac|m4a|aac|wma|opus|webm|mp4|m4v)$/i
+const MEDIA_EXTENSIONS = /\.(mp3|wav|ogg|flac|m4a|aac|wma|opus|mp4|m4v|webm|avi|mkv|mov)$/i
+const VIDEO_EXTENSIONS = /\.(mp4|m4v|webm|avi|mkv|mov)$/i
+const VIDEO_MIME_TYPES = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska']
 
-function isAudioFile(file: File): boolean {
-  if (file.type.startsWith('audio/')) return true
-  return AUDIO_EXTENSIONS.test(file.name)
+function isMediaFile(file: File): boolean {
+  if (file.type.startsWith('audio/') || file.type.startsWith('video/')) return true
+  return MEDIA_EXTENSIONS.test(file.name)
+}
+
+function isVideoFile(file: File): boolean {
+  if (VIDEO_MIME_TYPES.includes(file.type) || file.type.startsWith('video/')) return true
+  return VIDEO_EXTENSIONS.test(file.name)
 }
 
 function getUniqueFileName(existingNames: Set<string>, originalName: string): string {
@@ -35,17 +42,17 @@ async function processFiles(
   setOriginalOrder: (t: Track[]) => void,
   setCurrentTrackIndex: (i: number) => void
 ): Promise<Track[] | null> {
-  const audioFiles = files.filter(isAudioFile)
+  const mediaFiles = files.filter(isMediaFile)
 
-  if (audioFiles.length === 0) return null
+  if (mediaFiles.length === 0) return null
 
   const folderName =
-    audioFiles[0].webkitRelativePath?.split('/')[0] || 'Selected Files'
+    mediaFiles[0].webkitRelativePath?.split('/')[0] || 'Selected Files'
 
   const existingNames = new Set<string>()
 
   const tracks: Track[] = await Promise.all(
-    audioFiles.map(async (file) => {
+    mediaFiles.map(async (file) => {
       const uniqueFileName = getUniqueFileName(existingNames, file.name)
 
       const track: Track = {
@@ -62,6 +69,7 @@ async function processFiles(
         artist: extractArtist(file.name),
         album: extractAlbum(file.name),
         folderName,
+        mediaType: isVideoFile(file) ? 'video' : 'audio',
       }
 
       try {
@@ -76,22 +84,22 @@ async function processFiles(
 
   // Get durations
   for (const track of tracks) {
-    const file = audioFiles.find((f) => f.name === track.fileName || getUniqueFileName(new Set(), f.name) === track.fileName)
+    const file = mediaFiles.find((f) => f.name === track.fileName || getUniqueFileName(new Set(), f.name) === track.fileName)
     if (file) {
       try {
         const url = URL.createObjectURL(file)
-        const audio = new Audio()
+        const el = track.mediaType === 'video' ? document.createElement('video') : new Audio()
         await new Promise<void>((res) => {
-          audio.onloadedmetadata = () => {
-            track.duration = audio.duration
+          el.onloadedmetadata = () => {
+            track.duration = el.duration
             URL.revokeObjectURL(url)
             res()
           }
-          audio.onerror = () => {
+          el.onerror = () => {
             URL.revokeObjectURL(url)
             res()
           }
-          audio.src = url
+          el.src = url
         })
       } catch {
         // duration stays 0
@@ -129,7 +137,7 @@ export function useFolderPicker() {
       input.setAttribute('webkitdirectory', '')
       input.setAttribute('directory', '')
       input.multiple = true
-      input.accept = 'audio/*,video/mp4'
+      input.accept = 'audio/*,video/*'
 
       input.onchange = async () => {
         const files = Array.from(input.files || [])
@@ -147,7 +155,7 @@ export function useFolderPicker() {
       const input = document.createElement('input')
       input.type = 'file'
       input.multiple = true
-      input.accept = 'audio/*,video/mp4,.mp3,.wav,.ogg,.flac,.m4a,.aac,.wma,.opus,.webm,.mp4,.m4v'
+      input.accept = 'audio/*,video/*,.mp3,.wav,.ogg,.flac,.m4a,.aac,.wma,.opus,.mp4,.m4v,.webm,.avi,.mkv,.mov'
 
       input.onchange = async () => {
         const files = Array.from(input.files || [])

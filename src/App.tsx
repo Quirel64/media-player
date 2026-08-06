@@ -19,7 +19,7 @@ export default function App() {
   const currentTrack = queue[currentTrackIndex] || null
 
   const { pickFolder, pickFiles, loadSavedTracks, clearAll } = useFolderPicker()
-  const { togglePlay, nextTrack, prevTrack, seek, goToTrack } = useAudioEngine()
+  const { togglePlay, nextTrack, prevTrack, seek, goToTrack, videoContainerRef } = useAudioEngine()
   const { setHandlers } = useMediaSession()
 
   useEffect(() => {
@@ -79,7 +79,7 @@ export default function App() {
       case 'library':
         return (
           <>
-            <NowPlaying currentTrack={currentTrack} />
+            <NowPlaying currentTrack={currentTrack} videoContainerRef={videoContainerRef} />
             <TrackList
               tracks={queue}
               currentTrackIndex={currentTrackIndex}

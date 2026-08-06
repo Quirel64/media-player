@@ -2,7 +2,6 @@ import { useRef, useEffect, useCallback } from 'react'
 import { usePlayerStore } from '../stores/playerStore'
 import { getFileURLFromOPFS } from '../lib/opfs'
 
-
 let audioContext: AudioContext | null = null
 let gainNode: GainNode | null = null
 let sourceNode: MediaElementAudioSourceNode | null = null
@@ -17,8 +16,9 @@ function getAudioContext(): AudioContext {
 }
 
 export function useAudioEngine() {
-  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const mediaRef = useRef<HTMLMediaElement | null>(null)
   const blobUrlRef = useRef<string | null>(null)
+  const videoContainerRef = useRef<HTMLDivElement | null>(null)
 
   const {
     isPlaying,
@@ -34,33 +34,57 @@ export function useAudioEngine() {
 
   const currentTrack = queue[currentTrackIndex]
 
-  const createAudioElement = useCallback(() => {
-    if (!audioRef.current) {
-      audioRef.current = new Audio()
-      audioRef.current.addEventListener('timeupdate', () => {
-        setCurrentTime(audioRef.current?.currentTime ?? 0)
-      })
-      audioRef.current.addEventListener('loadedmetadata', () => {
-        setDuration(audioRef.current?.duration ?? 0)
-      })
-      audioRef.current.addEventListener('ended', () => {
-        handleTrackEnd()
-      })
-      audioRef.current.addEventListener('error', () => {
-        console.error('Audio playback error')
-        setPlaying(false)
-      })
+  const createMediaElement = useCallback((isVideo: boolean) => {
+    // Remove old element
+    if (mediaRef.current) {
+      mediaRef.current.pause()
+      if (mediaRef.current.parentNode) {
+        mediaRef.current.parentNode.removeChild(mediaRef.current)
+      }
+      // Disconnect audio nodes
+      if (sourceNode) {
+        try { sourceNode.disconnect() } catch {}
+        sourceNode = null
+      }
     }
-    return audioRef.current
+
+    const el = isVideo ? document.createElement('video') : document.createElement('audio')
+    el.preload = 'auto'
+
+    el.addEventListener('timeupdate', () => {
+      setCurrentTime(el.currentTime ?? 0)
+    })
+    el.addEventListener('loadedmetadata', () => {
+      setDuration(el.duration ?? 0)
+    })
+    el.addEventListener('ended', () => {
+      handleTrackEnd()
+    })
+    el.addEventListener('error', () => {
+      console.error('Media playback error')
+      setPlaying(false)
+    })
+
+    // For video, append to the container
+    if (isVideo && videoContainerRef.current) {
+      el.style.width = '100%'
+      el.style.maxHeight = '100%'
+      el.style.objectFit = 'contain'
+      el.style.borderRadius = '12px'
+      videoContainerRef.current.appendChild(el)
+    }
+
+    mediaRef.current = el
+    return el
   }, [])
 
   const handleTrackEnd = useCallback(() => {
     const { repeatMode, queue, currentTrackIndex } = usePlayerStore.getState()
     if (repeatMode === 'one') {
-      const audio = audioRef.current
-      if (audio) {
-        audio.currentTime = 0
-        audio.play()
+      const el = mediaRef.current
+      if (el) {
+        el.currentTime = 0
+        el.play()
       }
       return
     }
@@ -90,28 +114,29 @@ export function useAudioEngine() {
     }
     blobUrlRef.current = url
 
-    const audio = createAudioElement()
-    audio.src = url
-    audio.load()
+    const isVideo = track.mediaType === 'video'
+    const el = createMediaElement(isVideo)
+    el.src = url
+    el.load()
 
     try {
-      await audio.play()
+      await el.play()
       setPlaying(true)
     } catch {
       setPlaying(false)
     }
-  }, [createAudioElement, setPlaying])
+  }, [createMediaElement, setPlaying])
 
   const play = useCallback(async () => {
-    const audio = audioRef.current
-    if (!audio) return
+    const el = mediaRef.current
+    if (!el) return
 
     if (audioContext?.state === 'suspended') {
       await audioContext.resume()
     }
 
     try {
-      await audio.play()
+      await el.play()
       setPlaying(true)
     } catch {
       setPlaying(false)
@@ -119,7 +144,7 @@ export function useAudioEngine() {
   }, [setPlaying])
 
   const pause = useCallback(() => {
-    audioRef.current?.pause()
+    mediaRef.current?.pause()
     setPlaying(false)
   }, [setPlaying])
 
@@ -132,8 +157,8 @@ export function useAudioEngine() {
   }, [isPlaying, play, pause])
 
   const seek = useCallback((time: number) => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = time
+    if (mediaRef.current) {
+      mediaRef.current.currentTime = time
       setCurrentTime(time)
     }
   }, [setCurrentTime])
@@ -167,19 +192,19 @@ export function useAudioEngine() {
 
   // Update volume
   useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.volume = isMuted ? 0 : volume
+    if (mediaRef.current) {
+      mediaRef.current.volume = isMuted ? 0 : volume
     }
   }, [volume, isMuted])
 
   // Apply per-track volume via Web Audio API GainNode
   useEffect(() => {
-    if (!currentTrack || !audioRef.current) return
+    if (!currentTrack || !mediaRef.current) return
 
     const ctx = getAudioContext()
 
-    if (!sourceNode && audioRef.current) {
-      sourceNode = ctx.createMediaElementSource(audioRef.current)
+    if (!sourceNode && mediaRef.current) {
+      sourceNode = ctx.createMediaElementSource(mediaRef.current)
       sourceNode.connect(gainNode!)
     }
 
@@ -197,8 +222,8 @@ export function useAudioEngine() {
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current)
       }
-      audioRef.current?.pause()
-      audioRef.current = null
+      mediaRef.current?.pause()
+      mediaRef.current = null
     }
   }, [])
 
@@ -211,6 +236,7 @@ export function useAudioEngine() {
     prevTrack,
     goToTrack,
     loadTrack,
-    audioRef,
+    mediaRef,
+    videoContainerRef,
   }
 }

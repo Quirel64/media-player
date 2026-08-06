@@ -4,6 +4,7 @@ import type { Track } from '../../lib/types'
 
 interface NowPlayingProps {
   currentTrack: Track | null
+  videoContainerRef: React.RefObject<HTMLDivElement | null>
 }
 
 function formatTime(seconds: number): string {
@@ -13,7 +14,7 @@ function formatTime(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`
 }
 
-export function NowPlaying({ currentTrack }: NowPlayingProps) {
+export function NowPlaying({ currentTrack, videoContainerRef }: NowPlayingProps) {
   const { currentTime, duration } = usePlayerStore()
 
   if (!currentTrack) {
@@ -22,6 +23,34 @@ export function NowPlaying({ currentTrack }: NowPlayingProps) {
         <div className="text-center text-slate-600">
           <div className="mb-2 text-4xl">🎶</div>
           <p className="text-sm">Select a track to play</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (currentTrack.mediaType === 'video') {
+    return (
+      <div className="flex flex-col gap-4 p-4">
+        <div
+          ref={videoContainerRef}
+          className="relative flex w-full items-center justify-center overflow-hidden rounded-xl bg-black"
+          style={{ aspectRatio: '16/9', maxHeight: '50vh' }}
+        >
+          {/* Video element gets appended here by useAudioEngine */}
+        </div>
+        <div className="px-2">
+          <motion.h2
+            key={currentTrack.name}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-1 text-lg font-bold text-white"
+          >
+            {currentTrack.name}
+          </motion.h2>
+          <p className="text-sm text-slate-400">
+            {currentTrack.artist}
+            {currentTrack.album !== 'Unknown Album' && ` • ${currentTrack.album}`}
+          </p>
         </div>
       </div>
     )
