@@ -51,15 +51,11 @@ export function useAudioEngine() {
     const el = isVideo ? document.createElement('video') : document.createElement('audio')
     el.preload = 'auto'
     if (isVideo) {
-      el.setAttribute('playsinline', 'true')
-      el.setAttribute('webkit-playsinline', 'true')
-    }
-
-    if (isVideo) {
       const v = el as HTMLVideoElement
       v.playsInline = true
       v.setAttribute('webkit-playsinline', 'true')
       v.controls = true
+      v.style.touchAction = 'manipulation'
     }
 
     el.addEventListener('timeupdate', () => {

@@ -5,14 +5,15 @@ import { BottomNav } from './BottomNav'
 
 interface LayoutProps {
   sidebar: ReactNode
-  main: ReactNode
+  nowPlaying: ReactNode
+  content: ReactNode
   player: ReactNode
   activeTab: TabId
   onTabChange: (tab: TabId) => void
   trackCount: number
 }
 
-export function Layout({ sidebar, main, player, activeTab, onTabChange, trackCount }: LayoutProps) {
+export function Layout({ sidebar, nowPlaying, content, player, activeTab, onTabChange, trackCount }: LayoutProps) {
   return (
     <div className="flex h-full flex-col bg-slate-950">
       <div className="flex flex-1 overflow-hidden">
@@ -26,9 +27,14 @@ export function Layout({ sidebar, main, player, activeTab, onTabChange, trackCou
           {sidebar}
         </motion.aside>
 
-        {/* Main content */}
-        <main className="flex-1 overflow-hidden bg-slate-950">
-          {main}
+        {/* Main content - nowPlaying fixed, content scrolls */}
+        <main className="flex-1 flex flex-col overflow-hidden bg-slate-950">
+          <div className="flex-shrink-0 border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm sticky top-0 z-10">
+            {nowPlaying}
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {content}
+          </div>
         </main>
       </div>
 

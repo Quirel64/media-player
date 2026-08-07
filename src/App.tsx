@@ -72,26 +72,23 @@ export default function App() {
     )
   }
 
-  const renderMain = () => {
+  const renderNowPlaying = () => {
+    return <NowPlaying currentTrack={currentTrack} videoContainerRef={videoContainerRef} />
+  }
+
+  const renderContent = () => {
     switch (activeTab) {
       case 'add':
         return <AddView onPickFolder={handlePickFolder} onPickFiles={handlePickFiles} />
       case 'library':
         return (
-          <div className="flex h-full flex-col overflow-hidden">
-            <div className="flex-shrink-0">
-              <NowPlaying currentTrack={currentTrack} videoContainerRef={videoContainerRef} />
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              <TrackList
-                tracks={queue}
-                currentTrackIndex={currentTrackIndex}
-                onSelectTrack={handleSelectTrack}
-                onPickFolder={handlePickFolder}
-                onPickFiles={handlePickFiles}
-              />
-            </div>
-          </div>
+          <TrackList
+            tracks={queue}
+            currentTrackIndex={currentTrackIndex}
+            onSelectTrack={handleSelectTrack}
+            onPickFolder={handlePickFolder}
+            onPickFiles={handlePickFiles}
+          />
         )
       case 'playlists':
         return (
@@ -118,7 +115,8 @@ export default function App() {
           onClearAll={clearAll}
         />
       }
-      main={renderMain()}
+      nowPlaying={renderNowPlaying()}
+      content={renderContent()}
       player={
         <PlayBar
           currentTrack={currentTrack}
