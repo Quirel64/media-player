@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import type { Track } from '../lib/types'
-import { saveTracks, getAllTracks, savePlaylist, clearAllTracks } from '../lib/idb'
-import { saveFileToOPFS, clearOPFS } from '../lib/opfs'
+import { saveTracks, getAllTracks, savePlaylist, clearAllTracks, deleteTrack } from '../lib/idb'
+import { saveFileToOPFS, clearOPFS, deleteFileFromOPFS } from '../lib/opfs'
 import { generateTrackId, generatePlaylistId } from '../lib/shuffle'
 import { usePlayerStore } from '../stores/playerStore'
 
@@ -186,7 +186,28 @@ export function useFolderPicker() {
     setCurrentTrackIndex(0)
   }, [setQueue, setOriginalOrder, setCurrentTrackIndex])
 
-  return { pickFolder, pickFiles, loadSavedTracks, clearAll }
+  const removeTrack = useCallback(async (track: Track) => {
+    // Remove from OPFS
+    await deleteFileFromOPFS(track.fileName)
+    // Remove from IndexedDB
+    await deleteTrack(track.id)
+    // Update queue
+    const { queue, currentTrackIndex, originalOrder } = usePlayerStore.getState()
+    const newQueue = queue.filter((t) => t.id !== track.id)
+    const newOriginalOrder = originalOrder.filter((t) => t.id !== track.id)
+    setQueue(newQueue)
+    setOriginalOrder(newOriginalOrder)
+    // Adjust current track index
+    if (newQueue.length === 0) {
+      setCurrentTrackIndex(0)
+    } else if (currentTrackIndex >= newQueue.length) {
+      setCurrentTrackIndex(newQueue.length - 1)
+    } else {
+      setCurrentTrackIndex(currentTrackIndex)
+    }
+  }, [setQueue, setOriginalOrder, setCurrentTrackIndex])
+
+  return { pickFolder, pickFiles, loadSavedTracks, clearAll, removeTrack }
 }
 
 function extractArtist(fileName: string): string {

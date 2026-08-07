@@ -7,6 +7,7 @@ interface TrackListProps {
   onSelectTrack: (index: number) => void
   onPickFolder: () => void
   onPickFiles: () => void
+  onRemoveTrack?: (track: Track) => void
 }
 
 function formatDuration(seconds: number): string {
@@ -21,7 +22,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles }: TrackListProps) {
+export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTrack }: TrackListProps) {
   if (tracks.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 p-8">
@@ -123,6 +124,18 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
               <span className="w-12 text-right text-xs text-slate-500">
                 {formatDuration(track.duration)}
               </span>
+              {onRemoveTrack && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onRemoveTrack(track)
+                  }}
+                  className="ml-2 text-slate-600 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
+                  title="Remove track"
+                >
+                  ✕
+                </button>
+              )}
             </motion.div>
           ))}
         </AnimatePresence>

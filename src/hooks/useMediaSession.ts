@@ -5,6 +5,7 @@ export function useMediaSession() {
   const prevTrackRef = useRef<(() => void) | null>(null)
   const nextTrackRef = useRef<(() => void) | null>(null)
   const togglePlayRef = useRef<(() => void) | null>(null)
+  const seekRef = useRef<((time: number) => void) | null>(null)
 
   const { isPlaying, currentTrackIndex, queue } = usePlayerStore()
   const currentTrack = queue[currentTrackIndex]
@@ -48,8 +49,7 @@ export function useMediaSession() {
 
     navigator.mediaSession.setActionHandler('seekto', (details) => {
       if (details.seekTime != null) {
-        const audio = document.querySelector('audio')
-        if (audio) audio.currentTime = details.seekTime
+        seekRef.current?.(details.seekTime)
       }
     })
 
@@ -66,10 +66,12 @@ export function useMediaSession() {
     onPlay: () => void
     onPrev: () => void
     onNext: () => void
+    onSeek: (time: number) => void
   }) => {
     togglePlayRef.current = handlers.onPlay
     prevTrackRef.current = handlers.onPrev
     nextTrackRef.current = handlers.onNext
+    seekRef.current = handlers.onSeek
   }
 
   return { setHandlers }

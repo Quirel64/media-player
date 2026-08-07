@@ -62,7 +62,12 @@ export function useAudioEngine() {
       setCurrentTime(el.currentTime ?? 0)
     })
     el.addEventListener('loadedmetadata', () => {
-      setDuration(el.duration ?? 0)
+      const d = el.duration
+      setDuration(Number.isFinite(d) && d > 0 ? d : 0)
+    })
+    el.addEventListener('durationchange', () => {
+      const d = el.duration
+      if (Number.isFinite(d) && d > 0) setDuration(d)
     })
     el.addEventListener('ended', () => {
       handleTrackEnd()

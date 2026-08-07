@@ -11,6 +11,7 @@ import { useFolderPicker } from './hooks/useFolderPicker'
 import { usePlayerStore } from './stores/playerStore'
 import { requestPersistentStorage } from './lib/idb'
 import type { TabId } from './components/layout/BottomNav'
+import type { Track } from './lib/types'
 
 export default function App() {
   const [ready, setReady] = useState(false)
@@ -18,7 +19,7 @@ export default function App() {
   const { queue, currentTrackIndex } = usePlayerStore()
   const currentTrack = queue[currentTrackIndex] || null
 
-  const { pickFolder, pickFiles, loadSavedTracks, clearAll } = useFolderPicker()
+  const { pickFolder, pickFiles, loadSavedTracks, clearAll, removeTrack } = useFolderPicker()
   const { togglePlay, nextTrack, prevTrack, seek, goToTrack, videoContainerRef } = useAudioEngine()
   const { setHandlers } = useMediaSession()
 
@@ -41,8 +42,9 @@ export default function App() {
       onPlay: togglePlay,
       onPrev: prevTrack,
       onNext: nextTrack,
+      onSeek: seek,
     })
-  }, [togglePlay, prevTrack, nextTrack])
+  }, [togglePlay, prevTrack, nextTrack, seek])
 
   const handleSelectTrack = useCallback(
     (index: number) => {
@@ -60,6 +62,10 @@ export default function App() {
     const tracks = await pickFiles()
     if (tracks) setActiveTab('library')
   }, [pickFiles])
+
+  const handleRemoveTrack = useCallback(async (track: Track) => {
+    await removeTrack(track)
+  }, [removeTrack])
 
   if (!ready) {
     return (
@@ -88,6 +94,7 @@ export default function App() {
             onSelectTrack={handleSelectTrack}
             onPickFolder={handlePickFolder}
             onPickFiles={handlePickFiles}
+            onRemoveTrack={handleRemoveTrack}
           />
         )
       case 'playlists':

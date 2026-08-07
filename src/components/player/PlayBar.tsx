@@ -52,7 +52,7 @@ export function PlayBar({ currentTrack, onTogglePlay, onNext, onPrev, onSeek }: 
         <div className="flex items-center gap-3">
           <button
             onClick={toggleShuffle}
-            className={`hidden p-2 transition-colors md:block ${
+            className={`p-2 transition-colors ${
               shuffleOn ? 'text-primary' : 'text-slate-500 hover:text-slate-300'
             }`}
           >
