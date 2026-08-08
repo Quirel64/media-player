@@ -38,6 +38,7 @@ function getUniqueFileName(existingNames: Set<string>, originalName: string): st
 
 async function processFiles(
   files: File[],
+  existingQueue: Track[],
   setQueue: (t: Track[]) => void,
   setOriginalOrder: (t: Track[]) => void,
   setCurrentTrackIndex: (i: number) => void
@@ -49,7 +50,7 @@ async function processFiles(
   const folderName =
     mediaFiles[0].webkitRelativePath?.split('/')[0] || 'Selected Files'
 
-  const existingNames = new Set<string>()
+  const existingNames = new Set<string>(existingQueue.map((t) => t.fileName))
 
   const tracks: Track[] = await Promise.all(
     mediaFiles.map(async (file) => {
@@ -118,9 +119,10 @@ async function processFiles(
   }
   await savePlaylist(playlist)
 
-  setQueue(tracks)
-  setOriginalOrder(tracks)
-  setCurrentTrackIndex(0)
+  const combined = [...existingQueue, ...tracks]
+  setQueue(combined)
+  setOriginalOrder(combined)
+  setCurrentTrackIndex(existingQueue.length)
 
   return tracks
 }
@@ -141,7 +143,8 @@ export function useFolderPicker() {
 
       input.onchange = async () => {
         const files = Array.from(input.files || [])
-        const result = await processFiles(files, setQueue, setOriginalOrder, setCurrentTrackIndex)
+        const existingQueue = usePlayerStore.getState().queue
+        const result = await processFiles(files, existingQueue, setQueue, setOriginalOrder, setCurrentTrackIndex)
         resolve(result)
       }
 
@@ -159,7 +162,8 @@ export function useFolderPicker() {
 
       input.onchange = async () => {
         const files = Array.from(input.files || [])
-        const result = await processFiles(files, setQueue, setOriginalOrder, setCurrentTrackIndex)
+        const existingQueue = usePlayerStore.getState().queue
+        const result = await processFiles(files, existingQueue, setQueue, setOriginalOrder, setCurrentTrackIndex)
         resolve(result)
       }
 

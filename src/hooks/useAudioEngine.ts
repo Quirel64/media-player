@@ -15,6 +15,14 @@ function getAudioContext(): AudioContext {
   return audioContext
 }
 
+function setAudioSessionType() {
+  if ('audioSession' in navigator) {
+    try {
+      (navigator as any).audioSession.type = 'playback'
+    } catch {}
+  }
+}
+
 export function useAudioEngine() {
   const mediaRef = useRef<HTMLMediaElement | null>(null)
   const blobUrlRef = useRef<string | null>(null)
@@ -96,7 +104,8 @@ export function useAudioEngine() {
       const el = mediaRef.current
       if (el) {
         el.currentTime = 0
-        el.play()
+        setAudioSessionType()
+        el.play().catch(() => {})
       }
       return
     }
@@ -128,23 +137,36 @@ export function useAudioEngine() {
     const isVideo = track.mediaType === 'video'
     const el = createMediaElement(isVideo)
 
-    // iOS: set audio session type for background playback
-    if ('audioSession' in navigator) {
-      try {
-        (navigator as any).audioSession.type = 'playback'
-      } catch {}
-    }
+    // iOS: set audio session type BEFORE setting src
+    setAudioSessionType()
 
     el.src = url
     el.load()
 
-    try {
-      // iOS: ensure audio session type is set before play
-      if ('audioSession' in navigator) {
-        try {
-          (navigator as any).audioSession.type = 'playback'
-        } catch {}
+    // Wait for canplaythrough before playing (ensures iOS can buffer properly)
+    const waitForBuffer = new Promise<void>((resolve) => {
+      const onCanPlay = () => {
+        el.removeEventListener('canplaythrough', onCanPlay)
+        el.removeEventListener('error', onError)
+        resolve()
       }
+      const onError = () => {
+        el.removeEventListener('canplaythrough', onCanPlay)
+        el.removeEventListener('error', onError)
+        resolve()
+      }
+      el.addEventListener('canplaythrough', onCanPlay)
+      el.addEventListener('error', onError)
+      // Timeout fallback
+      setTimeout(resolve, 3000)
+    })
+
+    await waitForBuffer
+
+    // iOS: ensure audio session type is set again before play
+    setAudioSessionType()
+
+    try {
       await el.play()
       setPlaying(true)
     } catch {
@@ -161,11 +183,7 @@ export function useAudioEngine() {
     }
 
     // iOS: set audio session type to allow background playback
-    if ('audioSession' in navigator) {
-      try {
-        (navigator as any).audioSession.type = 'playback'
-      } catch {}
-    }
+    setAudioSessionType()
 
     try {
       await el.play()

@@ -31,34 +31,56 @@ export function useMediaSession() {
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
 
-    navigator.mediaSession.setActionHandler('play', () => {
+    const safeSetHandler = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
+      try {
+        navigator.mediaSession.setActionHandler(action, handler)
+      } catch {}
+    }
+
+    safeSetHandler('play', () => {
       togglePlayRef.current?.()
     })
 
-    navigator.mediaSession.setActionHandler('pause', () => {
+    safeSetHandler('pause', () => {
       togglePlayRef.current?.()
     })
 
-    navigator.mediaSession.setActionHandler('previoustrack', () => {
+    safeSetHandler('previoustrack', () => {
       prevTrackRef.current?.()
     })
 
-    navigator.mediaSession.setActionHandler('nexttrack', () => {
+    safeSetHandler('nexttrack', () => {
       nextTrackRef.current?.()
     })
 
-    navigator.mediaSession.setActionHandler('seekto', (details) => {
+    safeSetHandler('seekto', (details) => {
       if (details.seekTime != null) {
         seekRef.current?.(details.seekTime)
       }
     })
 
+    safeSetHandler('seekforward', (details) => {
+      const el = document.querySelector('audio, video') as HTMLMediaElement | null
+      if (el) {
+        el.currentTime = Math.min(el.currentTime + (details.seekOffset ?? 10), el.duration || Infinity)
+      }
+    })
+
+    safeSetHandler('seekbackward', (details) => {
+      const el = document.querySelector('audio, video') as HTMLMediaElement | null
+      if (el) {
+        el.currentTime = Math.max(el.currentTime - (details.seekOffset ?? 10), 0)
+      }
+    })
+
     return () => {
-      navigator.mediaSession.setActionHandler('play', null)
-      navigator.mediaSession.setActionHandler('pause', null)
-      navigator.mediaSession.setActionHandler('previoustrack', null)
-      navigator.mediaSession.setActionHandler('nexttrack', null)
-      navigator.mediaSession.setActionHandler('seekto', null)
+      safeSetHandler('play', null)
+      safeSetHandler('pause', null)
+      safeSetHandler('previoustrack', null)
+      safeSetHandler('nexttrack', null)
+      safeSetHandler('seekto', null)
+      safeSetHandler('seekforward', null)
+      safeSetHandler('seekbackward', null)
     }
   }, [])
 

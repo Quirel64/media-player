@@ -1,3 +1,4 @@
+import { useRef, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { usePlayerStore } from '../../stores/playerStore'
 import type { Track } from '../../lib/types'
@@ -16,6 +17,29 @@ function formatTime(seconds: number): string {
 
 export function NowPlaying({ currentTrack, videoContainerRef }: NowPlayingProps) {
   const { currentTime, duration } = usePlayerStore()
+  const isFullscreen = useRef(false)
+
+  const toggleFullscreen = useCallback(() => {
+    const container = videoContainerRef.current
+    if (!container) return
+
+    if (!document.fullscreenElement && !(document as any).webkitFullscreenElement) {
+      const el = container as any
+      if (el.requestFullscreen) {
+        el.requestFullscreen()
+      } else if (el.webkitRequestFullscreen) {
+        el.webkitRequestFullscreen()
+      }
+      isFullscreen.current = true
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen()
+      } else if ((document as any).webkitExitFullscreen) {
+        (document as any).webkitExitFullscreen()
+      }
+      isFullscreen.current = false
+    }
+  }, [videoContainerRef])
 
   if (!currentTrack) {
     return (
@@ -33,10 +57,18 @@ export function NowPlaying({ currentTrack, videoContainerRef }: NowPlayingProps)
       <div className="flex flex-col gap-4 p-4">
         <div
           ref={videoContainerRef}
-          className="relative flex w-full items-center justify-center overflow-hidden rounded-xl bg-black"
+          className="group relative flex w-full items-center justify-center overflow-hidden rounded-xl bg-black"
           style={{ aspectRatio: '16/9', maxHeight: '50vh' }}
         >
           {/* Video element gets appended here by useAudioEngine */}
+          <button
+            onClick={toggleFullscreen}
+            className="absolute right-2 top-2 z-10 rounded-lg bg-black/60 p-1.5 text-white opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
+            </svg>
+          </button>
         </div>
         <div className="px-2">
           <motion.h2
