@@ -263,6 +263,21 @@ export function useAudioEngine() {
     }
   }, [])
 
+  // iOS PWA: resume playback when app returns to foreground
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        const { isPlaying: wasPlaying } = usePlayerStore.getState()
+        const el = mediaRef.current
+        if (el && wasPlaying && el.paused && !el.ended) {
+          el.play().catch(() => {})
+        }
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [])
+
   return {
     play,
     pause,

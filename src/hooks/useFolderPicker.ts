@@ -207,7 +207,27 @@ export function useFolderPicker() {
     }
   }, [setQueue, setOriginalOrder, setCurrentTrackIndex])
 
-  return { pickFolder, pickFiles, loadSavedTracks, clearAll, removeTrack }
+  const removeTracks = useCallback(async (tracks: Track[]) => {
+    for (const track of tracks) {
+      await deleteFileFromOPFS(track.fileName)
+      await deleteTrack(track.id)
+    }
+    const removedIds = new Set(tracks.map((t) => t.id))
+    const { queue, currentTrackIndex, originalOrder } = usePlayerStore.getState()
+    const newQueue = queue.filter((t) => !removedIds.has(t.id))
+    const newOriginalOrder = originalOrder.filter((t) => !removedIds.has(t.id))
+    setQueue(newQueue)
+    setOriginalOrder(newOriginalOrder)
+    if (newQueue.length === 0) {
+      setCurrentTrackIndex(0)
+    } else if (currentTrackIndex >= newQueue.length) {
+      setCurrentTrackIndex(newQueue.length - 1)
+    } else {
+      setCurrentTrackIndex(currentTrackIndex)
+    }
+  }, [setQueue, setOriginalOrder, setCurrentTrackIndex])
+
+  return { pickFolder, pickFiles, loadSavedTracks, clearAll, removeTrack, removeTracks }
 }
 
 function extractArtist(fileName: string): string {

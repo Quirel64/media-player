@@ -19,7 +19,7 @@ export default function App() {
   const { queue, currentTrackIndex } = usePlayerStore()
   const currentTrack = queue[currentTrackIndex] || null
 
-  const { pickFolder, pickFiles, loadSavedTracks, clearAll, removeTrack } = useFolderPicker()
+  const { pickFolder, pickFiles, loadSavedTracks, clearAll, removeTracks } = useFolderPicker()
   const { togglePlay, nextTrack, prevTrack, seek, goToTrack, videoContainerRef } = useAudioEngine()
   const { setHandlers } = useMediaSession()
 
@@ -63,9 +63,9 @@ export default function App() {
     if (tracks) setActiveTab('library')
   }, [pickFiles])
 
-  const handleRemoveTrack = useCallback(async (track: Track) => {
-    await removeTrack(track)
-  }, [removeTrack])
+  const handleRemoveTracks = useCallback(async (tracks: Track[]) => {
+    await removeTracks(tracks)
+  }, [removeTracks])
 
   if (!ready) {
     return (
@@ -94,7 +94,7 @@ export default function App() {
             onSelectTrack={handleSelectTrack}
             onPickFolder={handlePickFolder}
             onPickFiles={handlePickFiles}
-            onRemoveTrack={handleRemoveTrack}
+            onRemoveTracks={handleRemoveTracks}
           />
         )
       case 'playlists':

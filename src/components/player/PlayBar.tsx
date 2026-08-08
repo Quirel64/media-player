@@ -52,16 +52,16 @@ export function PlayBar({ currentTrack, onTogglePlay, onNext, onPrev, onSeek }: 
         <div className="flex items-center gap-3">
           <button
             onClick={toggleShuffle}
-            className={`p-2 transition-colors ${
-              shuffleOn ? 'text-primary' : 'text-slate-500 hover:text-slate-300'
-            }`}
+            className="p-2 transition-colors hover:opacity-80"
+            style={{ color: shuffleOn ? '#6366f1' : '#64748b' }}
           >
             🔀
           </button>
 
           <button
             onClick={onPrev}
-            className="p-2 text-slate-400 transition-colors hover:text-white"
+            className="p-2 transition-colors hover:opacity-80"
+            style={{ color: '#94a3b8' }}
           >
             ⏮
           </button>
@@ -69,23 +69,24 @@ export function PlayBar({ currentTrack, onTogglePlay, onNext, onPrev, onSeek }: 
           <motion.button
             whileTap={{ scale: 0.9 }}
             onClick={onTogglePlay}
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-slate-950 transition-transform hover:scale-105"
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-white transition-transform hover:scale-105"
+            style={{ color: '#0a0e1a' }}
           >
             {isPlaying ? '⏸' : '▶'}
           </motion.button>
 
           <button
             onClick={onNext}
-            className="p-2 text-slate-400 transition-colors hover:text-white"
+            className="p-2 transition-colors hover:opacity-80"
+            style={{ color: '#94a3b8' }}
           >
             ⏭
           </button>
 
           <button
             onClick={cycleRepeat}
-            className={`hidden p-2 transition-colors md:block ${
-              repeatMode !== 'off' ? 'text-primary' : 'text-slate-500 hover:text-slate-300'
-            }`}
+            className="hidden p-2 transition-colors md:block hover:opacity-80"
+            style={{ color: repeatMode !== 'off' ? '#6366f1' : '#64748b' }}
           >
             {repeatMode === 'one' ? '🔂' : '🔁'}
           </button>
