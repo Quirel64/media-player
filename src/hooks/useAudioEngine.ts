@@ -84,6 +84,16 @@ export function useAudioEngine() {
       console.error('Media playback error')
       setPlaying(false)
     })
+    // Sync play/pause state from native controls (iOS inline player)
+    el.addEventListener('play', () => {
+      setPlaying(true)
+    })
+    el.addEventListener('pause', () => {
+      // Only sync if the element actually paused (not during load/track switch)
+      if (!el.seeking) {
+        setPlaying(false)
+      }
+    })
 
     // For video, append to the container
     if (isVideo && videoContainerRef.current) {
@@ -143,25 +153,25 @@ export function useAudioEngine() {
     el.src = url
     el.load()
 
-    // Wait for canplaythrough before playing (ensures iOS can buffer properly)
-    const waitForBuffer = new Promise<void>((resolve) => {
-      const onCanPlay = () => {
-        el.removeEventListener('canplaythrough', onCanPlay)
-        el.removeEventListener('error', onError)
-        resolve()
-      }
-      const onError = () => {
-        el.removeEventListener('canplaythrough', onCanPlay)
-        el.removeEventListener('error', onError)
-        resolve()
-      }
-      el.addEventListener('canplaythrough', onCanPlay)
-      el.addEventListener('error', onError)
-      // Timeout fallback
-      setTimeout(resolve, 3000)
-    })
-
-    await waitForBuffer
+    // For audio: wait for canplaythrough for reliable background playback
+    // For video: play immediately (iOS handles video buffering differently)
+    if (!isVideo) {
+      await new Promise<void>((resolve) => {
+        const onCanPlay = () => {
+          el.removeEventListener('canplaythrough', onCanPlay)
+          el.removeEventListener('error', onError)
+          resolve()
+        }
+        const onError = () => {
+          el.removeEventListener('canplaythrough', onCanPlay)
+          el.removeEventListener('error', onError)
+          resolve()
+        }
+        el.addEventListener('canplaythrough', onCanPlay)
+        el.addEventListener('error', onError)
+        setTimeout(resolve, 3000)
+      })
+    }
 
     // iOS: ensure audio session type is set again before play
     setAudioSessionType()

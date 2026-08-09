@@ -108,7 +108,7 @@ export function PlayBar({ currentTrack, onTogglePlay, onNext, onPrev, onSeek }: 
             <button
               onClick={toggleShuffle}
               className="p-2 transition-colors hover:opacity-80"
-              style={{ color: shuffleColor }}
+              style={{ color: shuffleColor, touchAction: 'manipulation' }}
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="16 3 21 3 21 8" />
@@ -161,7 +161,7 @@ export function PlayBar({ currentTrack, onTogglePlay, onNext, onPrev, onSeek }: 
             <button
               onClick={cycleRepeat}
               className="p-2 transition-colors hover:opacity-80"
-              style={{ color: repeatColor }}
+              style={{ color: repeatColor, touchAction: 'manipulation' }}
             >
               {repeatMode === 'one' ? (
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

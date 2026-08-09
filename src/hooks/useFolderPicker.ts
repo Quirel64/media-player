@@ -1,8 +1,8 @@
 import { useCallback } from 'react'
 import type { Track } from '../lib/types'
-import { saveTracks, getAllTracks, savePlaylist, clearAllTracks, deleteTrack } from '../lib/idb'
+import { saveTracks, getAllTracks, savePlaylist, clearAllTracks, deleteTrack, getPlaylist } from '../lib/idb'
 import { saveFileToOPFS, clearOPFS, deleteFileFromOPFS } from '../lib/opfs'
-import { generateTrackId, generatePlaylistId } from '../lib/shuffle'
+import { generateTrackId } from '../lib/shuffle'
 import { usePlayerStore } from '../stores/playerStore'
 
 const MEDIA_EXTENSIONS = /\.(mp3|wav|ogg|flac|m4a|aac|wma|opus|mp4|m4v|webm|avi|mkv|mov)$/i
@@ -51,10 +51,13 @@ async function processFiles(
     mediaFiles[0].webkitRelativePath?.split('/')[0] || 'Selected Files'
 
   const existingNames = new Set<string>(existingQueue.map((t) => t.fileName))
+  // Map from uniqueFileName back to original File for duration lookup
+  const fileMap = new Map<string, File>()
 
   const tracks: Track[] = await Promise.all(
     mediaFiles.map(async (file) => {
       const uniqueFileName = getUniqueFileName(existingNames, file.name)
+      fileMap.set(uniqueFileName, file)
 
       const track: Track = {
         id: generateTrackId({
@@ -83,20 +86,27 @@ async function processFiles(
     })
   )
 
-  // Get durations
+  // Get durations using the original File objects
   for (const track of tracks) {
-    const file = mediaFiles.find((f) => f.name === track.fileName || getUniqueFileName(new Set(), f.name) === track.fileName)
+    const file = fileMap.get(track.fileName)
     if (file) {
       try {
         const url = URL.createObjectURL(file)
         const el = track.mediaType === 'video' ? document.createElement('video') : new Audio()
         await new Promise<void>((res) => {
+          const timeout = setTimeout(() => {
+            URL.revokeObjectURL(url)
+            res()
+          }, 5000)
           el.onloadedmetadata = () => {
-            track.duration = el.duration
+            clearTimeout(timeout)
+            const d = el.duration
+            track.duration = Number.isFinite(d) && d > 0 ? d : 0
             URL.revokeObjectURL(url)
             res()
           }
           el.onerror = () => {
+            clearTimeout(timeout)
             URL.revokeObjectURL(url)
             res()
           }
@@ -108,18 +118,22 @@ async function processFiles(
     }
   }
 
-  await saveTracks(tracks)
+  const combined = [...existingQueue, ...tracks]
 
+  // Save ALL tracks to IndexedDB (not just new ones)
+  await saveTracks(combined)
+
+  // Use a consistent ID so the library playlist gets updated, not duplicated
+  const existingPlaylist = await getPlaylist('library')
   const playlist = {
-    id: generatePlaylistId(folderName),
-    name: folderName,
-    tracks,
-    createdAt: Date.now(),
+    id: 'library',
+    name: 'Library',
+    tracks: combined,
+    createdAt: existingPlaylist?.createdAt ?? Date.now(),
     updatedAt: Date.now(),
   }
   await savePlaylist(playlist)
 
-  const combined = [...existingQueue, ...tracks]
   setQueue(combined)
   setOriginalOrder(combined)
   setCurrentTrackIndex(existingQueue.length)
@@ -141,14 +155,34 @@ export function useFolderPicker() {
       input.multiple = true
       input.accept = 'audio/*,video/*'
 
+      let resolved = false
+
       input.onchange = async () => {
+        if (resolved) return
+        resolved = true
         const files = Array.from(input.files || [])
+        if (files.length === 0) {
+          resolve(null)
+          return
+        }
         const existingQueue = usePlayerStore.getState().queue
         const result = await processFiles(files, existingQueue, setQueue, setOriginalOrder, setCurrentTrackIndex)
         resolve(result)
       }
 
-      input.oncancel = () => resolve(null)
+      input.oncancel = () => {
+        if (resolved) return
+        resolved = true
+        resolve(null)
+      }
+
+      setTimeout(() => {
+        if (!resolved) {
+          resolved = true
+          resolve(null)
+        }
+      }, 1000)
+
       input.click()
     })
   }, [setQueue, setOriginalOrder, setCurrentTrackIndex])
@@ -160,14 +194,35 @@ export function useFolderPicker() {
       input.multiple = true
       input.accept = 'audio/*,video/*,.mp3,.wav,.ogg,.flac,.m4a,.aac,.wma,.opus,.mp4,.m4v,.webm,.avi,.mkv,.mov'
 
+      let resolved = false
+
       input.onchange = async () => {
+        if (resolved) return
+        resolved = true
         const files = Array.from(input.files || [])
+        if (files.length === 0) {
+          resolve(null)
+          return
+        }
         const existingQueue = usePlayerStore.getState().queue
         const result = await processFiles(files, existingQueue, setQueue, setOriginalOrder, setCurrentTrackIndex)
         resolve(result)
       }
 
-      input.oncancel = () => resolve(null)
+      input.oncancel = () => {
+        if (resolved) return
+        resolved = true
+        resolve(null)
+      }
+
+      // iOS fallback: if neither onchange nor oncancel fires within 1s, resolve null
+      setTimeout(() => {
+        if (!resolved) {
+          resolved = true
+          resolve(null)
+        }
+      }, 1000)
+
       input.click()
     })
   }, [setQueue, setOriginalOrder, setCurrentTrackIndex])

@@ -63,7 +63,7 @@ export function NowPlaying({ currentTrack, videoContainerRef }: NowPlayingProps)
           {/* Video element gets appended here by useAudioEngine */}
           <button
             onClick={toggleFullscreen}
-            className="absolute right-2 top-2 z-10 rounded-lg bg-black/60 p-1.5 text-white opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100"
+            className="absolute right-2 top-2 z-10 rounded-lg bg-black/60 p-1.5 text-white opacity-70 transition-opacity hover:bg-black/80 hover:opacity-100 md:opacity-0 md:group-hover:opacity-100"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
               <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
