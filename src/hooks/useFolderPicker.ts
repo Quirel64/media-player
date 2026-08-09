@@ -155,33 +155,13 @@ export function useFolderPicker() {
       input.multiple = true
       input.accept = 'audio/*,video/*'
 
-      let resolved = false
-
       input.onchange = async () => {
-        if (resolved) return
-        resolved = true
         const files = Array.from(input.files || [])
-        if (files.length === 0) {
-          resolve(null)
-          return
-        }
+        if (files.length === 0) { resolve(null); return }
         const existingQueue = usePlayerStore.getState().queue
         const result = await processFiles(files, existingQueue, setQueue, setOriginalOrder, setCurrentTrackIndex)
         resolve(result)
       }
-
-      input.oncancel = () => {
-        if (resolved) return
-        resolved = true
-        resolve(null)
-      }
-
-      setTimeout(() => {
-        if (!resolved) {
-          resolved = true
-          resolve(null)
-        }
-      }, 1000)
 
       input.click()
     })
@@ -194,34 +174,13 @@ export function useFolderPicker() {
       input.multiple = true
       input.accept = 'audio/*,video/*,.mp3,.wav,.ogg,.flac,.m4a,.aac,.wma,.opus,.mp4,.m4v,.webm,.avi,.mkv,.mov'
 
-      let resolved = false
-
       input.onchange = async () => {
-        if (resolved) return
-        resolved = true
         const files = Array.from(input.files || [])
-        if (files.length === 0) {
-          resolve(null)
-          return
-        }
+        if (files.length === 0) { resolve(null); return }
         const existingQueue = usePlayerStore.getState().queue
         const result = await processFiles(files, existingQueue, setQueue, setOriginalOrder, setCurrentTrackIndex)
         resolve(result)
       }
-
-      input.oncancel = () => {
-        if (resolved) return
-        resolved = true
-        resolve(null)
-      }
-
-      // iOS fallback: if neither onchange nor oncancel fires within 1s, resolve null
-      setTimeout(() => {
-        if (!resolved) {
-          resolved = true
-          resolve(null)
-        }
-      }, 1000)
 
       input.click()
     })

@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react'
+import { useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { usePlayerStore } from '../../stores/playerStore'
 import type { Track } from '../../lib/types'
@@ -17,27 +17,22 @@ function formatTime(seconds: number): string {
 
 export function NowPlaying({ currentTrack, videoContainerRef }: NowPlayingProps) {
   const { currentTime, duration } = usePlayerStore()
-  const isFullscreen = useRef(false)
 
   const toggleFullscreen = useCallback(() => {
     const container = videoContainerRef.current
     if (!container) return
 
-    if (!document.fullscreenElement && !(document as any).webkitFullscreenElement) {
-      const el = container as any
-      if (el.requestFullscreen) {
-        el.requestFullscreen()
-      } else if (el.webkitRequestFullscreen) {
-        el.webkitRequestFullscreen()
-      }
-      isFullscreen.current = true
-    } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen()
-      } else if ((document as any).webkitExitFullscreen) {
-        (document as any).webkitExitFullscreen()
-      }
-      isFullscreen.current = false
+    // Find the video element inside the container
+    const videoEl = container.querySelector('video') as any
+    if (!videoEl) return
+
+    // iOS: use native webkitEnterFullscreen on the video element
+    if (videoEl.webkitEnterFullscreen) {
+      videoEl.webkitEnterFullscreen()
+    } else if (videoEl.requestFullscreen) {
+      videoEl.requestFullscreen()
+    } else if (container.requestFullscreen) {
+      container.requestFullscreen()
     }
   }, [videoContainerRef])
 

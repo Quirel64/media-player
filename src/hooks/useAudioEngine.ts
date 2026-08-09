@@ -153,27 +153,7 @@ export function useAudioEngine() {
     el.src = url
     el.load()
 
-    // For audio: wait for canplaythrough for reliable background playback
-    // For video: play immediately (iOS handles video buffering differently)
-    if (!isVideo) {
-      await new Promise<void>((resolve) => {
-        const onCanPlay = () => {
-          el.removeEventListener('canplaythrough', onCanPlay)
-          el.removeEventListener('error', onError)
-          resolve()
-        }
-        const onError = () => {
-          el.removeEventListener('canplaythrough', onCanPlay)
-          el.removeEventListener('error', onError)
-          resolve()
-        }
-        el.addEventListener('canplaythrough', onCanPlay)
-        el.addEventListener('error', onError)
-        setTimeout(resolve, 3000)
-      })
-    }
-
-    // iOS: ensure audio session type is set again before play
+    // iOS: ensure audio session type is set before play
     setAudioSessionType()
 
     try {
