@@ -4,7 +4,8 @@ import { usePlayerStore } from '../stores/playerStore'
 export function useMediaSession() {
   const prevTrackRef = useRef<(() => void) | null>(null)
   const nextTrackRef = useRef<(() => void) | null>(null)
-  const togglePlayRef = useRef<(() => void) | null>(null)
+  const playRef = useRef<(() => void) | null>(null)
+  const pauseRef = useRef<(() => void) | null>(null)
   const seekRef = useRef<((time: number) => void) | null>(null)
 
   const { isPlaying, currentTrackIndex, queue } = usePlayerStore()
@@ -38,11 +39,11 @@ export function useMediaSession() {
     }
 
     safeSetHandler('play', () => {
-      togglePlayRef.current?.()
+      playRef.current?.()
     })
 
     safeSetHandler('pause', () => {
-      togglePlayRef.current?.()
+      pauseRef.current?.()
     })
 
     safeSetHandler('previoustrack', () => {
@@ -86,11 +87,13 @@ export function useMediaSession() {
 
   const setHandlers = (handlers: {
     onPlay: () => void
+    onPause: () => void
     onPrev: () => void
     onNext: () => void
     onSeek: (time: number) => void
   }) => {
-    togglePlayRef.current = handlers.onPlay
+    playRef.current = handlers.onPlay
+    pauseRef.current = handlers.onPause
     prevTrackRef.current = handlers.onPrev
     nextTrackRef.current = handlers.onNext
     seekRef.current = handlers.onSeek

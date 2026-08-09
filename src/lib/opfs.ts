@@ -1,3 +1,5 @@
+import { clearFileBlobs, deleteFileBlob, getAllFileBlobNames, getFileBlob, saveFileBlob } from './idb'
+
 const MEDIA_DIR = 'media-files'
 
 async function getRoot(): Promise<FileSystemDirectoryHandle> {
@@ -10,11 +12,16 @@ async function getRoot(): Promise<FileSystemDirectoryHandle> {
 }
 
 export async function saveFileToOPFS(fileName: string, file: File): Promise<void> {
-  const dir = await getRoot()
-  const fileHandle = await dir.getFileHandle(fileName, { create: true })
-  const writable = await fileHandle.createWritable()
-  await writable.write(file)
-  await writable.close()
+  try {
+    const dir = await getRoot()
+    const fileHandle = await dir.getFileHandle(fileName, { create: true })
+    const writable = await fileHandle.createWritable()
+    await writable.write(file)
+    await writable.close()
+  } catch (error) {
+    console.warn('OPFS save failed; falling back to IndexedDB file storage:', error)
+    await saveFileBlob(fileName, file)
+  }
 }
 
 export async function getFileFromOPFS(fileName: string): Promise<File | null> {
@@ -23,7 +30,7 @@ export async function getFileFromOPFS(fileName: string): Promise<File | null> {
     const fileHandle = await dir.getFileHandle(fileName)
     return await fileHandle.getFile()
   } catch {
-    return null
+    return (await getFileBlob(fileName)) ?? null
   }
 }
 
@@ -40,15 +47,17 @@ export async function deleteFileFromOPFS(fileName: string): Promise<void> {
   } catch {
     // file didn't exist, ignore
   }
+  await deleteFileBlob(fileName)
 }
 
 export async function clearOPFS(): Promise<void> {
-  const root = await navigator.storage.getDirectory()
   try {
+    const root = await navigator.storage.getDirectory()
     await root.removeEntry(MEDIA_DIR, { recursive: true })
   } catch {
     // dir didn't exist, ignore
   }
+  await clearFileBlobs()
 }
 
 export async function listFilesInOPFS(): Promise<string[]> {
@@ -62,7 +71,7 @@ export async function listFilesInOPFS(): Promise<string[]> {
     }
     return files
   } catch {
-    return []
+    return getAllFileBlobNames()
   }
 }
 

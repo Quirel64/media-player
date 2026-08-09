@@ -20,7 +20,7 @@ export default function App() {
   const currentTrack = queue[currentTrackIndex] || null
 
   const { pickFolder, pickFiles, loadSavedTracks, clearAll, removeTracks } = useFolderPicker()
-  const { togglePlay, nextTrack, prevTrack, seek, goToTrack, videoContainerRef } = useAudioEngine()
+  const { play, pause, togglePlay, nextTrack, prevTrack, seek, goToTrack, videoContainerRef } = useAudioEngine()
   const { setHandlers } = useMediaSession()
 
   useEffect(() => {
@@ -39,12 +39,13 @@ export default function App() {
 
   useEffect(() => {
     setHandlers({
-      onPlay: togglePlay,
+      onPlay: play,
+      onPause: pause,
       onPrev: prevTrack,
       onNext: nextTrack,
       onSeek: seek,
     })
-  }, [togglePlay, prevTrack, nextTrack, seek])
+  }, [play, pause, prevTrack, nextTrack, seek])
 
   const handleSelectTrack = useCallback(
     (index: number) => {

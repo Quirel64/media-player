@@ -2,10 +2,11 @@ import { openDB, type IDBPDatabase, type DBSchema } from 'idb'
 import type { Track, Playlist } from './types'
 
 const DB_NAME = 'media-player-db'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const TRACKS_STORE = 'tracks'
 const PLAYLISTS_STORE = 'playlists'
 const SETTINGS_STORE = 'settings'
+const FILES_STORE = 'files'
 
 interface MediaDB extends DBSchema {
   [TRACKS_STORE]: {
@@ -21,6 +22,10 @@ interface MediaDB extends DBSchema {
     key: string
     value: unknown
   }
+  [FILES_STORE]: {
+    key: string
+    value: File
+  }
 }
 
 let dbInstance: IDBPDatabase<MediaDB> | null = null
@@ -28,12 +33,17 @@ let dbInstance: IDBPDatabase<MediaDB> | null = null
 async function getDB(): Promise<IDBPDatabase<MediaDB>> {
   if (dbInstance) return dbInstance
   dbInstance = await openDB<MediaDB>(DB_NAME, DB_VERSION, {
-    upgrade(db) {
-      const tracksStore = db.createObjectStore(TRACKS_STORE, { keyPath: 'id' })
-      tracksStore.createIndex('by-folder', 'folderName')
-      tracksStore.createIndex('by-name', 'name')
-      db.createObjectStore(PLAYLISTS_STORE, { keyPath: 'id' })
-      db.createObjectStore(SETTINGS_STORE)
+    upgrade(db, oldVersion) {
+      if (oldVersion < 1) {
+        const tracksStore = db.createObjectStore(TRACKS_STORE, { keyPath: 'id' })
+        tracksStore.createIndex('by-folder', 'folderName')
+        tracksStore.createIndex('by-name', 'name')
+        db.createObjectStore(PLAYLISTS_STORE, { keyPath: 'id' })
+        db.createObjectStore(SETTINGS_STORE)
+      }
+      if (oldVersion < 2) {
+        db.createObjectStore(FILES_STORE)
+      }
     },
   })
   return dbInstance
@@ -122,4 +132,29 @@ export async function getStorageEstimate(): Promise<{ usage: number; quota: numb
     return { usage: estimate.usage ?? 0, quota: estimate.quota ?? 0 }
   }
   return null
+}
+
+export async function saveFileBlob(fileName: string, file: File): Promise<void> {
+  const db = await getDB()
+  await db.put(FILES_STORE, file, fileName)
+}
+
+export async function getFileBlob(fileName: string): Promise<File | undefined> {
+  const db = await getDB()
+  return db.get(FILES_STORE, fileName)
+}
+
+export async function deleteFileBlob(fileName: string): Promise<void> {
+  const db = await getDB()
+  await db.delete(FILES_STORE, fileName)
+}
+
+export async function clearFileBlobs(): Promise<void> {
+  const db = await getDB()
+  await db.clear(FILES_STORE)
+}
+
+export async function getAllFileBlobNames(): Promise<string[]> {
+  const db = await getDB()
+  return db.getAllKeys(FILES_STORE) as Promise<string[]>
 }

@@ -64,6 +64,15 @@ export function useAudioEngine() {
       v.setAttribute('webkit-playsinline', 'true')
       v.controls = true
       v.style.touchAction = 'manipulation'
+    } else {
+      el.controls = false
+      el.style.position = 'fixed'
+      el.style.left = '-1px'
+      el.style.top = '-1px'
+      el.style.width = '1px'
+      el.style.height = '1px'
+      el.style.opacity = '0'
+      el.style.pointerEvents = 'none'
     }
 
     el.addEventListener('timeupdate', () => {
@@ -89,8 +98,8 @@ export function useAudioEngine() {
       setPlaying(true)
     })
     el.addEventListener('pause', () => {
-      // Only sync if the element actually paused (not during load/track switch)
-      if (!el.seeking) {
+      // iOS may briefly pause media while moving between app/lock-screen states.
+      if (!el.seeking && (document.visibilityState === 'visible' || el.ended)) {
         setPlaying(false)
       }
     })
@@ -102,6 +111,8 @@ export function useAudioEngine() {
       el.style.objectFit = 'contain'
       el.style.borderRadius = '12px'
       videoContainerRef.current.appendChild(el)
+    } else if (!isVideo) {
+      document.body.appendChild(el)
     }
 
     mediaRef.current = el

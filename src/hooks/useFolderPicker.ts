@@ -76,11 +76,7 @@ async function processFiles(
         mediaType: isVideoFile(file) ? 'video' : 'audio',
       }
 
-      try {
-        await saveFileToOPFS(uniqueFileName, file)
-      } catch (e) {
-        console.error('Failed to save file to OPFS:', file.name, e)
-      }
+      await saveFileToOPFS(uniqueFileName, file)
 
       return track
     })
@@ -154,14 +150,23 @@ export function useFolderPicker() {
       input.setAttribute('directory', '')
       input.multiple = true
       input.accept = 'audio/*,video/*'
+      input.style.display = 'none'
 
-      input.onchange = async () => {
+      // iOS Safari requires: 1) input appended to DOM, 2) addEventListener not .onchange
+      document.body.appendChild(input)
+
+      const cleanup = () => {
+        try { document.body.removeChild(input) } catch {}
+      }
+
+      input.addEventListener('change', async () => {
         const files = Array.from(input.files || [])
+        cleanup()
         if (files.length === 0) { resolve(null); return }
         const existingQueue = usePlayerStore.getState().queue
         const result = await processFiles(files, existingQueue, setQueue, setOriginalOrder, setCurrentTrackIndex)
         resolve(result)
-      }
+      }, { once: true })
 
       input.click()
     })
@@ -173,14 +178,22 @@ export function useFolderPicker() {
       input.type = 'file'
       input.multiple = true
       input.accept = 'audio/*,video/*,.mp3,.wav,.ogg,.flac,.m4a,.aac,.wma,.opus,.mp4,.m4v,.webm,.avi,.mkv,.mov'
+      input.style.display = 'none'
 
-      input.onchange = async () => {
+      document.body.appendChild(input)
+
+      const cleanup = () => {
+        try { document.body.removeChild(input) } catch {}
+      }
+
+      input.addEventListener('change', async () => {
         const files = Array.from(input.files || [])
+        cleanup()
         if (files.length === 0) { resolve(null); return }
         const existingQueue = usePlayerStore.getState().queue
         const result = await processFiles(files, existingQueue, setQueue, setOriginalOrder, setCurrentTrackIndex)
         resolve(result)
-      }
+      }, { once: true })
 
       input.click()
     })
