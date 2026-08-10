@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { usePlayerStore } from '../stores/playerStore'
+import { setPositionStateImmediate } from './useAudioEngine'
 
 export function useMediaSession() {
   const prevTrackRef = useRef<(() => void) | null>(null)
@@ -57,6 +58,8 @@ export function useMediaSession() {
     safeSetHandler('seekto', (details) => {
       if (details.seekTime != null) {
         seekRef.current?.(details.seekTime)
+        // Force immediate position update for iOS lock screen scrubbing
+        setTimeout(() => setPositionStateImmediate(), 50)
       }
     })
 

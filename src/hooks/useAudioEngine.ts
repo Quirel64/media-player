@@ -25,12 +25,9 @@ function setAudioSessionType() {
   }
 }
 
-function updatePositionState() {
+function setPositionStateImmediate() {
   if (!('mediaSession' in navigator)) return
-  const now = Date.now()
-  if (now - lastPositionUpdate < 1000) return
-  lastPositionUpdate = now
-  const { currentTime, duration, isPlaying } = usePlayerStore.getState()
+  const { currentTime, duration } = usePlayerStore.getState()
   if (!Number.isFinite(duration) || duration <= 0) return
   try {
     navigator.mediaSession.setPositionState({
@@ -38,8 +35,18 @@ function updatePositionState() {
       playbackRate: 1,
       position: Math.min(currentTime, duration),
     })
+    lastPositionUpdate = Date.now()
   } catch {}
 }
+
+function updatePositionState() {
+  if (!('mediaSession' in navigator)) return
+  const now = Date.now()
+  if (now - lastPositionUpdate < 1000) return
+  setPositionStateImmediate()
+}
+
+export { setPositionStateImmediate }
 
 export function useAudioEngine() {
   const mediaRef = useRef<HTMLMediaElement | null>(null)
