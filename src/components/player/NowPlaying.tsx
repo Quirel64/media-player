@@ -3,6 +3,8 @@ import { usePlayerStore } from '../../stores/playerStore'
 import { formatTime } from '../../lib/format'
 import type { Track } from '../../lib/types'
 
+const APP_VERSION = '1.1.0'
+
 interface NowPlayingProps {
   currentTrack: Track | null
   videoContainerRef: React.RefObject<HTMLDivElement | null>
@@ -17,6 +19,7 @@ export function NowPlaying({ currentTrack, videoContainerRef }: NowPlayingProps)
         <div className="text-center text-slate-600">
           <div className="mb-2 text-4xl">🎶</div>
           <p className="text-sm">Select a track to play</p>
+          <p className="mt-4 text-[10px] text-slate-700">v{APP_VERSION}</p>
         </div>
       </div>
     )
@@ -45,6 +48,7 @@ export function NowPlaying({ currentTrack, videoContainerRef }: NowPlayingProps)
             {currentTrack.artist}
             {currentTrack.album !== 'Unknown Album' && ` • ${currentTrack.album}`}
           </p>
+          <p className="mt-1 text-[10px] text-slate-700">v{APP_VERSION}</p>
         </div>
       </div>
     )
@@ -79,6 +83,7 @@ export function NowPlaying({ currentTrack, videoContainerRef }: NowPlayingProps)
           {currentTrack.artist}
           {currentTrack.album !== 'Unknown Album' && ` • ${currentTrack.album}`}
         </p>
+        <p className="mt-2 text-[10px] text-slate-700">v{APP_VERSION}</p>
       </div>
 
       <div className="w-full max-w-md">

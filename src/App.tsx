@@ -10,6 +10,7 @@ import { useMediaSession } from './hooks/useMediaSession'
 import { useFolderPicker } from './hooks/useFolderPicker'
 import { usePlayerStore } from './stores/playerStore'
 import { requestPersistentStorage } from './lib/idb'
+import { ToastContainer } from './components/ui/Toast'
 import type { TabId } from './components/layout/BottomNav'
 import type { Track } from './lib/types'
 
@@ -111,6 +112,7 @@ export default function App() {
   }
 
   return (
+    <>
     <Layout
       activeTab={activeTab}
       onTabChange={setActiveTab}
@@ -135,5 +137,7 @@ export default function App() {
         />
       }
     />
+    <ToastContainer />
+    </>
   )
 }
