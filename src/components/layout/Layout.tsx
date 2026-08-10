@@ -29,7 +29,7 @@ export function Layout({ sidebar, nowPlaying, content, player, activeTab, onTabC
 
         {/* Main content - nowPlaying fixed, content scrolls */}
         <main className="flex-1 flex flex-col overflow-hidden bg-slate-950">
-          <div className="flex-shrink-0 border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm sticky top-0 z-10 pt-[env(safe-area-inset-top)]">
+          <div className="flex-shrink-0 border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm sticky top-0 z-10">
             {nowPlaying}
           </div>
           <div className="flex-1 overflow-y-auto">

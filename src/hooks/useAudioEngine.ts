@@ -170,11 +170,13 @@ export function useAudioEngine() {
       v.controls = false
       v.preload = 'auto'
       v.src = url
-      v.style.touchAction = 'manipulation'
+      v.style.position = 'absolute'
+      v.style.inset = '0'
       v.style.width = '100%'
-      v.style.maxHeight = '100%'
+      v.style.height = '100%'
       v.style.objectFit = 'contain'
       v.style.borderRadius = '12px'
+      v.style.touchAction = 'manipulation'
 
       videoRef.current = v
 
