@@ -106,6 +106,11 @@ export function useAudioEngine() {
 
     setAudioSessionType()
 
+    const ctx = getAudioContext()
+    if (ctx.state === 'suspended') {
+      await ctx.resume()
+    }
+
     if (track.mediaType === 'video') {
       // Audio element: source of truth for playback
       const audio = new Audio()
@@ -147,6 +152,15 @@ export function useAudioEngine() {
       })
 
       mediaRef.current = audio
+
+      // Connect to Web Audio API for per-track volume
+      if (!sourceNode) {
+        sourceNode = ctx.createMediaElementSource(audio)
+        sourceNode.connect(gainNode!)
+      }
+      const { trackVolumes } = usePlayerStore.getState()
+      const trackGain = trackVolumes[track.id] ?? 1
+      gainNode!.gain.setTargetAtTime(trackGain, ctx.currentTime, 0.01)
 
       // Video element: visual display only, muted, follows audio time
       const v = document.createElement('video')
@@ -239,6 +253,15 @@ export function useAudioEngine() {
 
       document.body.appendChild(el)
       mediaRef.current = el
+
+      // Connect to Web Audio API for per-track volume
+      if (!sourceNode) {
+        sourceNode = ctx.createMediaElementSource(el)
+        sourceNode.connect(gainNode!)
+      }
+      const { trackVolumes } = usePlayerStore.getState()
+      const trackGain = trackVolumes[track.id] ?? 1
+      gainNode!.gain.setTargetAtTime(trackGain, ctx.currentTime, 0.01)
 
       setAudioSessionType()
 
@@ -340,24 +363,6 @@ export function useAudioEngine() {
       mediaRef.current.volume = isMuted ? 0 : volume
     }
   }, [volume, isMuted])
-
-  useEffect(() => {
-    if (!currentTrack || !mediaRef.current) return
-
-    const ctx = getAudioContext()
-
-    if (!sourceNode && mediaRef.current) {
-      sourceNode = ctx.createMediaElementSource(mediaRef.current)
-      sourceNode.connect(gainNode!)
-    }
-
-    const { trackVolumes } = usePlayerStore.getState()
-    const trackGain = trackVolumes[currentTrack.id] ?? 1
-
-    if (gainNode) {
-      gainNode.gain.setTargetAtTime(trackGain, ctx.currentTime, 0.01)
-    }
-  }, [currentTrack, currentTrack?.id])
 
   useEffect(() => {
     return () => {
