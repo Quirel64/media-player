@@ -4,6 +4,7 @@ import { saveTracks, getAllTracks, savePlaylist, clearAllTracks, deleteTrack, ge
 import { saveFileToOPFS, clearOPFS, deleteFileFromOPFS } from '../lib/opfs'
 import { generateTrackId } from '../lib/shuffle'
 import { usePlayerStore } from '../stores/playerStore'
+import { showError, showSuccess } from '../components/ui/Toast'
 
 const MEDIA_EXTENSIONS = /\.(mp3|wav|ogg|flac|m4a|aac|wma|opus|mp4|m4v|webm|avi|mkv|mov)$/i
 const VIDEO_EXTENSIONS = /\.(mp4|m4v|webm|avi|mkv|mov)$/i
@@ -103,13 +104,14 @@ async function processFiles(
           }
           el.onerror = () => {
             clearTimeout(timeout)
+            showError(`Duration load failed: ${track.name}`)
             URL.revokeObjectURL(url)
             res()
           }
           el.src = url
         })
       } catch {
-        // duration stays 0
+        showError(`Duration lookup failed: ${track.name}`)
       }
     }
   }
@@ -133,6 +135,8 @@ async function processFiles(
   setQueue(combined)
   setOriginalOrder(combined)
   setCurrentTrackIndex(existingQueue.length)
+
+  showSuccess(`Added ${tracks.length} track${tracks.length > 1 ? 's' : ''}`)
 
   return tracks
 }
@@ -215,6 +219,7 @@ export function useFolderPicker() {
     setQueue([])
     setOriginalOrder([])
     setCurrentTrackIndex(0)
+    showSuccess('All tracks cleared')
   }, [setQueue, setOriginalOrder, setCurrentTrackIndex])
 
   const removeTrack = useCallback(async (track: Track) => {
@@ -236,6 +241,7 @@ export function useFolderPicker() {
     } else {
       setCurrentTrackIndex(currentTrackIndex)
     }
+    showSuccess('Track removed')
   }, [setQueue, setOriginalOrder, setCurrentTrackIndex])
 
   const removeTracks = useCallback(async (tracks: Track[]) => {
@@ -256,6 +262,7 @@ export function useFolderPicker() {
     } else {
       setCurrentTrackIndex(currentTrackIndex)
     }
+    showSuccess(`Removed ${tracks.length} track${tracks.length > 1 ? 's' : ''}`)
   }, [setQueue, setOriginalOrder, setCurrentTrackIndex])
 
   return { pickFolder, pickFiles, loadSavedTracks, clearAll, removeTrack, removeTracks }

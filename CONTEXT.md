@@ -58,11 +58,13 @@ The `navigator.audioSession.type = 'playback'` is set before every play attempt.
 - `src/lib/idb.ts` — IndexedDB for tracks, playlists, settings
 - `src/lib/shuffle.ts` — Fisher-Yates shuffle, track ID generation
 - `src/lib/types.ts` — Track, Playlist, RepeatMode types
+- `src/lib/audioToVideo.ts` — Canvas + MediaStream for audio-as-video on iOS
 - `src/components/player/PlayBar.tsx` — Bottom controls (seek, play, shuffle, repeat)
 - `src/components/player/NowPlaying.tsx` — Video player / audio art display
 - `src/components/playlist/TrackList.tsx` — Track list with selection mode
 - `src/components/layout/Layout.tsx` — Fixed nowPlaying + scrollable content
 - `src/components/layout/BottomNav.tsx` — Mobile tabs (Add/Library/Playlists)
+- `src/components/ui/Toast.tsx` — Error/info/success toast notifications
 - `src/App.tsx` — Main app, tab management
 - `vite.config.ts` — `base: '/media-player/'`, PWA plugin config
 - `.github/workflows/deploy.yml` — GitHub Pages deploy
@@ -76,3 +78,36 @@ User tests on iOS device (Brave browser + Safari) and Windows laptop.
 1. Tracks may not persist after closing/reopening app (IndexedDB/OPFS possibly cleared by iOS)
 2. Old videos (16+ years) may have missing duration metadata
 3. Audio files sometimes don't save when adding via file picker (intermittent)
+
+## iOS PWA Limitations (Unfixable)
+These are fundamental limitations of the PWA platform on iOS:
+
+1. **Lock screen next/prev**: iOS doesn't reliably show these for web audio. The 10-second skip buttons work on video.
+2. **PiP in PWA**: Broken in standalone mode (WebKit bug 303885). Only works in Safari browser mode. Apple bug.
+3. **Background audio**: Can be killed by iOS at any time. The `audioSession.type = 'playback'` helps but isn't guaranteed.
+4. **No native audio routing**: Can't control where audio plays (speakers, AirPlay, etc.)
+5. **Full-screen video**: iOS handles this natively via zoom arrows. Custom fullscreen buttons conflict with native controls.
+
+## Audio vs Video Difference (Key Finding)
+- `<video>` elements are managed by iOS's native media player → has built-in background playback
+- `<audio>` elements in standalone PWA mode are treated differently → no guaranteed background playback
+- WebKit bug 295518: Audio element fails to play on reopen in PWA (iOS 26 regression)
+- **Workaround**: Use a silent video with album art instead of `<audio>` element
+
+## Current Implementation: Audio-as-Video Workaround
+- Audio tracks are now rendered as `<video>` elements using canvas + MediaStream
+- `src/lib/audioToVideo.ts`: Creates a canvas with default art, captures video stream, combines with audio stream
+- Audio plays through a hidden `<audio>` element connected via Web Audio API
+- Video element shows the canvas art (static image) while audio plays
+- This makes iOS treat audio tracks the same as video tracks for background playback
+- Version number displayed on NowPlaying screen (v1.0.0)
+- Error toasts shown for playback errors, file not found, etc.
+
+## Potential Future: Native iOS App
+If the user wants full iOS integration, options include:
+- **Tauri v2**: Rust backend + WebView frontend. Needs Mac for iOS builds.
+- **Capacitor**: Wraps existing web app as native. Needs Mac for iOS builds.
+- **GitHub Actions macOS runner**: Build iOS app in cloud without a local Mac.
+- **AltStore/Sideloadly**: Sideload using Apple ID (re-sign every 7 days with free account).
+
+The existing React/TypeScript codebase could be largely reused with Capacitor.

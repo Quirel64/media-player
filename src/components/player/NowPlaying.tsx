@@ -5,6 +5,7 @@ import type { Track } from '../../lib/types'
 interface NowPlayingProps {
   currentTrack: Track | null
   videoContainerRef: React.RefObject<HTMLDivElement | null>
+  version?: string
 }
 
 function formatTime(seconds: number): string {
@@ -14,7 +15,7 @@ function formatTime(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`
 }
 
-export function NowPlaying({ currentTrack, videoContainerRef }: NowPlayingProps) {
+export function NowPlaying({ currentTrack, videoContainerRef, version }: NowPlayingProps) {
   const { currentTime, duration } = usePlayerStore()
 
   if (!currentTrack) {
@@ -23,61 +24,31 @@ export function NowPlaying({ currentTrack, videoContainerRef }: NowPlayingProps)
         <div className="text-center text-slate-600">
           <div className="mb-2 text-4xl">🎶</div>
           <p className="text-sm">Select a track to play</p>
+          {version && (
+            <p className="mt-4 text-[10px] text-slate-700">v{version}</p>
+          )}
         </div>
       </div>
     )
   }
 
-  if (currentTrack.mediaType === 'video') {
-    return (
-      <div className="flex flex-col gap-4 p-4">
-        <div
-          ref={videoContainerRef}
-          className="relative flex w-full items-center justify-center overflow-hidden rounded-xl bg-black"
-          style={{ aspectRatio: '16/9', maxHeight: '50vh' }}
-        >
-          {/* Video element gets appended here by useAudioEngine */}
-        </div>
-        <div className="px-2">
-          <motion.h2
-            key={currentTrack.name}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-1 text-lg font-bold text-white"
-          >
-            {currentTrack.name}
-          </motion.h2>
-          <p className="text-sm text-slate-400">
-            {currentTrack.artist}
-            {currentTrack.album !== 'Unknown Album' && ` • ${currentTrack.album}`}
-          </p>
-        </div>
-      </div>
-    )
-  }
-
+  // Both audio and video now use the video container
+  // Audio tracks use a canvas-based video with album art
   return (
-    <motion.div
-      key={currentTrack.id}
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 0.3 }}
-      className="flex flex-col items-center gap-6 p-8"
-    >
-      <motion.div
-        className="flex h-48 w-48 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/30 to-accent/30 shadow-2xl"
-        animate={{ rotate: currentTime > 0 ? [0, 0, 0] : 0 }}
-        transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+    <div className="flex flex-col gap-4 p-4">
+      <div
+        ref={videoContainerRef}
+        className="relative flex w-full items-center justify-center overflow-hidden rounded-xl bg-black"
+        style={{ aspectRatio: '16/9', maxHeight: '50vh' }}
       >
-        <span className="text-6xl">🎵</span>
-      </motion.div>
-
-      <div className="text-center">
+        {/* Video element (real video or audio-as-video) gets appended here by useAudioEngine */}
+      </div>
+      <div className="px-2">
         <motion.h2
           key={currentTrack.name}
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-1 text-xl font-bold text-white"
+          className="mb-1 text-lg font-bold text-white"
         >
           {currentTrack.name}
         </motion.h2>
@@ -85,21 +56,17 @@ export function NowPlaying({ currentTrack, videoContainerRef }: NowPlayingProps)
           {currentTrack.artist}
           {currentTrack.album !== 'Unknown Album' && ` • ${currentTrack.album}`}
         </p>
-      </div>
-
-      <div className="w-full max-w-md">
-        <div className="relative h-1 w-full overflow-hidden rounded-full bg-slate-700">
-          <motion.div
-            className="absolute left-0 top-0 h-full bg-primary"
-            style={{ width: duration > 0 ? `${(currentTime / duration) * 100}%` : '0%' }}
-            transition={{ duration: 0.1 }}
-          />
-        </div>
-        <div className="mt-1 flex justify-between text-xs text-slate-500">
-          <span>{formatTime(currentTime)}</span>
-          <span>{formatTime(duration)}</span>
+        <div className="mt-2 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] text-slate-600">
+              {formatTime(currentTime)} / {formatTime(duration)}
+            </span>
+          </div>
+          {version && (
+            <p className="text-[10px] text-slate-700">v{version}</p>
+          )}
         </div>
       </div>
-    </motion.div>
+    </div>
   )
 }

@@ -10,8 +10,11 @@ import { useMediaSession } from './hooks/useMediaSession'
 import { useFolderPicker } from './hooks/useFolderPicker'
 import { usePlayerStore } from './stores/playerStore'
 import { requestPersistentStorage } from './lib/idb'
+import { ToastContainer } from './components/ui/Toast'
 import type { TabId } from './components/layout/BottomNav'
 import type { Track } from './lib/types'
+
+const APP_VERSION = '1.0.0'
 
 export default function App() {
   const [ready, setReady] = useState(false)
@@ -79,10 +82,6 @@ export default function App() {
     )
   }
 
-  const renderNowPlaying = () => {
-    return <NowPlaying currentTrack={currentTrack} videoContainerRef={videoContainerRef} />
-  }
-
   const renderContent = () => {
     switch (activeTab) {
       case 'add':
@@ -111,6 +110,7 @@ export default function App() {
   }
 
   return (
+    <>
     <Layout
       activeTab={activeTab}
       onTabChange={setActiveTab}
@@ -123,7 +123,7 @@ export default function App() {
           onClearAll={clearAll}
         />
       }
-      nowPlaying={renderNowPlaying()}
+      nowPlaying={<NowPlaying currentTrack={currentTrack} videoContainerRef={videoContainerRef} version={APP_VERSION} />}
       content={renderContent()}
       player={
         <PlayBar
@@ -135,5 +135,7 @@ export default function App() {
         />
       }
     />
+    <ToastContainer />
+    </>
   )
 }

@@ -1,19 +1,10 @@
 import { useRef, useEffect, useCallback } from 'react'
 import { usePlayerStore } from '../stores/playerStore'
 import { getFileURLFromOPFS } from '../lib/opfs'
+import { showError } from '../components/ui/Toast'
+import { createAudioVideo, destroyAudioVideo } from '../lib/audioToVideo'
 
-let audioContext: AudioContext | null = null
 let gainNode: GainNode | null = null
-let sourceNode: MediaElementAudioSourceNode | null = null
-
-function getAudioContext(): AudioContext {
-  if (!audioContext) {
-    audioContext = new AudioContext()
-    gainNode = audioContext.createGain()
-    gainNode.connect(audioContext.destination)
-  }
-  return audioContext
-}
 
 function setAudioSessionType() {
   if ('audioSession' in navigator) {
@@ -27,6 +18,7 @@ export function useAudioEngine() {
   const mediaRef = useRef<HTMLMediaElement | null>(null)
   const blobUrlRef = useRef<string | null>(null)
   const videoContainerRef = useRef<HTMLDivElement | null>(null)
+  const isAudioVideoRef = useRef(false)
 
   const {
     isPlaying,
@@ -42,82 +34,68 @@ export function useAudioEngine() {
 
   const currentTrack = queue[currentTrackIndex]
 
-  const createMediaElement = useCallback((isVideo: boolean) => {
-    // Remove old element
+  const cleanupMedia = useCallback(() => {
     if (mediaRef.current) {
       mediaRef.current.pause()
+
+      if (isAudioVideoRef.current && mediaRef.current instanceof HTMLVideoElement) {
+        destroyAudioVideo(mediaRef.current)
+      }
+
       if (mediaRef.current.parentNode) {
         mediaRef.current.parentNode.removeChild(mediaRef.current)
       }
-      // Disconnect audio nodes
-      if (sourceNode) {
-        try { sourceNode.disconnect() } catch {}
-        sourceNode = null
-      }
+      mediaRef.current = null
+      isAudioVideoRef.current = false
     }
+  }, [])
 
-    const el = isVideo ? document.createElement('video') : document.createElement('audio')
-    el.preload = 'auto'
-    if (isVideo) {
-      const v = el as HTMLVideoElement
-      v.playsInline = true
-      v.setAttribute('webkit-playsinline', 'true')
-      v.controls = true
-      v.style.touchAction = 'manipulation'
-    } else {
-      el.controls = false
-      el.style.position = 'fixed'
-      el.style.left = '-1px'
-      el.style.top = '-1px'
-      el.style.width = '1px'
-      el.style.height = '1px'
-      el.style.opacity = '0'
-      el.style.pointerEvents = 'none'
-    }
+  const createVideoElement = useCallback(() => {
+    const v = document.createElement('video')
+    v.playsInline = true
+    v.setAttribute('webkit-playsinline', 'true')
+    v.controls = true
+    v.style.touchAction = 'manipulation'
+    v.style.width = '100%'
+    v.style.maxHeight = '100%'
+    v.style.objectFit = 'contain'
+    v.style.borderRadius = '12px'
 
-    el.addEventListener('timeupdate', () => {
-      setCurrentTime(el.currentTime ?? 0)
+    v.addEventListener('timeupdate', () => {
+      setCurrentTime(v.currentTime ?? 0)
     })
-    el.addEventListener('loadedmetadata', () => {
-      const d = el.duration
+    v.addEventListener('loadedmetadata', () => {
+      const d = v.duration
       setDuration(Number.isFinite(d) && d > 0 ? d : 0)
     })
-    el.addEventListener('durationchange', () => {
-      const d = el.duration
+    v.addEventListener('durationchange', () => {
+      const d = v.duration
       if (Number.isFinite(d) && d > 0) setDuration(d)
     })
-    el.addEventListener('ended', () => {
+    v.addEventListener('ended', () => {
       handleTrackEnd()
     })
-    el.addEventListener('error', () => {
-      console.error('Media playback error')
+    v.addEventListener('error', () => {
+      const msg = `Media error: ${v.src ? v.src.split('/').pop() : 'unknown'}`
+      showError(msg)
       setPlaying(false)
     })
-    // Sync play/pause state from native controls (iOS inline player)
-    el.addEventListener('play', () => {
+    v.addEventListener('play', () => {
       setPlaying(true)
     })
-    el.addEventListener('pause', () => {
-      // iOS may briefly pause media while moving between app/lock-screen states.
-      if (!el.seeking && (document.visibilityState === 'visible' || el.ended)) {
+    v.addEventListener('pause', () => {
+      if (!v.seeking && (document.visibilityState === 'visible' || v.ended)) {
         setPlaying(false)
       }
     })
 
-    // For video, append to the container
-    if (isVideo && videoContainerRef.current) {
-      el.style.width = '100%'
-      el.style.maxHeight = '100%'
-      el.style.objectFit = 'contain'
-      el.style.borderRadius = '12px'
-      videoContainerRef.current.appendChild(el)
-    } else if (!isVideo) {
-      document.body.appendChild(el)
+    if (videoContainerRef.current) {
+      videoContainerRef.current.appendChild(v)
     }
 
-    mediaRef.current = el
-    return el
-  }, [])
+    mediaRef.current = v
+    return v
+  }, [setCurrentTime, setDuration, setPlaying])
 
   const handleTrackEnd = useCallback(() => {
     const { repeatMode, getNextTrackIndex } = usePlayerStore.getState()
@@ -143,6 +121,8 @@ export function useAudioEngine() {
     const track = queue[trackIndex]
     if (!track) return
 
+    cleanupMedia()
+
     if (blobUrlRef.current) {
       URL.revokeObjectURL(blobUrlRef.current)
       blobUrlRef.current = null
@@ -150,46 +130,117 @@ export function useAudioEngine() {
 
     const url = await getFileURLFromOPFS(track.fileName)
     if (!url) {
-      console.error('File not found in OPFS:', track.fileName)
+      showError(`File not found in OPFS: ${track.fileName}`)
       return
     }
     blobUrlRef.current = url
 
-    const isVideo = track.mediaType === 'video'
-    const el = createMediaElement(isVideo)
-
-    // iOS: set audio session type BEFORE setting src
     setAudioSessionType()
 
-    el.src = url
-    el.load()
+    if (track.mediaType === 'video') {
+      const v = createVideoElement()
+      v.src = url
+      v.load()
 
-    // iOS: ensure audio session type is set before play
-    setAudioSessionType()
+      setAudioSessionType()
 
-    try {
-      await el.play()
-      setPlaying(true)
-    } catch {
-      setPlaying(false)
+      try {
+        await v.play()
+        setPlaying(true)
+      } catch (e) {
+        showError(`Play failed: ${e instanceof Error ? e.message : 'unknown'}`)
+        setPlaying(false)
+      }
+    } else {
+      // Audio track: use video element with canvas art for iOS background playback
+      const v = createVideoElement()
+      isAudioVideoRef.current = true
+
+      try {
+        const audioVideo = createAudioVideo(url)
+        // Copy event listeners and replace
+        const listeners: [string, EventListener][] = []
+        const events = ['timeupdate', 'loadedmetadata', 'durationchange', 'ended', 'error', 'play', 'pause']
+        for (const evt of events) {
+          const handler = v.getAttribute(`data-listener-${evt}`)
+          if (handler) continue
+        }
+
+        // Remove the plain video we created, use the audio-video one instead
+        if (v.parentNode) {
+          v.parentNode.removeChild(v)
+        }
+
+        // Re-attach event listeners to the audio-video element
+        audioVideo.addEventListener('timeupdate', () => {
+          setCurrentTime(audioVideo.currentTime ?? 0)
+        })
+        audioVideo.addEventListener('loadedmetadata', () => {
+          const d = audioVideo.duration
+          setDuration(Number.isFinite(d) && d > 0 ? d : 0)
+        })
+        audioVideo.addEventListener('durationchange', () => {
+          const d = audioVideo.duration
+          if (Number.isFinite(d) && d > 0) setDuration(d)
+        })
+        audioVideo.addEventListener('ended', () => {
+          handleTrackEnd()
+        })
+        audioVideo.addEventListener('error', () => {
+          const msg = `Audio error: ${track.name}`
+          showError(msg)
+          setPlaying(false)
+        })
+        audioVideo.addEventListener('play', () => {
+          setPlaying(true)
+        })
+        audioVideo.addEventListener('pause', () => {
+          if (!audioVideo.seeking && (document.visibilityState === 'visible' || audioVideo.ended)) {
+            setPlaying(false)
+          }
+        })
+
+        if (videoContainerRef.current) {
+          videoContainerRef.current.appendChild(audioVideo)
+        }
+        mediaRef.current = audioVideo
+
+        setAudioSessionType()
+
+        try {
+          await audioVideo.play()
+          setPlaying(true)
+        } catch (e) {
+          showError(`Play failed: ${e instanceof Error ? e.message : 'unknown'}`)
+          setPlaying(false)
+        }
+      } catch (e) {
+        showError(`Audio-video creation failed: ${e instanceof Error ? e.message : 'unknown'}`)
+        // Fallback: try with plain video element
+        v.src = url
+        v.load()
+        setAudioSessionType()
+        try {
+          await v.play()
+          setPlaying(true)
+        } catch {
+          setPlaying(false)
+        }
+      }
     }
-  }, [createMediaElement, setPlaying])
+  }, [cleanupMedia, createVideoElement, setCurrentTime, setDuration, setPlaying, handleTrackEnd])
 
   const play = useCallback(async () => {
     const el = mediaRef.current
     if (!el) return
 
-    if (audioContext?.state === 'suspended') {
-      await audioContext.resume()
-    }
-
-    // iOS: set audio session type to allow background playback
     setAudioSessionType()
 
     try {
       await el.play()
       setPlaying(true)
-    } catch {
+    } catch (e) {
+      showError(`Play failed: ${e instanceof Error ? e.message : 'unknown'}`)
       setPlaying(false)
     }
   }, [setPlaying])
@@ -252,33 +303,13 @@ export function useAudioEngine() {
     }
   }, [volume, isMuted])
 
-  // Apply per-track volume via Web Audio API GainNode
-  useEffect(() => {
-    if (!currentTrack || !mediaRef.current) return
-
-    const ctx = getAudioContext()
-
-    if (!sourceNode && mediaRef.current) {
-      sourceNode = ctx.createMediaElementSource(mediaRef.current)
-      sourceNode.connect(gainNode!)
-    }
-
-    const { trackVolumes } = usePlayerStore.getState()
-    const trackGain = trackVolumes[currentTrack.id] ?? 1
-
-    if (gainNode) {
-      gainNode.gain.setTargetAtTime(trackGain, ctx.currentTime, 0.01)
-    }
-  }, [currentTrack, currentTrack?.id])
-
   // Cleanup
   useEffect(() => {
     return () => {
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current)
       }
-      mediaRef.current?.pause()
-      mediaRef.current = null
+      cleanupMedia()
     }
   }, [])
 
