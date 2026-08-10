@@ -46,8 +46,11 @@ export function useAudioEngine() {
 
   const cleanupMedia = useCallback(() => {
     if (mediaRef.current) {
-      mediaRef.current.pause()
-      mediaRef.current.src = ''
+      const el = mediaRef.current
+      el.pause()
+      // Remove src properly to avoid triggering error event
+      el.removeAttribute('src')
+      el.load()
       mediaRef.current = null
     }
     if (videoRef.current) {
@@ -127,13 +130,17 @@ export function useAudioEngine() {
         handleTrackEnd()
       })
       audio.addEventListener('error', () => {
+        // Ignore errors from old elements that were cleaned up
+        if (mediaRef.current !== audio) return
         showError(`Audio error: ${track.name}`)
         setPlaying(false)
       })
       audio.addEventListener('play', () => {
+        if (mediaRef.current !== audio) return
         setPlaying(true)
       })
       audio.addEventListener('pause', () => {
+        if (mediaRef.current !== audio) return
         if (!audio.seeking && (document.visibilityState === 'visible' || audio.ended)) {
           setPlaying(false)
         }
@@ -214,13 +221,17 @@ export function useAudioEngine() {
         handleTrackEnd()
       })
       el.addEventListener('error', () => {
+        // Ignore errors from old elements that were cleaned up
+        if (mediaRef.current !== el) return
         showError(`Audio error: ${track.name}`)
         setPlaying(false)
       })
       el.addEventListener('play', () => {
+        if (mediaRef.current !== el) return
         setPlaying(true)
       })
       el.addEventListener('pause', () => {
+        if (mediaRef.current !== el) return
         if (!el.seeking && (document.visibilityState === 'visible' || el.ended)) {
           setPlaying(false)
         }
