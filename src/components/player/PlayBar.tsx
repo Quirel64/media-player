@@ -1,6 +1,7 @@
 import { useRef, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { usePlayerStore } from '../../stores/playerStore'
+import { formatTime } from '../../lib/format'
 import type { Track } from '../../lib/types'
 
 interface PlayBarProps {
@@ -9,13 +10,6 @@ interface PlayBarProps {
   onNext: () => void
   onPrev: () => void
   onSeek: (time: number) => void
-}
-
-function formatTime(seconds: number): string {
-  if (!seconds || seconds === 0) return '0:00'
-  const mins = Math.floor(seconds / 60)
-  const secs = Math.floor(seconds % 60)
-  return `${mins}:${secs.toString().padStart(2, '0')}`
 }
 
 export function PlayBar({ currentTrack, onTogglePlay, onNext, onPrev, onSeek }: PlayBarProps) {

@@ -14,7 +14,7 @@ export default defineConfig({
       manifest: {
         name: 'Media Player',
         short_name: 'MediaPlayer',
-        description: 'A free, open-source media player PWA',
+        description: 'Free open-source PWA media player for audio and video files with offline playback and background support.',
         theme_color: '#0f172a',
         background_color: '#0f172a',
         display: 'standalone',
