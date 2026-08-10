@@ -153,6 +153,17 @@ export function useAudioEngine() {
 
       mediaRef.current = audio
 
+      // Append to DOM (hidden) so iOS can track position for lock screen seek bar
+      audio.controls = false
+      audio.style.position = 'fixed'
+      audio.style.left = '-1px'
+      audio.style.top = '-1px'
+      audio.style.width = '1px'
+      audio.style.height = '1px'
+      audio.style.opacity = '0'
+      audio.style.pointerEvents = 'none'
+      document.body.appendChild(audio)
+
       // Connect to Web Audio API for per-track volume
       if (!sourceNode) {
         sourceNode = ctx.createMediaElementSource(audio)
