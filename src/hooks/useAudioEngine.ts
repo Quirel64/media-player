@@ -26,7 +26,7 @@ function setAudioSessionType() {
 
 export function useAudioEngine() {
   const mediaRef = useRef<HTMLMediaElement | null>(null)
-  const audioAnchorRef = useRef<HTMLAudioElement | null>(null)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
   const blobUrlRef = useRef<string | null>(null)
   const videoContainerRef = useRef<HTMLDivElement | null>(null)
 
@@ -47,15 +47,15 @@ export function useAudioEngine() {
   const cleanupMedia = useCallback(() => {
     if (mediaRef.current) {
       mediaRef.current.pause()
-      if (mediaRef.current.parentNode) {
-        mediaRef.current.parentNode.removeChild(mediaRef.current)
-      }
+      mediaRef.current.src = ''
       mediaRef.current = null
     }
-    if (audioAnchorRef.current) {
-      audioAnchorRef.current.pause()
-      audioAnchorRef.current.src = ''
-      audioAnchorRef.current = null
+    if (videoRef.current) {
+      videoRef.current.pause()
+      if (videoRef.current.parentNode) {
+        videoRef.current.parentNode.removeChild(videoRef.current)
+      }
+      videoRef.current = null
     }
     if (sourceNode) {
       try { sourceNode.disconnect() } catch {}
@@ -104,67 +104,90 @@ export function useAudioEngine() {
     setAudioSessionType()
 
     if (track.mediaType === 'video') {
+      // Audio element: source of truth for playback
+      const audio = new Audio()
+      audio.preload = 'auto'
+      audio.src = url
+
+      audio.addEventListener('timeupdate', () => {
+        setCurrentTime(audio.currentTime ?? 0)
+      })
+      audio.addEventListener('loadedmetadata', () => {
+        const d = audio.duration
+        setDuration(Number.isFinite(d) && d > 0 ? d : 0)
+      })
+      audio.addEventListener('durationchange', () => {
+        const d = audio.duration
+        if (Number.isFinite(d) && d > 0) setDuration(d)
+      })
+      audio.addEventListener('ended', () => {
+        if (videoRef.current && !videoRef.current.paused) {
+          videoRef.current.pause()
+        }
+        handleTrackEnd()
+      })
+      audio.addEventListener('error', () => {
+        showError(`Audio error: ${track.name}`)
+        setPlaying(false)
+      })
+      audio.addEventListener('play', () => {
+        setPlaying(true)
+      })
+      audio.addEventListener('pause', () => {
+        if (!audio.seeking && (document.visibilityState === 'visible' || audio.ended)) {
+          setPlaying(false)
+        }
+      })
+
+      mediaRef.current = audio
+
+      // Video element: visual display only, muted, follows audio time
       const v = document.createElement('video')
       v.playsInline = true
       v.setAttribute('webkit-playsinline', 'true')
-      v.controls = true
+      v.muted = true
+      v.controls = false
+      v.preload = 'auto'
+      v.src = url
       v.style.touchAction = 'manipulation'
       v.style.width = '100%'
       v.style.maxHeight = '100%'
       v.style.objectFit = 'contain'
       v.style.borderRadius = '12px'
 
-      v.addEventListener('timeupdate', () => {
-        setCurrentTime(v.currentTime ?? 0)
-      })
-      v.addEventListener('loadedmetadata', () => {
-        const d = v.duration
-        setDuration(Number.isFinite(d) && d > 0 ? d : 0)
-      })
-      v.addEventListener('durationchange', () => {
-        const d = v.duration
-        if (Number.isFinite(d) && d > 0) setDuration(d)
-      })
-      v.addEventListener('ended', () => {
-        handleTrackEnd()
-      })
-      v.addEventListener('error', () => {
-        showError(`Video error: ${track.name}`)
-        setPlaying(false)
-      })
-      v.addEventListener('play', () => {
-        setPlaying(true)
-      })
-      v.addEventListener('pause', () => {
-        if (!v.seeking && (document.visibilityState === 'visible' || v.ended)) {
-          setPlaying(false)
-        }
-      })
+      videoRef.current = v
 
       if (videoContainerRef.current) {
         videoContainerRef.current.appendChild(v)
       }
-      mediaRef.current = v
 
-      v.src = url
-      v.load()
+      // Sync video to audio on timeupdate
+      audio.addEventListener('timeupdate', () => {
+        if (v.paused && !v.seeking && document.visibilityState === 'visible') {
+          v.currentTime = audio.currentTime
+        }
+      })
 
-      const audio = new Audio()
-      audio.preload = 'auto'
-      audio.volume = 0.001
-      audio.src = url
-      audioAnchorRef.current = audio
+      // When video can play, seek to audio position
+      v.addEventListener('canplay', () => {
+        if (Math.abs(v.currentTime - audio.currentTime) > 1) {
+          v.currentTime = audio.currentTime
+        }
+      })
 
       setAudioSessionType()
 
       try {
-        await Promise.all([v.play(), audio.play()])
+        await audio.play()
+        v.currentTime = audio.currentTime
+        v.play().catch(() => {})
         setPlaying(true)
       } catch (e) {
         showError(`Play failed: ${e instanceof Error ? e.message : 'unknown'}`)
         setPlaying(false)
       }
     } else {
+      // Audio file: simple audio element
       const el = document.createElement('audio')
       el.preload = 'auto'
       el.controls = false
@@ -235,8 +258,10 @@ export function useAudioEngine() {
 
     try {
       await el.play()
-      if (audioAnchorRef.current && audioAnchorRef.current.paused) {
-        audioAnchorRef.current.play().catch(() => {})
+      // Also resume video when playing
+      if (videoRef.current && videoRef.current.paused) {
+        videoRef.current.currentTime = el.currentTime
+        videoRef.current.play().catch(() => {})
       }
       setPlaying(true)
     } catch (e) {
@@ -247,7 +272,7 @@ export function useAudioEngine() {
 
   const pause = useCallback(() => {
     mediaRef.current?.pause()
-    audioAnchorRef.current?.pause()
+    videoRef.current?.pause()
     setPlaying(false)
   }, [setPlaying])
 
@@ -263,6 +288,9 @@ export function useAudioEngine() {
     if (mediaRef.current) {
       mediaRef.current.currentTime = time
       setCurrentTime(time)
+    }
+    if (videoRef.current) {
+      videoRef.current.currentTime = time
     }
   }, [setCurrentTime])
 
@@ -329,13 +357,21 @@ export function useAudioEngine() {
     }
   }, [])
 
+  // Pause video when going to background, resume and sync when returning
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        const { isPlaying: wasPlaying } = usePlayerStore.getState()
-        const el = mediaRef.current
-        if (el && wasPlaying && el.paused && !el.ended) {
-          el.play().catch(() => {})
+      if (document.visibilityState === 'hidden') {
+        // Going to background: pause video, keep audio playing
+        videoRef.current?.pause()
+      } else {
+        // Coming back: sync video to audio position and resume
+        const audio = mediaRef.current
+        const video = videoRef.current
+        if (audio && video && !audio.ended) {
+          video.currentTime = audio.currentTime
+          if (usePlayerStore.getState().isPlaying) {
+            video.play().catch(() => {})
+          }
         }
       }
     }
