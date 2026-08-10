@@ -60,29 +60,12 @@ export function useMediaSession() {
       }
     })
 
-    safeSetHandler('seekforward', (details) => {
-      const currentTime = usePlayerStore.getState().currentTime
-      const duration = usePlayerStore.getState().duration
-      const offset = details.seekOffset ?? 10
-      const newTime = Math.min(currentTime + offset, duration || Infinity)
-      seekRef.current?.(newTime)
-    })
-
-    safeSetHandler('seekbackward', (details) => {
-      const currentTime = usePlayerStore.getState().currentTime
-      const offset = details.seekOffset ?? 10
-      const newTime = Math.max(currentTime - offset, 0)
-      seekRef.current?.(newTime)
-    })
-
     return () => {
       safeSetHandler('play', null)
       safeSetHandler('pause', null)
       safeSetHandler('previoustrack', null)
       safeSetHandler('nexttrack', null)
       safeSetHandler('seekto', null)
-      safeSetHandler('seekforward', null)
-      safeSetHandler('seekbackward', null)
     }
   }, [])
 

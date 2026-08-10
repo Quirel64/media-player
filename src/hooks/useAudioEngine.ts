@@ -6,6 +6,7 @@ import { showError } from '../components/ui/Toast'
 let audioContext: AudioContext | null = null
 let gainNode: GainNode | null = null
 let sourceNode: MediaElementAudioSourceNode | null = null
+let lastPositionUpdate = 0
 
 function getAudioContext(): AudioContext {
   if (!audioContext) {
@@ -22,6 +23,22 @@ function setAudioSessionType() {
       (navigator as any).audioSession.type = 'playback'
     } catch {}
   }
+}
+
+function updatePositionState() {
+  if (!('mediaSession' in navigator)) return
+  const now = Date.now()
+  if (now - lastPositionUpdate < 1000) return
+  lastPositionUpdate = now
+  const { currentTime, duration, isPlaying } = usePlayerStore.getState()
+  if (!Number.isFinite(duration) || duration <= 0) return
+  try {
+    navigator.mediaSession.setPositionState({
+      duration,
+      playbackRate: 1,
+      position: Math.min(currentTime, duration),
+    })
+  } catch {}
 }
 
 export function useAudioEngine() {
@@ -119,6 +136,7 @@ export function useAudioEngine() {
 
       audio.addEventListener('timeupdate', () => {
         setCurrentTime(audio.currentTime ?? 0)
+        updatePositionState()
       })
       audio.addEventListener('loadedmetadata', () => {
         const d = audio.duration
@@ -213,6 +231,7 @@ export function useAudioEngine() {
 
       try {
         await audio.play()
+        updatePositionState()
         v.currentTime = audio.currentTime
         v.play().catch(() => {})
         setPlaying(true)
@@ -235,6 +254,7 @@ export function useAudioEngine() {
 
       el.addEventListener('timeupdate', () => {
         setCurrentTime(el.currentTime ?? 0)
+        updatePositionState()
       })
       el.addEventListener('loadedmetadata', () => {
         const d = el.duration
@@ -285,6 +305,7 @@ export function useAudioEngine() {
 
       try {
         await el.play()
+        updatePositionState()
         setPlaying(true)
       } catch (e) {
         showError(`Play failed: ${e instanceof Error ? e.message : 'unknown'}`)
@@ -339,6 +360,7 @@ export function useAudioEngine() {
     if (videoRef.current) {
       videoRef.current.currentTime = time
     }
+    updatePositionState()
   }, [setCurrentTime])
 
   const nextTrack = useCallback(() => {

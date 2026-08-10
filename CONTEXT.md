@@ -27,8 +27,10 @@ A PWA media player web app that plays audio and video files, built with React + 
 ### Known iOS Limitations (NOT fixable by us)
 1. **PiP ("beeld in beeld")**: Does NOT work in standalone PWA mode (WebKit bug 303885). Only works in Safari browser mode. This is an Apple bug.
 2. **Fullscreen**: iOS native video player handles fullscreen via its own zoom arrows (blue arrows in top-left). Our custom button was conflicting — now removed.
-3. **Lock screen next/prev buttons**: iOS doesn't always show these for web audio. The 10-second skip buttons work on video.
-4. **webkitdirectory (folder select)**: Only works on iOS 18.4+. Older iOS shows file picker instead.
+3. **Lock screen seek bar**: `<audio>` elements should get the seek bar on iOS, but it may not show in PWA mode. We call `setPositionState()` to enable it. `<video>` elements get the seek bar but pause on lock screen.
+4. **Lock screen next/prev buttons**: Hidden if `seekforward`/`seekbackward` handlers are registered. We removed those handlers so next/prev buttons show.
+5. **webkitdirectory (folder select)**: Only works on iOS 18.4+. Older iOS shows file picker instead.
+6. **PWA audio lock screen controls**: Can become non-functional after pausing for ~30 seconds in PWA mode (WebKit Bug 261858). Must bring app to foreground to "wake up" the audio session.
 
 ### File Picker on iOS (CRITICAL)
 iOS Safari has a known bug where dynamically created `<input type="file">` elements:
@@ -54,6 +56,15 @@ iOS decides at the moment you **leave the app** whether to keep the media sessio
 **Solution: Silent audio anchor.** A silent `<audio>` element on loop from app start keeps the audio session alive. When video plays, the silent audio is still there. When you leave, iOS sees audio → allows background playback. The silent audio has gain=0 so the user never hears it.
 
 The `navigator.audioSession.type = 'playback'` is set before every play attempt.
+
+### Lock Screen Seek Bar (iOS)
+iOS shows the seek bar on lock screen for `<audio>` elements. For video files, we use `<audio>` as the source of truth (DOM-appended, hidden) with a muted `<video>` as visual follower. The `<audio>` element drives the lock screen seek bar via `setPositionState()`.
+
+Key rules:
+- `setPositionState()` must be called on play, seek, and periodically (throttled to 1s) to keep seek bar accurate
+- `seekto` action handler enables scrubbing from lock screen
+- **Do NOT register `seekforward`/`seekbackward`** — iOS hides next/prev buttons when these are set
+- Lock screen controls can stop responding after ~30 seconds in PWA mode (WebKit Bug 261858)
 
 ## File Structure
 - `src/hooks/useAudioEngine.ts` — Core audio/video engine, play/pause/seek/next/prev
