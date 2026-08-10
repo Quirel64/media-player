@@ -27,7 +27,7 @@ export function NowPlaying({ currentTrack, videoContainerRef }: NowPlayingProps)
 
   if (currentTrack.mediaType === 'video') {
     return (
-      <div className="flex flex-col gap-4 p-4">
+      <div className="flex flex-col gap-4 p-4" style={{ paddingTop: 'calc(1rem + env(safe-area-inset-top, 0px))' }}>
         <div
           ref={videoContainerRef}
           className="relative flex w-full items-center justify-center overflow-hidden rounded-xl bg-black"

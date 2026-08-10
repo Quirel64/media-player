@@ -61,17 +61,18 @@ export function useMediaSession() {
     })
 
     safeSetHandler('seekforward', (details) => {
-      const el = document.querySelector('audio, video') as HTMLMediaElement | null
-      if (el) {
-        el.currentTime = Math.min(el.currentTime + (details.seekOffset ?? 10), el.duration || Infinity)
-      }
+      const currentTime = usePlayerStore.getState().currentTime
+      const duration = usePlayerStore.getState().duration
+      const offset = details.seekOffset ?? 10
+      const newTime = Math.min(currentTime + offset, duration || Infinity)
+      seekRef.current?.(newTime)
     })
 
     safeSetHandler('seekbackward', (details) => {
-      const el = document.querySelector('audio, video') as HTMLMediaElement | null
-      if (el) {
-        el.currentTime = Math.max(el.currentTime - (details.seekOffset ?? 10), 0)
-      }
+      const currentTime = usePlayerStore.getState().currentTime
+      const offset = details.seekOffset ?? 10
+      const newTime = Math.max(currentTime - offset, 0)
+      seekRef.current?.(newTime)
     })
 
     return () => {
