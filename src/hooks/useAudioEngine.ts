@@ -107,7 +107,6 @@ export function useAudioEngine() {
       const v = document.createElement('video')
       v.playsInline = true
       v.setAttribute('webkit-playsinline', 'true')
-      v.muted = true
       v.controls = true
       v.style.touchAction = 'manipulation'
       v.style.width = '100%'
@@ -115,45 +114,46 @@ export function useAudioEngine() {
       v.style.objectFit = 'contain'
       v.style.borderRadius = '12px'
 
-      v.addEventListener('ended', () => handleTrackEnd())
+      v.addEventListener('timeupdate', () => {
+        setCurrentTime(v.currentTime ?? 0)
+      })
+      v.addEventListener('loadedmetadata', () => {
+        const d = v.duration
+        setDuration(Number.isFinite(d) && d > 0 ? d : 0)
+      })
+      v.addEventListener('durationchange', () => {
+        const d = v.duration
+        if (Number.isFinite(d) && d > 0) setDuration(d)
+      })
+      v.addEventListener('ended', () => {
+        handleTrackEnd()
+      })
+      v.addEventListener('error', () => {
+        showError(`Video error: ${track.name}`)
+        setPlaying(false)
+      })
+      v.addEventListener('play', () => {
+        setPlaying(true)
+      })
+      v.addEventListener('pause', () => {
+        if (!v.seeking && (document.visibilityState === 'visible' || v.ended)) {
+          setPlaying(false)
+        }
+      })
 
       if (videoContainerRef.current) {
         videoContainerRef.current.appendChild(v)
       }
       mediaRef.current = v
 
+      v.src = url
+      v.load()
+
       const audio = new Audio()
       audio.preload = 'auto'
+      audio.volume = 0.001
       audio.src = url
       audioAnchorRef.current = audio
-
-      audio.addEventListener('timeupdate', () => {
-        setCurrentTime(audio.currentTime ?? 0)
-      })
-      audio.addEventListener('loadedmetadata', () => {
-        const d = audio.duration
-        setDuration(Number.isFinite(d) && d > 0 ? d : 0)
-      })
-      audio.addEventListener('durationchange', () => {
-        const d = audio.duration
-        if (Number.isFinite(d) && d > 0) setDuration(d)
-      })
-      audio.addEventListener('ended', () => {
-        v.pause()
-        handleTrackEnd()
-      })
-      audio.addEventListener('error', () => {
-        showError(`Audio error: ${track.name}`)
-        setPlaying(false)
-      })
-      audio.addEventListener('play', () => {
-        setPlaying(true)
-      })
-      audio.addEventListener('pause', () => {
-        if (!audio.seeking && (document.visibilityState === 'visible' || audio.ended)) {
-          setPlaying(false)
-        }
-      })
 
       setAudioSessionType()
 
@@ -234,11 +234,10 @@ export function useAudioEngine() {
     setAudioSessionType()
 
     try {
-      const promises: Promise<void>[] = [el.play()]
-      if (audioAnchorRef.current) {
-        promises.push(audioAnchorRef.current.play())
+      await el.play()
+      if (audioAnchorRef.current && audioAnchorRef.current.paused) {
+        audioAnchorRef.current.play().catch(() => {})
       }
-      await Promise.all(promises)
       setPlaying(true)
     } catch (e) {
       showError(`Play failed: ${e instanceof Error ? e.message : 'unknown'}`)
@@ -261,13 +260,10 @@ export function useAudioEngine() {
   }, [isPlaying, play, pause])
 
   const seek = useCallback((time: number) => {
-    if (audioAnchorRef.current) {
-      audioAnchorRef.current.currentTime = time
-    }
     if (mediaRef.current) {
       mediaRef.current.currentTime = time
+      setCurrentTime(time)
     }
-    setCurrentTime(time)
   }, [setCurrentTime])
 
   const nextTrack = useCallback(() => {
@@ -304,9 +300,6 @@ export function useAudioEngine() {
     if (mediaRef.current) {
       mediaRef.current.volume = isMuted ? 0 : volume
     }
-    if (audioAnchorRef.current) {
-      audioAnchorRef.current.volume = isMuted ? 0 : volume
-    }
   }, [volume, isMuted])
 
   useEffect(() => {
@@ -314,10 +307,8 @@ export function useAudioEngine() {
 
     const ctx = getAudioContext()
 
-    const targetEl = audioAnchorRef.current || mediaRef.current
-
-    if (!sourceNode && targetEl) {
-      sourceNode = ctx.createMediaElementSource(targetEl)
+    if (!sourceNode && mediaRef.current) {
+      sourceNode = ctx.createMediaElementSource(mediaRef.current)
       sourceNode.connect(gainNode!)
     }
 
@@ -345,9 +336,6 @@ export function useAudioEngine() {
         const el = mediaRef.current
         if (el && wasPlaying && el.paused && !el.ended) {
           el.play().catch(() => {})
-          if (audioAnchorRef.current && audioAnchorRef.current.paused) {
-            audioAnchorRef.current.play().catch(() => {})
-          }
         }
       }
     }
