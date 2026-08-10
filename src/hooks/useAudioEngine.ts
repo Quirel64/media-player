@@ -5,6 +5,7 @@ import { getFileURLFromOPFS } from '../lib/opfs'
 let audioContext: AudioContext | null = null
 let gainNode: GainNode | null = null
 let sourceNode: MediaElementAudioSourceNode | null = null
+let silentAnchor: HTMLAudioElement | null = null
 
 function getAudioContext(): AudioContext {
   if (!audioContext) {
@@ -20,6 +21,71 @@ function setAudioSessionType() {
     try {
       (navigator as any).audioSession.type = 'playback'
     } catch {}
+  }
+}
+
+function startSilentAnchor() {
+  if (silentAnchor) return
+
+  const ctx = getAudioContext()
+
+  // Create a short silent buffer (1 second)
+  const buffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate)
+  // Buffer is already silent (all zeros)
+
+  // Create a buffer source and loop it
+  const source = ctx.createBufferSource()
+  source.buffer = buffer
+  source.loop = true
+
+  // Connect to a gain node at volume 0 (silent)
+  const silentGain = ctx.createGain()
+  silentGain.gain.value = 0
+  source.connect(silentGain)
+  silentGain.connect(ctx.destination)
+
+  // Also create an <audio> element for iOS session purposes
+  // iOS needs an actual <audio> element playing to keep the session alive
+  const audio = new Audio()
+  audio.loop = true
+  audio.volume = 0
+  audio.muted = true
+
+  // Create a tiny silent WAV file as a data URL
+  const sampleRate = 44100
+  const numSamples = sampleRate * 2 // 2 seconds
+  const buffer2 = new ArrayBuffer(44 + numSamples * 2)
+  const view = new DataView(buffer2)
+
+  // WAV header
+  writeString(view, 0, 'RIFF')
+  view.setUint32(4, 36 + numSamples * 2, true)
+  writeString(view, 8, 'WAVE')
+  writeString(view, 12, 'fmt ')
+  view.setUint32(16, 16, true) // chunk size
+  view.setUint16(20, 1, true) // PCM
+  view.setUint16(22, 1, true) // mono
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * 2, true) // byte rate
+  view.setUint16(32, 2, true) // block align
+  view.setUint16(34, 16, true) // bits per sample
+  writeString(view, 36, 'data')
+  view.setUint32(40, numSamples * 2, true)
+  // Samples are all zeros (silent)
+
+  const blob = new Blob([buffer2], { type: 'audio/wav' })
+  audio.src = URL.createObjectURL(blob)
+
+  // Start both
+  source.start()
+  audio.play().catch(() => {})
+
+  silentAnchor = audio
+}
+
+function writeString(view: DataView, offset: number, str: string) {
+  for (let i = 0; i < str.length; i++) {
+    view.setUint8(offset + i, str.charCodeAt(i))
   }
 }
 
@@ -270,6 +336,26 @@ export function useAudioEngine() {
       gainNode.gain.setTargetAtTime(trackGain, ctx.currentTime, 0.01)
     }
   }, [currentTrack, currentTrack?.id])
+
+  // Start silent audio anchor on mount (keeps iOS audio session alive)
+  useEffect(() => {
+    const startAnchor = () => {
+      startSilentAnchor()
+      document.removeEventListener('click', startAnchor)
+      document.removeEventListener('touchstart', startAnchor)
+    }
+    // Start on first user interaction (required by autoplay policy)
+    document.addEventListener('click', startAnchor, { once: true })
+    document.addEventListener('touchstart', startAnchor, { once: true })
+
+    // Also try starting immediately (may work in PWA standalone mode)
+    startSilentAnchor()
+
+    return () => {
+      document.removeEventListener('click', startAnchor)
+      document.removeEventListener('touchstart', startAnchor)
+    }
+  }, [])
 
   // Cleanup
   useEffect(() => {

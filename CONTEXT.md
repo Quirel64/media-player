@@ -38,14 +38,20 @@ iOS Safari has a known bug where dynamically created `<input type="file">` eleme
 
 Current implementation in `useFolderPicker.ts` handles this correctly.
 
-### Background Playback Pattern
-The consistent pattern on iOS:
-1. User presses play → media plays
-2. User locks screen or leaves app → playback pauses
-3. User sees iOS lock screen player / inline player
-4. User presses play on iOS player → playback resumes
-5. Track finishes → next track auto-plays (shuffle/repeat respected)
-6. This works reliably once step 4 is done once
+### Background Playback Pattern (CRITICAL - Updated)
+iOS decides at the moment you **leave the app** whether to keep the media session alive. It checks: "is this audio or video?"
+
+| Scenario | Background? | Why |
+|---|---|---|
+| `<audio>` playing → leave app | **Works** | iOS keeps audio sessions alive |
+| `<audio>` finishes → `<video>` starts → leave app | **Fails** | Now it's a video session |
+| `<video>` playing → leave app | **Fails** | iOS kills video sessions |
+| `<video>` starts while already in background | **Works** | No foreground→background transition |
+| Reopen app → close again while video plays | **Fails** | Foreground→background kills video |
+
+**The rule:** If an `<audio>` element is the active session owner when you leave → iOS allows background playback. If `<video>` → iOS pauses.
+
+**Solution: Silent audio anchor.** A silent `<audio>` element on loop from app start keeps the audio session alive. When video plays, the silent audio is still there. When you leave, iOS sees audio → allows background playback. The silent audio has gain=0 so the user never hears it.
 
 The `navigator.audioSession.type = 'playback'` is set before every play attempt.
 
@@ -58,11 +64,13 @@ The `navigator.audioSession.type = 'playback'` is set before every play attempt.
 - `src/lib/idb.ts` — IndexedDB for tracks, playlists, settings
 - `src/lib/shuffle.ts` — Fisher-Yates shuffle, track ID generation
 - `src/lib/types.ts` — Track, Playlist, RepeatMode types
+- `src/lib/format.ts` — Shared utilities (formatTime)
 - `src/components/player/PlayBar.tsx` — Bottom controls (seek, play, shuffle, repeat)
 - `src/components/player/NowPlaying.tsx` — Video player / audio art display
 - `src/components/playlist/TrackList.tsx` — Track list with selection mode
 - `src/components/layout/Layout.tsx` — Fixed nowPlaying + scrollable content
 - `src/components/layout/BottomNav.tsx` — Mobile tabs (Add/Library/Playlists)
+- `src/components/ui/Toast.tsx` — Error/info/success toast notifications
 - `src/App.tsx` — Main app, tab management
 - `vite.config.ts` — `base: '/media-player/'`, PWA plugin config
 - `.github/workflows/deploy.yml` — GitHub Pages deploy
