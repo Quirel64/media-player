@@ -57,9 +57,9 @@ export function useMediaSession() {
 
     safeSetHandler('seekto', (details) => {
       if (details.seekTime != null) {
+        console.log('[MediaSession] seekto:', details.seekTime)
         seekRef.current?.(details.seekTime)
-        // Force immediate position update for iOS lock screen scrubbing
-        setTimeout(() => setPositionStateImmediate(), 50)
+        setPositionStateImmediate()
       }
     })
 
@@ -79,6 +79,7 @@ export function useMediaSession() {
     onNext: () => void
     onSeek: (time: number) => void
   }) => {
+    console.log('[MediaSession] setHandlers called')
     playRef.current = handlers.onPlay
     pauseRef.current = handlers.onPause
     prevTrackRef.current = handlers.onPrev

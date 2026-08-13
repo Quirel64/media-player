@@ -62,9 +62,12 @@ iOS shows the seek bar on lock screen for `<audio>` elements. For video files, w
 
 Key rules:
 - `setPositionState()` must be called on play, seek, and periodically (throttled to 1s) to keep seek bar accurate
+- **Critical: `setPositionState()` must be called as early as possible** — in `loadedmetadata`, `durationchange`, `play()`, and after `seekto`. If called too late, iOS may not recognize the seek bar as interactable
 - `seekto` action handler enables scrubbing from lock screen
 - **Do NOT register `seekforward`/`seekbackward`** — iOS hides next/prev buttons when these are set
 - Lock screen controls can stop responding after ~30 seconds in PWA mode (WebKit Bug 261858)
+- **Debug logging**: `setPositionState` calls are logged to console with `[setPositionState]` prefix
+- **Service worker caching**: Offline mode may serve old cached code. After deploying, user must refresh PWA while online to pick up new service worker
 
 ## File Structure
 - `src/hooks/useAudioEngine.ts` — Core audio/video engine, play/pause/seek/next/prev

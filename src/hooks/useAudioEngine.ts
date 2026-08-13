@@ -28,15 +28,22 @@ function setAudioSessionType() {
 function setPositionStateImmediate() {
   if (!('mediaSession' in navigator)) return
   const { currentTime, duration } = usePlayerStore.getState()
-  if (!Number.isFinite(duration) || duration <= 0) return
+  if (!Number.isFinite(duration) || duration <= 0) {
+    console.log('[setPositionState] skipped: duration=', duration)
+    return
+  }
+  const position = Math.min(currentTime, duration)
   try {
     navigator.mediaSession.setPositionState({
       duration,
       playbackRate: 1,
-      position: Math.min(currentTime, duration),
+      position,
     })
+    console.log('[setPositionState] OK:', { duration, position })
     lastPositionUpdate = Date.now()
-  } catch {}
+  } catch (e) {
+    console.log('[setPositionState] error:', e)
+  }
 }
 
 function updatePositionState() {
@@ -147,11 +154,17 @@ export function useAudioEngine() {
       })
       audio.addEventListener('loadedmetadata', () => {
         const d = audio.duration
-        setDuration(Number.isFinite(d) && d > 0 ? d : 0)
+        if (Number.isFinite(d) && d > 0) {
+          setDuration(d)
+          setPositionStateImmediate()
+        }
       })
       audio.addEventListener('durationchange', () => {
         const d = audio.duration
-        if (Number.isFinite(d) && d > 0) setDuration(d)
+        if (Number.isFinite(d) && d > 0) {
+          setDuration(d)
+          setPositionStateImmediate()
+        }
       })
       audio.addEventListener('ended', () => {
         if (videoRef.current && !videoRef.current.paused) {
@@ -265,11 +278,17 @@ export function useAudioEngine() {
       })
       el.addEventListener('loadedmetadata', () => {
         const d = el.duration
-        setDuration(Number.isFinite(d) && d > 0 ? d : 0)
+        if (Number.isFinite(d) && d > 0) {
+          setDuration(d)
+          setPositionStateImmediate()
+        }
       })
       el.addEventListener('durationchange', () => {
         const d = el.duration
-        if (Number.isFinite(d) && d > 0) setDuration(d)
+        if (Number.isFinite(d) && d > 0) {
+          setDuration(d)
+          setPositionStateImmediate()
+        }
       })
       el.addEventListener('ended', () => {
         handleTrackEnd()
@@ -333,6 +352,7 @@ export function useAudioEngine() {
 
     try {
       await el.play()
+      setPositionStateImmediate()
       // Also resume video when playing
       if (videoRef.current && videoRef.current.paused) {
         videoRef.current.currentTime = el.currentTime
