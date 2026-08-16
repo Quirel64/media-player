@@ -123,6 +123,13 @@ export function useAudioEngine() {
 
     cleanupMedia()
 
+    // Force iOS to forget old media session type
+    // On restart, iOS may cache the old session (audio) and not re-evaluate
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'none'
+      try { navigator.mediaSession.setPositionState(null as any) } catch {}
+    }
+
     if (blobUrlRef.current) {
       URL.revokeObjectURL(blobUrlRef.current)
       blobUrlRef.current = null
@@ -189,7 +196,7 @@ export function useAudioEngine() {
         }
       })
 
-      mediaRef.current = audio
+      // mediaRef.current set after video plays (see below)
 
       // Append to DOM (hidden) so iOS can track position for lock screen seek bar
       audio.controls = false
@@ -253,9 +260,11 @@ export function useAudioEngine() {
         await audio.play()
         updatePositionState()
         v.currentTime = audio.currentTime
-        v.play().catch(() => {})
+        await v.play().catch(() => {})
+        mediaRef.current = audio
         setPlaying(true)
       } catch (e) {
+        mediaRef.current = audio
         showError(`Play failed: ${e instanceof Error ? e.message : 'unknown'}`)
         setPlaying(false)
       }
@@ -311,7 +320,9 @@ export function useAudioEngine() {
       })
 
       document.body.appendChild(el)
-      mediaRef.current = el
+      // NOTE: mediaRef.current is set AFTER video plays to prevent
+      // the play event handler from calling setPlaying(true) before video starts
+      // This ensures iOS sees the <video> element when it evaluates the session
 
       // Connect to Web Audio API for per-track volume
       if (!sourceNode) {
@@ -366,9 +377,13 @@ export function useAudioEngine() {
         await el.play()
         updatePositionState()
         v.currentTime = el.currentTime
-        v.play().catch(() => {})
+        // Start video BEFORE signaling 'playing' to iOS
+        // iOS decides audio vs video interface based on what's playing when playbackState is set
+        await v.play().catch(() => {})
+        mediaRef.current = el
         setPlaying(true)
       } catch (e) {
+        mediaRef.current = el
         showError(`Play failed: ${e instanceof Error ? e.message : 'unknown'}`)
         setPlaying(false)
       }
