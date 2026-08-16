@@ -344,6 +344,7 @@ export function useAudioEngine() {
       v.style.height = '1px'
       v.style.opacity = '0'
       v.style.pointerEvents = 'none'
+      document.body.appendChild(v)
 
       videoRef.current = v
 
