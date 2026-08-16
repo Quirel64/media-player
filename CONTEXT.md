@@ -7,10 +7,10 @@ A PWA media player web app that plays audio and video files, built with React + 
 
 ## Architecture
 - **Storage**: OPFS for file blobs, IndexedDB for metadata (tracks, playlists, settings)
-- **Audio engine**: Dynamically created `<audio>`/`<video>` elements + Web Audio API `GainNode` for per-track volume
+- **Audio engine**: Both audio and video files use `<audio>` (hidden, source of truth) + `<video>` (muted, hidden or visible) for iOS lock screen controls
 - **State**: Zustand store (`playerStore.ts`)
 - **Shuffle**: Fisher-Yates with no-repeat cycling
-- **Media Session API**: Lock screen controls, metadata
+- **Media Session API**: Lock screen controls, metadata, seek bar
 - **PWA**: vite-plugin-pwa, service worker, GitHub Actions deploy
 
 ## iOS-Specific Behavior (CRITICAL - Read this first)
@@ -18,6 +18,7 @@ A PWA media player web app that plays audio and video files, built with React + 
 ### What works
 - **Video playback**: Play → lock screen → pauses → press play on iOS inline player → resumes consistently
 - **Audio playback**: Same pattern as video after recent fixes
+- **Lock screen controls (all files)**: ±10s skip buttons + interactable seek bar — both audio and video files get the video lock screen UI via hidden `<video>` element
 - **Next track auto-advance**: Works when track finishes (even with screen off in PWA)
 - **Shuffle/Repeat**: Work correctly, SVG icons turn purple when active
 - **Seek bar drag**: Works on both mobile and desktop
@@ -27,10 +28,9 @@ A PWA media player web app that plays audio and video files, built with React + 
 ### Known iOS Limitations (NOT fixable by us)
 1. **PiP ("beeld in beeld")**: Does NOT work in standalone PWA mode (WebKit bug 303885). Only works in Safari browser mode. This is an Apple bug.
 2. **Fullscreen**: iOS native video player handles fullscreen via its own zoom arrows (blue arrows in top-left). Our custom button was conflicting — now removed.
-3. **Lock screen seek bar**: `<audio>` elements should get the seek bar on iOS, but it may not show in PWA mode. We call `setPositionState()` to enable it. `<video>` elements get the seek bar but pause on lock screen.
-4. **Lock screen next/prev buttons**: Hidden if `seekforward`/`seekbackward` handlers are registered. We removed those handlers so next/prev buttons show.
-5. **webkitdirectory (folder select)**: Only works on iOS 18.4+. Older iOS shows file picker instead.
-6. **PWA audio lock screen controls**: Can become non-functional after pausing for ~30 seconds in PWA mode (WebKit Bug 261858). Must bring app to foreground to "wake up" the audio session.
+3. **Lock screen next/prev buttons**: Hidden if `seekforward`/`seekbackward` handlers are registered. We removed those handlers so next/prev buttons show.
+4. **webkitdirectory (folder select)**: Only works on iOS 18.4+. Older iOS shows file picker instead.
+5. **PWA audio lock screen controls**: Can become non-functional after pausing for ~30 seconds in PWA mode (WebKit Bug 261858). Must bring app to foreground to "wake up" the audio session.
 
 ### File Picker on iOS (CRITICAL)
 iOS Safari has a known bug where dynamically created `<input type="file">` elements:
@@ -58,7 +58,11 @@ iOS decides at the moment you **leave the app** whether to keep the media sessio
 The `navigator.audioSession.type = 'playback'` is set before every play attempt.
 
 ### Lock Screen Seek Bar (iOS)
-iOS shows the seek bar on lock screen for `<audio>` elements. For video files, we use `<audio>` as the source of truth (DOM-appended, hidden) with a muted `<video>` as visual follower. The `<audio>` element drives the lock screen seek bar via `setPositionState()`.
+iOS shows the seek bar on lock screen for `<video>` elements, NOT `<audio>` elements. For ALL files (audio and video), we use the same architecture:
+- `<audio>` element (hidden, DOM-appended) — source of truth for playback, drives background play
+- `<video>` element (muted, hidden or visible) — gives iOS the video lock screen interface
+
+This means even audio files get a hidden `<video>` element to trigger iOS's video lock screen UI (±10s skip buttons + interactable seek bar). The `<video>` element pauses on `visibilitychange` to background; `<audio>` keeps playing.
 
 Key rules:
 - `setPositionState()` must be called on play, seek, and periodically (throttled to 1s) to keep seek bar accurate

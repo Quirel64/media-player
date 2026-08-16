@@ -260,7 +260,7 @@ export function useAudioEngine() {
         setPlaying(false)
       }
     } else {
-      // Audio file: simple audio element
+      // Audio file: <audio> source of truth + hidden <video> for iOS lock screen UI
       const el = document.createElement('audio')
       el.preload = 'auto'
       el.controls = false
@@ -329,9 +329,43 @@ export function useAudioEngine() {
 
       setAudioSessionType()
 
+      // Hidden video element: gives iOS the video lock screen interface (seek bar, ±10s)
+      const v = document.createElement('video')
+      v.playsInline = true
+      v.setAttribute('webkit-playsinline', 'true')
+      v.muted = true
+      v.controls = false
+      v.preload = 'auto'
+      v.src = url
+      v.style.position = 'fixed'
+      v.style.left = '-1px'
+      v.style.top = '-1px'
+      v.style.width = '1px'
+      v.style.height = '1px'
+      v.style.opacity = '0'
+      v.style.pointerEvents = 'none'
+
+      videoRef.current = v
+
+      // Sync video to audio on timeupdate
+      el.addEventListener('timeupdate', () => {
+        if (v.paused && !v.seeking && document.visibilityState === 'visible') {
+          v.currentTime = el.currentTime
+        }
+      })
+
+      // When video can play, seek to audio position
+      v.addEventListener('canplay', () => {
+        if (Math.abs(v.currentTime - el.currentTime) > 1) {
+          v.currentTime = el.currentTime
+        }
+      })
+
       try {
         await el.play()
         updatePositionState()
+        v.currentTime = el.currentTime
+        v.play().catch(() => {})
         setPlaying(true)
       } catch (e) {
         showError(`Play failed: ${e instanceof Error ? e.message : 'unknown'}`)
