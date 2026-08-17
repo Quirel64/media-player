@@ -63,15 +63,12 @@ export function useMediaSession() {
       }
     })
 
-   
-
     return () => {
       safeSetHandler('play', null)
       safeSetHandler('pause', null)
       safeSetHandler('previoustrack', null)
       safeSetHandler('nexttrack', null)
       safeSetHandler('seekto', null)
-  
     }
   }, [])
 
@@ -91,8 +88,4 @@ export function useMediaSession() {
   }
 
   return { setHandlers }
-
-
-
-  
 }
