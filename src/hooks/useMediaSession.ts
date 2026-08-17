@@ -63,7 +63,7 @@ export function useMediaSession() {
       }
     })
 
-    safeSetHandler('seekbackward', (details) => {
+    /*/safeSetHandler('seekbackward', (details) => {
       const { currentTime } = usePlayerStore.getState()
       const offset = details.seekOffset ?? 10
 
@@ -78,6 +78,7 @@ export function useMediaSession() {
      Math.min(duration, currentTime + offset)
       )
     })
+/*/
 
     return () => {
       safeSetHandler('play', null)
@@ -85,8 +86,8 @@ export function useMediaSession() {
       safeSetHandler('previoustrack', null)
       safeSetHandler('nexttrack', null)
       safeSetHandler('seekto', null)
-      /*/ test /*/ safeSetHandler('seekbackward', null)
-      /*/ test /*/ safeSetHandler('seekforward', null)
+    //  /*/ test /*/ safeSetHandler('seekbackward', null)
+     // /*/ test /*/ safeSetHandler('seekforward', null)
     }
   }, [])
 
