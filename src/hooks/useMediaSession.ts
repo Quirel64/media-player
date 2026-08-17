@@ -55,6 +55,7 @@ export function useMediaSession() {
       nextTrackRef.current?.()
     })
 
+
     safeSetHandler('seekto', (details) => {
       if (details.seekTime != null) {
         console.log('[MediaSession] seekto:', details.seekTime)
@@ -63,12 +64,32 @@ export function useMediaSession() {
       }
     })
 
+
+    safeSetHandler('seekbackward', (details) => {
+  const { currentTime } = usePlayerStore.getState()
+  const offset = details.seekOffset ?? 10
+
+  seekRef.current?.(Math.max(0, currentTime - offset))
+})
+
+safeSetHandler('seekforward', (details) => {
+  const { currentTime, duration } = usePlayerStore.getState()
+  const offset = details.seekOffset ?? 10
+
+  seekRef.current?.(
+    Math.min(duration, currentTime + offset)
+  )
+})
+
+
     return () => {
       safeSetHandler('play', null)
       safeSetHandler('pause', null)
       safeSetHandler('previoustrack', null)
       safeSetHandler('nexttrack', null)
       safeSetHandler('seekto', null)
+      safeSetHandler('seekbackward', null)
+safeSetHandler('seekforward', null)
     }
   }, [])
 
