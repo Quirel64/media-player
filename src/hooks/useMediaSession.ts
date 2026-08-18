@@ -2,12 +2,9 @@ import { useEffect, useRef } from 'react'
 import { usePlayerStore } from '../stores/playerStore'
 
 export function useMediaSession() {
-  const prevTrackRef = useRef<(() => void) | null>(null)
-  const nextTrackRef = useRef<(() => void) | null>(null)
   const playRef = useRef<(() => void) | null>(null)
   const pauseRef = useRef<(() => void) | null>(null)
   const seekRef = useRef<((time: number) => void) | null>(null)
-  const mediaRef = useRef<HTMLMediaElement | null>(null)
 
   const { currentTrackIndex, queue } = usePlayerStore()
   const currentTrack = queue[currentTrackIndex]
@@ -68,10 +65,6 @@ export function useMediaSession() {
     }
   }, [])
 
-  const setMediaElement = (el: HTMLMediaElement | null) => {
-    mediaRef.current = el
-  }
-
   const setHandlers = (handlers: {
     onPlay: () => void
     onPause: () => void
@@ -81,10 +74,8 @@ export function useMediaSession() {
   }) => {
     playRef.current = handlers.onPlay
     pauseRef.current = handlers.onPause
-    prevTrackRef.current = handlers.onPrev
-    nextTrackRef.current = handlers.onNext
     seekRef.current = handlers.onSeek
   }
 
-  return { setHandlers, setMediaElement }
+  return { setHandlers }
 }

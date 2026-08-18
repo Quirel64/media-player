@@ -8,7 +8,7 @@ export function useAudioEngine() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const blobUrlRef = useRef<string | null>(null)
   const videoContainerRef = useRef<HTMLDivElement | null>(null)
-  const lastPositionUpdateRef = useRef(0)
+  const rafRef = useRef(0)
 
   const {
     isPlaying,
@@ -33,11 +33,14 @@ export function useAudioEngine() {
       mediaRef.current = null
     }
     if (videoRef.current) {
-      videoRef.current.pause()
       if (videoRef.current.parentNode) {
         videoRef.current.parentNode.removeChild(videoRef.current)
       }
       videoRef.current = null
+    }
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current)
+      rafRef.current = 0
     }
   }, [])
 
@@ -78,94 +81,88 @@ export function useAudioEngine() {
     }
     blobUrlRef.current = url
 
-    if (track.mediaType === 'video') {
-      // Video file: <audio> source of truth (background) + visible <video> (display)
-      const audio = new Audio()
-      audio.preload = 'auto'
-      audio.src = url
+    // Common: create <audio> element (source of truth for ALL files)
+    const audio = new Audio()
+    audio.preload = 'auto'
+    audio.controls = false
+    audio.src = url
 
-      const updatePosition = () => {
-        if (!('mediaSession' in navigator)) return
-        const now = Date.now()
-        if (now - lastPositionUpdateRef.current < 1000) return
-        if (!Number.isFinite(audio.duration) || audio.duration <= 0) return
-        try {
-          navigator.mediaSession.setPositionState({
-            duration: audio.duration,
-            playbackRate: 1,
-            position: Math.min(audio.currentTime, audio.duration),
-          })
-          lastPositionUpdateRef.current = now
-        } catch {}
-      }
+    const updatePosition = () => {
+      if (!('mediaSession' in navigator)) return
+      if (!Number.isFinite(audio.duration) || audio.duration <= 0) return
+      try {
+        navigator.mediaSession.setPositionState({
+          duration: audio.duration,
+          playbackRate: 1,
+          position: Math.min(audio.currentTime, audio.duration),
+        })
+      } catch {}
+    }
 
-      audio.addEventListener('timeupdate', () => {
-        setCurrentTime(audio.currentTime ?? 0)
+    audio.addEventListener('timeupdate', () => {
+      setCurrentTime(audio.currentTime ?? 0)
+      // Throttled position update (every ~1s)
+      const now = Date.now()
+      if (now - (audio as any)._lastPosUpdate > 1000) {
+        ;(audio as any)._lastPosUpdate = now
         updatePosition()
-      })
-      audio.addEventListener('loadedmetadata', () => {
-        const d = audio.duration
-        if (Number.isFinite(d) && d > 0) {
-          setDuration(d)
-          if ('mediaSession' in navigator) {
-            try {
-              navigator.mediaSession.setPositionState({
-                duration: d,
-                playbackRate: 1,
-                position: Math.min(audio.currentTime, d),
-              })
-            } catch {}
-          }
-        }
-      })
-      audio.addEventListener('durationchange', () => {
-        const d = audio.duration
-        if (Number.isFinite(d) && d > 0) {
-          setDuration(d)
-          if ('mediaSession' in navigator) {
-            try {
-              navigator.mediaSession.setPositionState({
-                duration: d,
-                playbackRate: 1,
-                position: Math.min(audio.currentTime, d),
-              })
-            } catch {}
-          }
-        }
-      })
-      audio.addEventListener('ended', () => {
-        if (videoRef.current && !videoRef.current.paused) {
-          videoRef.current.pause()
-        }
-        handleTrackEnd()
-      })
-      audio.addEventListener('error', () => {
-        if (mediaRef.current !== audio) return
-        showError(`Audio error: ${track.name}`)
+      }
+    })
+    audio.addEventListener('loadedmetadata', () => {
+      const d = audio.duration
+      if (Number.isFinite(d) && d > 0) {
+        setDuration(d)
+        updatePosition()
+      }
+    })
+    audio.addEventListener('durationchange', () => {
+      const d = audio.duration
+      if (Number.isFinite(d) && d > 0) {
+        setDuration(d)
+        updatePosition()
+      }
+    })
+    audio.addEventListener('ended', () => {
+      handleTrackEnd()
+    })
+    audio.addEventListener('error', () => {
+      if (mediaRef.current !== audio) return
+      showError(`Audio error: ${track.name}`)
+      setPlaying(false)
+    })
+    audio.addEventListener('play', () => {
+      if (mediaRef.current !== audio) return
+      setPlaying(true)
+      // Announce playback state to iOS
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.playbackState = 'playing'
+      }
+    })
+    audio.addEventListener('pause', () => {
+      if (mediaRef.current !== audio) return
+      if (!audio.seeking && (document.visibilityState === 'visible' || audio.ended)) {
         setPlaying(false)
-      })
-      audio.addEventListener('play', () => {
-        if (mediaRef.current !== audio) return
-        setPlaying(true)
-      })
-      audio.addEventListener('pause', () => {
-        if (mediaRef.current !== audio) return
-        if (!audio.seeking && (document.visibilityState === 'visible' || audio.ended)) {
-          setPlaying(false)
-        }
-      })
+      }
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.playbackState = 'paused'
+      }
+    })
 
-      audio.controls = false
-      audio.style.position = 'fixed'
-      audio.style.left = '-1px'
-      audio.style.top = '-1px'
-      audio.style.width = '1px'
-      audio.style.height = '1px'
-      audio.style.opacity = '0'
-      audio.style.pointerEvents = 'none'
-      document.body.appendChild(audio)
+    // Hidden in DOM so iOS can track position
+    audio.style.position = 'fixed'
+    audio.style.left = '-1px'
+    audio.style.top = '-1px'
+    audio.style.width = '1px'
+    audio.style.height = '1px'
+    audio.style.opacity = '0'
+    audio.style.pointerEvents = 'none'
+    document.body.appendChild(audio)
 
-      // Video element: visual display only, muted, follows audio time
+    mediaRef.current = audio
+
+    if (track.mediaType === 'video') {
+      // Video display: <video> stays PAUSED, seek-framed from <audio>
+      // Only <audio> plays → single instance, no dual-player issues
       const v = document.createElement('video')
       v.playsInline = true
       v.setAttribute('webkit-playsinline', 'true')
@@ -180,121 +177,74 @@ export function useAudioEngine() {
       v.style.objectFit = 'contain'
       v.style.borderRadius = '12px'
       v.style.touchAction = 'manipulation'
-
       videoRef.current = v
 
       if (videoContainerRef.current) {
         videoContainerRef.current.appendChild(v)
       }
 
-      // Sync video to audio on timeupdate
-      audio.addEventListener('timeupdate', () => {
-        if (v.paused && !v.seeking && document.visibilityState === 'visible') {
-          v.currentTime = audio.currentTime
+      // Seek-frame the video to match audio position (requestAnimationFrame for smooth display)
+      const syncVideoFrame = () => {
+        if (videoRef.current && mediaRef.current && !mediaRef.current.paused) {
+          const diff = Math.abs(videoRef.current.currentTime - mediaRef.current.currentTime)
+          if (diff > 0.1) {
+            videoRef.current.currentTime = mediaRef.current.currentTime
+          }
+        }
+        if (mediaRef.current && !mediaRef.current.paused) {
+          rafRef.current = requestAnimationFrame(syncVideoFrame)
+        }
+      }
+
+      audio.addEventListener('play', () => {
+        if (rafRef.current) cancelAnimationFrame(rafRef.current)
+        rafRef.current = requestAnimationFrame(syncVideoFrame)
+      })
+
+      audio.addEventListener('pause', () => {
+        if (rafRef.current) {
+          cancelAnimationFrame(rafRef.current)
+          rafRef.current = 0
         }
       })
 
-      v.addEventListener('canplay', () => {
-        if (Math.abs(v.currentTime - audio.currentTime) > 1) {
-          v.currentTime = audio.currentTime
+      audio.addEventListener('ended', () => {
+        if (rafRef.current) {
+          cancelAnimationFrame(rafRef.current)
+          rafRef.current = 0
         }
       })
 
-      try {
-        await audio.play()
-        v.currentTime = audio.currentTime
-        await v.play().catch(() => {})
-        mediaRef.current = audio
-        setPlaying(true)
-      } catch (e) {
-        mediaRef.current = audio
-        showError(`Play failed: ${e instanceof Error ? e.message : 'unknown'}`)
-        setPlaying(false)
+      // Sync video to audio when coming back to foreground
+      const onVisible = () => {
+        if (document.visibilityState === 'visible' && audio && !audio.paused && videoRef.current) {
+          videoRef.current.currentTime = audio.currentTime
+        }
       }
-    } else {
-      // Audio file: plain <audio> element, no hidden <video>, no Web Audio API
-      const el = document.createElement('audio')
-      el.preload = 'auto'
-      el.controls = false
-      el.src = url
+      document.addEventListener('visibilitychange', onVisible)
+    }
 
-      const updatePosition = () => {
-        if (!('mediaSession' in navigator)) return
-        const now = Date.now()
-        if (now - lastPositionUpdateRef.current < 1000) return
-        if (!Number.isFinite(el.duration) || el.duration <= 0) return
-        try {
-          navigator.mediaSession.setPositionState({
-            duration: el.duration,
-            playbackRate: 1,
-            position: Math.min(el.currentTime, el.duration),
-          })
-          lastPositionUpdateRef.current = now
-        } catch {}
-      }
+    // Announce track to MediaSession
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: track.name,
+        artist: track.artist || 'Unknown Artist',
+        album: track.album || 'Unknown Album',
+      })
+    }
 
-      el.addEventListener('timeupdate', () => {
-        setCurrentTime(el.currentTime ?? 0)
+    try {
+      await audio.play()
+      updatePosition()
+      // Announce playback to iOS after play starts
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.playbackState = 'playing'
         updatePosition()
-      })
-      el.addEventListener('loadedmetadata', () => {
-        const d = el.duration
-        if (Number.isFinite(d) && d > 0) {
-          setDuration(d)
-          if ('mediaSession' in navigator) {
-            try {
-              navigator.mediaSession.setPositionState({
-                duration: d,
-                playbackRate: 1,
-                position: Math.min(el.currentTime, d),
-              })
-            } catch {}
-          }
-        }
-      })
-      el.addEventListener('durationchange', () => {
-        const d = el.duration
-        if (Number.isFinite(d) && d > 0) {
-          setDuration(d)
-          if ('mediaSession' in navigator) {
-            try {
-              navigator.mediaSession.setPositionState({
-                duration: d,
-                playbackRate: 1,
-                position: Math.min(el.currentTime, d),
-              })
-            } catch {}
-          }
-        }
-      })
-      el.addEventListener('ended', () => {
-        handleTrackEnd()
-      })
-      el.addEventListener('error', () => {
-        if (mediaRef.current !== el) return
-        showError(`Audio error: ${track.name}`)
-        setPlaying(false)
-      })
-      el.addEventListener('play', () => {
-        if (mediaRef.current !== el) return
-        setPlaying(true)
-      })
-      el.addEventListener('pause', () => {
-        if (mediaRef.current !== el) return
-        if (!el.seeking && (document.visibilityState === 'visible' || el.ended)) {
-          setPlaying(false)
-        }
-      })
-
-      mediaRef.current = el
-
-      try {
-        await el.play()
-        setPlaying(true)
-      } catch (e) {
-        showError(`Play failed: ${e instanceof Error ? e.message : 'unknown'}`)
-        setPlaying(false)
       }
+      setPlaying(true)
+    } catch (e) {
+      showError(`Play failed: ${e instanceof Error ? e.message : 'unknown'}`)
+      setPlaying(false)
     }
   }, [cleanupMedia, setCurrentTime, setDuration, setPlaying, handleTrackEnd])
 
@@ -304,18 +254,17 @@ export function useAudioEngine() {
 
     try {
       await el.play()
-      if ('mediaSession' in navigator && Number.isFinite(el.duration) && el.duration > 0) {
-        try {
-          navigator.mediaSession.setPositionState({
-            duration: el.duration,
-            playbackRate: 1,
-            position: Math.min(el.currentTime, el.duration),
-          })
-        } catch {}
-      }
-      if (videoRef.current && videoRef.current.paused) {
-        videoRef.current.currentTime = el.currentTime
-        videoRef.current.play().catch(() => {})
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.playbackState = 'playing'
+        if (Number.isFinite(el.duration) && el.duration > 0) {
+          try {
+            navigator.mediaSession.setPositionState({
+              duration: el.duration,
+              playbackRate: 1,
+              position: Math.min(el.currentTime, el.duration),
+            })
+          } catch {}
+        }
       }
       setPlaying(true)
     } catch (e) {
@@ -326,7 +275,7 @@ export function useAudioEngine() {
 
   const pause = useCallback(() => {
     mediaRef.current?.pause()
-    videoRef.current?.pause()
+    // Video is paused by default (seek-framed), no need to pause it
     setPlaying(false)
   }, [setPlaying])
 
@@ -343,6 +292,7 @@ export function useAudioEngine() {
       mediaRef.current.currentTime = time
       setCurrentTime(time)
     }
+    // Immediately sync video frame to new position
     if (videoRef.current) {
       videoRef.current.currentTime = time
     }
@@ -403,25 +353,6 @@ export function useAudioEngine() {
       }
       cleanupMedia()
     }
-  }, [])
-
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        videoRef.current?.pause()
-      } else {
-        const audio = mediaRef.current
-        const video = videoRef.current
-        if (audio && video && !audio.ended) {
-          video.currentTime = audio.currentTime
-          if (usePlayerStore.getState().isPlaying) {
-            video.play().catch(() => {})
-          }
-        }
-      }
-    }
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [])
 
   return {
