@@ -3,63 +3,12 @@ import { usePlayerStore } from '../stores/playerStore'
 import { getFileURLFromOPFS } from '../lib/opfs'
 import { showError } from '../components/ui/Toast'
 
-let audioContext: AudioContext | null = null
-let gainNode: GainNode | null = null
-let sourceNode: MediaElementAudioSourceNode | null = null
-let lastPositionUpdate = 0
-
-function getAudioContext(): AudioContext {
-  if (!audioContext) {
-    audioContext = new AudioContext()
-    gainNode = audioContext.createGain()
-    gainNode.connect(audioContext.destination)
-  }
-  return audioContext
-}
-
-function setAudioSessionType() {
-  if ('audioSession' in navigator) {
-    try {
-      (navigator as any).audioSession.type = 'playback'
-    } catch {}
-  }
-}
-
-function setPositionStateImmediate() {
-  if (!('mediaSession' in navigator)) return
-  const { currentTime, duration } = usePlayerStore.getState()
-  if (!Number.isFinite(duration) || duration <= 0) {
-    console.log('[setPositionState] skipped: duration=', duration)
-    return
-  }
-  const position = Math.min(currentTime, duration)
-  try {
-    navigator.mediaSession.setPositionState({
-      duration,
-      playbackRate: 1,
-      position,
-    })
-    console.log('[setPositionState] OK:', { duration, position })
-    lastPositionUpdate = Date.now()
-  } catch (e) {
-    console.log('[setPositionState] error:', e)
-  }
-}
-
-function updatePositionState() {
-  if (!('mediaSession' in navigator)) return
-  const now = Date.now()
-  if (now - lastPositionUpdate < 1000) return
-  setPositionStateImmediate()
-}
-
-export { setPositionStateImmediate }
-
 export function useAudioEngine() {
   const mediaRef = useRef<HTMLMediaElement | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const blobUrlRef = useRef<string | null>(null)
   const videoContainerRef = useRef<HTMLDivElement | null>(null)
+  const lastPositionUpdateRef = useRef(0)
 
   const {
     isPlaying,
@@ -79,7 +28,6 @@ export function useAudioEngine() {
     if (mediaRef.current) {
       const el = mediaRef.current
       el.pause()
-      // Remove src properly to avoid triggering error event
       el.removeAttribute('src')
       el.load()
       mediaRef.current = null
@@ -91,10 +39,6 @@ export function useAudioEngine() {
       }
       videoRef.current = null
     }
-    if (sourceNode) {
-      try { sourceNode.disconnect() } catch {}
-      sourceNode = null
-    }
   }, [])
 
   const handleTrackEnd = useCallback(() => {
@@ -103,7 +47,6 @@ export function useAudioEngine() {
       const el = mediaRef.current
       if (el) {
         el.currentTime = 0
-        setAudioSessionType()
         el.play().catch(() => {})
       }
       return
@@ -123,13 +66,6 @@ export function useAudioEngine() {
 
     cleanupMedia()
 
-    // Force iOS to forget old media session type
-    // On restart, iOS may cache the old session (audio) and not re-evaluate
-    if ('mediaSession' in navigator) {
-      navigator.mediaSession.playbackState = 'none'
-      try { navigator.mediaSession.setPositionState(null as any) } catch {}
-    }
-
     if (blobUrlRef.current) {
       URL.revokeObjectURL(blobUrlRef.current)
       blobUrlRef.current = null
@@ -142,35 +78,59 @@ export function useAudioEngine() {
     }
     blobUrlRef.current = url
 
-    setAudioSessionType()
-
-    const ctx = getAudioContext()
-    if (ctx.state === 'suspended') {
-      await ctx.resume()
-    }
-
     if (track.mediaType === 'video') {
-      // Audio element: source of truth for playback
+      // Video file: <audio> source of truth (background) + visible <video> (display)
       const audio = new Audio()
       audio.preload = 'auto'
       audio.src = url
 
+      const updatePosition = () => {
+        if (!('mediaSession' in navigator)) return
+        const now = Date.now()
+        if (now - lastPositionUpdateRef.current < 1000) return
+        if (!Number.isFinite(audio.duration) || audio.duration <= 0) return
+        try {
+          navigator.mediaSession.setPositionState({
+            duration: audio.duration,
+            playbackRate: 1,
+            position: Math.min(audio.currentTime, audio.duration),
+          })
+          lastPositionUpdateRef.current = now
+        } catch {}
+      }
+
       audio.addEventListener('timeupdate', () => {
         setCurrentTime(audio.currentTime ?? 0)
-        updatePositionState()
+        updatePosition()
       })
       audio.addEventListener('loadedmetadata', () => {
         const d = audio.duration
         if (Number.isFinite(d) && d > 0) {
           setDuration(d)
-          setPositionStateImmediate()
+          if ('mediaSession' in navigator) {
+            try {
+              navigator.mediaSession.setPositionState({
+                duration: d,
+                playbackRate: 1,
+                position: Math.min(audio.currentTime, d),
+              })
+            } catch {}
+          }
         }
       })
       audio.addEventListener('durationchange', () => {
         const d = audio.duration
         if (Number.isFinite(d) && d > 0) {
           setDuration(d)
-          setPositionStateImmediate()
+          if ('mediaSession' in navigator) {
+            try {
+              navigator.mediaSession.setPositionState({
+                duration: d,
+                playbackRate: 1,
+                position: Math.min(audio.currentTime, d),
+              })
+            } catch {}
+          }
         }
       })
       audio.addEventListener('ended', () => {
@@ -180,7 +140,6 @@ export function useAudioEngine() {
         handleTrackEnd()
       })
       audio.addEventListener('error', () => {
-        // Ignore errors from old elements that were cleaned up
         if (mediaRef.current !== audio) return
         showError(`Audio error: ${track.name}`)
         setPlaying(false)
@@ -196,9 +155,6 @@ export function useAudioEngine() {
         }
       })
 
-      // mediaRef.current set after video plays (see below)
-
-      // Append to DOM (hidden) so iOS can track position for lock screen seek bar
       audio.controls = false
       audio.style.position = 'fixed'
       audio.style.left = '-1px'
@@ -208,15 +164,6 @@ export function useAudioEngine() {
       audio.style.opacity = '0'
       audio.style.pointerEvents = 'none'
       document.body.appendChild(audio)
-
-      // Connect to Web Audio API for per-track volume
-      if (!sourceNode) {
-        sourceNode = ctx.createMediaElementSource(audio)
-        sourceNode.connect(gainNode!)
-      }
-      const { trackVolumes } = usePlayerStore.getState()
-      const trackGain = trackVolumes[track.id] ?? 1
-      gainNode!.gain.setTargetAtTime(trackGain, ctx.currentTime, 0.01)
 
       // Video element: visual display only, muted, follows audio time
       const v = document.createElement('video')
@@ -247,18 +194,14 @@ export function useAudioEngine() {
         }
       })
 
-      // When video can play, seek to audio position
       v.addEventListener('canplay', () => {
         if (Math.abs(v.currentTime - audio.currentTime) > 1) {
           v.currentTime = audio.currentTime
         }
       })
 
-      setAudioSessionType()
-
       try {
         await audio.play()
-        updatePositionState()
         v.currentTime = audio.currentTime
         await v.play().catch(() => {})
         mediaRef.current = audio
@@ -269,41 +212,65 @@ export function useAudioEngine() {
         setPlaying(false)
       }
     } else {
-      // Audio file: <audio> source of truth + hidden <video> for iOS lock screen UI
+      // Audio file: plain <audio> element, no hidden <video>, no Web Audio API
       const el = document.createElement('audio')
       el.preload = 'auto'
       el.controls = false
-      el.style.position = 'fixed'
-      el.style.left = '-1px'
-      el.style.top = '-1px'
-      el.style.width = '1px'
-      el.style.height = '1px'
-      el.style.opacity = '0'
-      el.style.pointerEvents = 'none'
+      el.src = url
+
+      const updatePosition = () => {
+        if (!('mediaSession' in navigator)) return
+        const now = Date.now()
+        if (now - lastPositionUpdateRef.current < 1000) return
+        if (!Number.isFinite(el.duration) || el.duration <= 0) return
+        try {
+          navigator.mediaSession.setPositionState({
+            duration: el.duration,
+            playbackRate: 1,
+            position: Math.min(el.currentTime, el.duration),
+          })
+          lastPositionUpdateRef.current = now
+        } catch {}
+      }
 
       el.addEventListener('timeupdate', () => {
         setCurrentTime(el.currentTime ?? 0)
-        updatePositionState()
+        updatePosition()
       })
       el.addEventListener('loadedmetadata', () => {
         const d = el.duration
         if (Number.isFinite(d) && d > 0) {
           setDuration(d)
-          setPositionStateImmediate()
+          if ('mediaSession' in navigator) {
+            try {
+              navigator.mediaSession.setPositionState({
+                duration: d,
+                playbackRate: 1,
+                position: Math.min(el.currentTime, d),
+              })
+            } catch {}
+          }
         }
       })
       el.addEventListener('durationchange', () => {
         const d = el.duration
         if (Number.isFinite(d) && d > 0) {
           setDuration(d)
-          setPositionStateImmediate()
+          if ('mediaSession' in navigator) {
+            try {
+              navigator.mediaSession.setPositionState({
+                duration: d,
+                playbackRate: 1,
+                position: Math.min(el.currentTime, d),
+              })
+            } catch {}
+          }
         }
       })
       el.addEventListener('ended', () => {
         handleTrackEnd()
       })
       el.addEventListener('error', () => {
-        // Ignore errors from old elements that were cleaned up
         if (mediaRef.current !== el) return
         showError(`Audio error: ${track.name}`)
         setPlaying(false)
@@ -319,71 +286,12 @@ export function useAudioEngine() {
         }
       })
 
-      document.body.appendChild(el)
-      // NOTE: mediaRef.current is set AFTER video plays to prevent
-      // the play event handler from calling setPlaying(true) before video starts
-      // This ensures iOS sees the <video> element when it evaluates the session
-
-      // Connect to Web Audio API for per-track volume
-      if (!sourceNode) {
-        sourceNode = ctx.createMediaElementSource(el)
-        sourceNode.connect(gainNode!)
-      }
-      const { trackVolumes } = usePlayerStore.getState()
-      const trackGain = trackVolumes[track.id] ?? 1
-      gainNode!.gain.setTargetAtTime(trackGain, ctx.currentTime, 0.01)
-
-      setAudioSessionType()
-
-      el.src = url
-      el.load()
-
-      setAudioSessionType()
-
-      // Hidden video element: gives iOS the video lock screen interface (seek bar, ±10s)
-      const v = document.createElement('video')
-      v.playsInline = true
-      v.setAttribute('webkit-playsinline', 'true')
-      v.muted = true
-      v.controls = false
-      v.preload = 'auto'
-      v.src = url
-      v.style.position = 'fixed'
-      v.style.left = '-1px'
-      v.style.top = '-1px'
-      v.style.width = '1px'
-      v.style.height = '1px'
-      v.style.opacity = '0'
-      v.style.pointerEvents = 'none'
-      document.body.appendChild(v)
-
-      videoRef.current = v
-
-      // Sync video to audio on timeupdate
-      el.addEventListener('timeupdate', () => {
-        if (v.paused && !v.seeking && document.visibilityState === 'visible') {
-          v.currentTime = el.currentTime
-        }
-      })
-
-      // When video can play, seek to audio position
-      v.addEventListener('canplay', () => {
-        if (Math.abs(v.currentTime - el.currentTime) > 1) {
-          v.currentTime = el.currentTime
-        }
-      })
+      mediaRef.current = el
 
       try {
         await el.play()
-        updatePositionState()
-        v.currentTime = el.currentTime
-        // Start video BEFORE signaling 'playing' to iOS
-        // iOS decides audio vs video interface based on what's playing when playbackState is set
-        await v.play().catch(() => {})
-        mediaRef.current = el
         setPlaying(true)
       } catch (e) {
-        mediaRef.current = el
         showError(`Play failed: ${e instanceof Error ? e.message : 'unknown'}`)
         setPlaying(false)
       }
@@ -394,16 +302,17 @@ export function useAudioEngine() {
     const el = mediaRef.current
     if (!el) return
 
-    if (audioContext?.state === 'suspended') {
-      await audioContext.resume()
-    }
-
-    setAudioSessionType()
-
     try {
       await el.play()
-      setPositionStateImmediate()
-      // Also resume video when playing
+      if ('mediaSession' in navigator && Number.isFinite(el.duration) && el.duration > 0) {
+        try {
+          navigator.mediaSession.setPositionState({
+            duration: el.duration,
+            playbackRate: 1,
+            position: Math.min(el.currentTime, el.duration),
+          })
+        } catch {}
+      }
       if (videoRef.current && videoRef.current.paused) {
         videoRef.current.currentTime = el.currentTime
         videoRef.current.play().catch(() => {})
@@ -437,7 +346,18 @@ export function useAudioEngine() {
     if (videoRef.current) {
       videoRef.current.currentTime = time
     }
-    updatePositionState()
+    if ('mediaSession' in navigator && mediaRef.current) {
+      const el = mediaRef.current
+      if (Number.isFinite(el.duration) && el.duration > 0) {
+        try {
+          navigator.mediaSession.setPositionState({
+            duration: el.duration,
+            playbackRate: 1,
+            position: Math.min(time, el.duration),
+          })
+        } catch {}
+      }
+    }
   }, [setCurrentTime])
 
   const nextTrack = useCallback(() => {
@@ -485,14 +405,11 @@ export function useAudioEngine() {
     }
   }, [])
 
-  // Pause video when going to background, resume and sync when returning
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
-        // Going to background: pause video, keep audio playing
         videoRef.current?.pause()
       } else {
-        // Coming back: sync video to audio position and resume
         const audio = mediaRef.current
         const video = videoRef.current
         if (audio && video && !audio.ended) {
