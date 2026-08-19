@@ -7,7 +7,8 @@ A PWA media player web app that plays audio and video files, built with React + 
 
 ## Architecture
 - **Storage**: OPFS for file blobs, IndexedDB for metadata (tracks, playlists, settings)
-- **Audio engine**: Both audio and video files use `<audio>` (hidden, source of truth) + `<video>` (muted, hidden or visible) for iOS lock screen controls
+- **Audio engine**: Single `<audio>` element as source of truth for ALL files (audio and video). No Web Audio API. No hidden `<video>` for audio files.
+- **Video display**: For video files, a `<video>` element is created but kept **paused** and seek-framed via `requestAnimationFrame` to show the correct video frame. Only `<audio>` actually plays → single instance, no dual-player issues.
 - **State**: Zustand store (`playerStore.ts`)
 - **Shuffle**: Fisher-Yates with no-repeat cycling
 - **Media Session API**: Lock screen controls, metadata, seek bar
@@ -16,21 +17,43 @@ A PWA media player web app that plays audio and video files, built with React + 
 ## iOS-Specific Behavior (CRITICAL - Read this first)
 
 ### What works
-- **Video playback**: Play → lock screen → pauses → press play on iOS inline player → resumes consistently
-- **Audio playback**: Same pattern as video after recent fixes
-- **Lock screen controls (all files)**: ±10s skip buttons + interactable seek bar — both audio and video files get the video lock screen UI via hidden `<video>` element
+- **Lock screen interface**: ±10s skip buttons + working seek bar — achieved with `<audio>` element only (no hidden `<video>` needed)
+- **Background playback**: `<audio>` element plays in background on iOS lock screen
 - **Next track auto-advance**: Works when track finishes (even with screen off in PWA)
-- **Shuffle/Repeat**: Work correctly, SVG icons turn purple when active
+- **Shuffle/Repeat**: Work correctly
 - **Seek bar drag**: Works on both mobile and desktop
 - **Play button sync**: App play button stays in sync with iOS native controls
 - **Track selection + delete**: Works on mobile
+- **Lock screen persists across restarts**: Force-close → reopen → play → lock screen still shows correct interface
+
+### Key Breakthrough: Single Playing Element
+**Previous approach (broken)**: Both `<audio>` and `<video>` played simultaneously → dual-instance, pause conflicts, iOS confusion about session type.
+
+**Current approach (working)**: Only `<audio>` plays. `<video>` stays paused and is seek-framed via `requestAnimationFrame` for visual display. One playing element = no conflicts.
+
+This was validated by a standalone test app (`custom-lock-screen-media-player`) that proved `<audio>` alone gives the correct lock screen interface with working seek bar.
+
+### Lock Screen Button Modes
+iOS lock screen buttons are determined by which MediaSession action handlers are registered:
+
+| Mode | Handlers | Lock Screen UI |
+|------|----------|----------------|
+| `skip10` | `seekbackward`/`seekforward`/`seekto` | ±10s round arrows + working seek bar |
+| `prevnext` | `previoustrack`/`nexttrack` | << >> chevrons + seek bar (user confirmed seek bar still works!) |
+| `both` | All four handlers | **BUGGY** — inconsistent behavior between iOS versions |
+
+**Our current config**: `skip10` mode (only `seekbackward`/`seekforward`/`seekto`). User confirmed seek bar works with both modes, disproving earlier theory that `prevnext` breaks the seek bar.
+
+**Known issue**: Registering both `seekbackward`/`seekforward` AND `previoustrack`/`nexttrack` simultaneously causes inconsistent behavior. The test app explicitly warns: "This mirrors an easy-to-fall-into bug... Behavior becomes inconsistent between iOS versions / web vs installed-PWA."
+
+**Future enhancement**: Toggle between `skip10` and `prevnext` modes in settings. Test app has this implemented as a simple `setMode()` toggle.
 
 ### Known iOS Limitations (NOT fixable by us)
 1. **PiP ("beeld in beeld")**: Does NOT work in standalone PWA mode (WebKit bug 303885). Only works in Safari browser mode. This is an Apple bug.
 2. **Fullscreen**: iOS native video player handles fullscreen via its own zoom arrows (blue arrows in top-left). Our custom button was conflicting — now removed.
-3. **Lock screen next/prev buttons**: Hidden if `seekforward`/`seekbackward` handlers are registered. We removed those handlers so next/prev buttons show.
-4. **webkitdirectory (folder select)**: Only works on iOS 18.4+. Older iOS shows file picker instead.
-5. **PWA audio lock screen controls**: Can become non-functional after pausing for ~30 seconds in PWA mode (WebKit Bug 261858). Must bring app to foreground to "wake up" the audio session.
+3. **webkitdirectory (folder select)**: Only works on iOS 18.4+. Older iOS shows file picker instead.
+4. **PWA audio lock screen controls**: Can become non-functional after pausing for ~30 seconds in PWA mode (WebKit Bug 261858). Must bring app to foreground to "wake up" the audio session.
+5. **"Both" mode registration**: Registering both `seekbackward`/`seekforward` AND `previoustrack`/`nexttrack` simultaneously causes inconsistent lock screen UI. Only register one set at a time.
 
 ### File Picker on iOS (CRITICAL)
 iOS Safari has a known bug where dynamically created `<input type="file">` elements:
@@ -40,42 +63,16 @@ iOS Safari has a known bug where dynamically created `<input type="file">` eleme
 
 Current implementation in `useFolderPicker.ts` handles this correctly.
 
-### Background Playback Pattern (CRITICAL - Updated)
-iOS decides at the moment you **leave the app** whether to keep the media session alive. It checks: "is this audio or video?"
-
-| Scenario | Background? | Why |
-|---|---|---|
-| `<audio>` playing → leave app | **Works** | iOS keeps audio sessions alive |
-| `<audio>` finishes → `<video>` starts → leave app | **Fails** | Now it's a video session |
-| `<video>` playing → leave app | **Fails** | iOS kills video sessions |
-| `<video>` starts while already in background | **Works** | No foreground→background transition |
-| Reopen app → close again while video plays | **Fails** | Foreground→background kills video |
-
-**The rule:** If an `<audio>` element is the active session owner when you leave → iOS allows background playback. If `<video>` → iOS pauses.
-
-**Solution: Silent audio anchor.** A silent `<audio>` element on loop from app start keeps the audio session alive. When video plays, the silent audio is still there. When you leave, iOS sees audio → allows background playback. The silent audio has gain=0 so the user never hears it.
-
-The `navigator.audioSession.type = 'playback'` is set before every play attempt.
-
-### Lock Screen Seek Bar (iOS)
-iOS shows the seek bar on lock screen for `<video>` elements, NOT `<audio>` elements. For ALL files (audio and video), we use the same architecture:
-- `<audio>` element (hidden, DOM-appended) — source of truth for playback, drives background play
-- `<video>` element (muted, hidden or visible) — gives iOS the video lock screen interface
-
-This means even audio files get a hidden `<video>` element to trigger iOS's video lock screen UI (±10s skip buttons + interactable seek bar). The `<video>` element pauses on `visibilitychange` to background; `<audio>` keeps playing.
-
-Key rules:
-- `setPositionState()` must be called on play, seek, and periodically (throttled to 1s) to keep seek bar accurate
-- **Critical: `setPositionState()` must be called as early as possible** — in `loadedmetadata`, `durationchange`, `play()`, and after `seekto`. If called too late, iOS may not recognize the seek bar as interactable
-- `seekto` action handler enables scrubbing from lock screen
-- **Do NOT register `seekforward`/`seekbackward`** — iOS hides next/prev buttons when these are set
-- Lock screen controls can stop responding after ~30 seconds in PWA mode (WebKit Bug 261858)
-- **Debug logging**: `setPositionState` calls are logged to console with `[setPositionState]` prefix
-- **Service worker caching**: Offline mode may serve old cached code. After deploying, user must refresh PWA while online to pick up new service worker
+### What We Removed (and Why)
+- **Web Audio API** (`AudioContext`, `GainNode`, `MediaElementAudioSourceNode`): Interfered with iOS media session tracking. Audio now plays directly from `<audio>` element to speakers.
+- **Hidden `<video>` for audio files**: Confused iOS about session type. Audio files now use only `<audio>`.
+- **`navigator.audioSession.type = 'playback'`**: Overrode iOS's automatic session type detection.
+- **`previoustrack`/`nexttrack` handlers**: These hide the ±10s skip buttons on iOS lock screen.
+- **Per-track volume** (was via Web Audio gain node): Removed with Web Audio. Global volume still works via `el.volume`.
 
 ## File Structure
-- `src/hooks/useAudioEngine.ts` — Core audio/video engine, play/pause/seek/next/prev
-- `src/hooks/useMediaSession.ts` — Lock screen controls, MediaSession API
+- `src/hooks/useAudioEngine.ts` — Core engine: `<audio>` source of truth, `<video>` seek-framed for display, play/pause/seek/next/prev
+- `src/hooks/useMediaSession.ts` — Lock screen handlers: play, pause, seekto, seekbackward, seekforward (NO previoustrack/nexttrack)
 - `src/hooks/useFolderPicker.ts` — File picking, OPFS storage, IndexedDB persistence
 - `src/stores/playerStore.ts` — Zustand state (queue, shuffle, repeat, volume)
 - `src/lib/opfs.ts` — OPFS read/write/delete
@@ -93,6 +90,11 @@ Key rules:
 - `vite.config.ts` — `base: '/media-player/'`, PWA plugin config
 - `.github/workflows/deploy.yml` — GitHub Pages deploy
 
+### Test Projects (reference, not deployed with main app)
+- `custom-lock-screen-media-player/` — DeepSeek's test app with mode toggle, event log, lock screen preview
+- `custom-lock-screen-media-player (1)/` — ChatGPT Sol's simpler test app
+- `custom-lock-screen-media-player (2)/` — Arena.ai's version with working skip mode toggle
+
 ## Testing Notes
 User tests on iOS device (Brave browser + Safari) and Windows laptop.
 - PWA version: Add to home screen, standalone mode
@@ -103,3 +105,7 @@ User tests on iOS device (Brave browser + Safari) and Windows laptop.
 2. Old videos (16+ years) may have missing duration metadata
 3. Audio files sometimes don't save when adding via file picker (intermittent)
 4. **File persistence bug**: Adding files from a second folder works in-app, but force-closing the app loses the second batch. First batch persists. Likely a race condition in `saveTracks` — the `tx.done` promise may not resolve before force-close. Need to call `requestPersistentStorage()` before each save.
+
+## Planned Features
+1. **Skip mode toggle**: Switch between ±10s skip buttons and prev/next track buttons on lock screen. Test app has working implementation — simple `setMode()` toggle between `skip10` and `prevnext`. To integrate into main app settings or as a one-button cycle.
+2. **Playlist feature**: User mentioned as alternative focus.

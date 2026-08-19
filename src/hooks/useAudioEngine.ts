@@ -9,6 +9,7 @@ export function useAudioEngine() {
   const blobUrlRef = useRef<string | null>(null)
   const videoContainerRef = useRef<HTMLDivElement | null>(null)
   const rafRef = useRef(0)
+  const cleanupRef = useRef<(() => void) | null>(null)
 
   const {
     isPlaying,
@@ -25,6 +26,10 @@ export function useAudioEngine() {
   const currentTrack = queue[currentTrackIndex]
 
   const cleanupMedia = useCallback(() => {
+    if (cleanupRef.current) {
+      cleanupRef.current()
+      cleanupRef.current = null
+    }
     if (mediaRef.current) {
       const el = mediaRef.current
       el.pause()
@@ -81,7 +86,7 @@ export function useAudioEngine() {
     }
     blobUrlRef.current = url
 
-    // Common: create <audio> element (source of truth for ALL files)
+    // Create <audio> element (source of truth for ALL files)
     const audio = new Audio()
     audio.preload = 'auto'
     audio.controls = false
@@ -99,9 +104,9 @@ export function useAudioEngine() {
       } catch {}
     }
 
+    // Single set of event handlers — no duplicates
     audio.addEventListener('timeupdate', () => {
       setCurrentTime(audio.currentTime ?? 0)
-      // Throttled position update (every ~1s)
       const now = Date.now()
       if (now - (audio as any)._lastPosUpdate > 1000) {
         ;(audio as any)._lastPosUpdate = now
@@ -133,9 +138,23 @@ export function useAudioEngine() {
     audio.addEventListener('play', () => {
       if (mediaRef.current !== audio) return
       setPlaying(true)
-      // Announce playback state to iOS
       if ('mediaSession' in navigator) {
         navigator.mediaSession.playbackState = 'playing'
+      }
+      // Start RAF for video sync if video track
+      if (videoRef.current && rafRef.current === 0) {
+        const syncVideoFrame = () => {
+          if (videoRef.current && mediaRef.current && !mediaRef.current.paused) {
+            const diff = Math.abs(videoRef.current.currentTime - mediaRef.current.currentTime)
+            if (diff > 0.1) {
+              videoRef.current.currentTime = mediaRef.current.currentTime
+            }
+          }
+          if (mediaRef.current && !mediaRef.current.paused) {
+            rafRef.current = requestAnimationFrame(syncVideoFrame)
+          }
+        }
+        rafRef.current = requestAnimationFrame(syncVideoFrame)
       }
     })
     audio.addEventListener('pause', () => {
@@ -145,6 +164,10 @@ export function useAudioEngine() {
       }
       if ('mediaSession' in navigator) {
         navigator.mediaSession.playbackState = 'paused'
+      }
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current)
+        rafRef.current = 0
       }
     })
 
@@ -161,8 +184,6 @@ export function useAudioEngine() {
     mediaRef.current = audio
 
     if (track.mediaType === 'video') {
-      // Video display: <video> stays PAUSED, seek-framed from <audio>
-      // Only <audio> plays → single instance, no dual-player issues
       const v = document.createElement('video')
       v.playsInline = true
       v.setAttribute('webkit-playsinline', 'true')
@@ -183,38 +204,6 @@ export function useAudioEngine() {
         videoContainerRef.current.appendChild(v)
       }
 
-      // Seek-frame the video to match audio position (requestAnimationFrame for smooth display)
-      const syncVideoFrame = () => {
-        if (videoRef.current && mediaRef.current && !mediaRef.current.paused) {
-          const diff = Math.abs(videoRef.current.currentTime - mediaRef.current.currentTime)
-          if (diff > 0.1) {
-            videoRef.current.currentTime = mediaRef.current.currentTime
-          }
-        }
-        if (mediaRef.current && !mediaRef.current.paused) {
-          rafRef.current = requestAnimationFrame(syncVideoFrame)
-        }
-      }
-
-      audio.addEventListener('play', () => {
-        if (rafRef.current) cancelAnimationFrame(rafRef.current)
-        rafRef.current = requestAnimationFrame(syncVideoFrame)
-      })
-
-      audio.addEventListener('pause', () => {
-        if (rafRef.current) {
-          cancelAnimationFrame(rafRef.current)
-          rafRef.current = 0
-        }
-      })
-
-      audio.addEventListener('ended', () => {
-        if (rafRef.current) {
-          cancelAnimationFrame(rafRef.current)
-          rafRef.current = 0
-        }
-      })
-
       // Sync video to audio when coming back to foreground
       const onVisible = () => {
         if (document.visibilityState === 'visible' && audio && !audio.paused && videoRef.current) {
@@ -222,6 +211,11 @@ export function useAudioEngine() {
         }
       }
       document.addEventListener('visibilitychange', onVisible)
+
+      // Store cleanup for this track's extra listeners
+      cleanupRef.current = () => {
+        document.removeEventListener('visibilitychange', onVisible)
+      }
     }
 
     // Announce track to MediaSession
@@ -236,7 +230,6 @@ export function useAudioEngine() {
     try {
       await audio.play()
       updatePosition()
-      // Announce playback to iOS after play starts
       if ('mediaSession' in navigator) {
         navigator.mediaSession.playbackState = 'playing'
         updatePosition()
@@ -268,14 +261,20 @@ export function useAudioEngine() {
       }
       setPlaying(true)
     } catch (e) {
-      showError(`Play failed: ${e instanceof Error ? e.message : 'unknown'}`)
-      setPlaying(false)
+      // iOS may reject play() if audio session is stale — retry once after short delay
+      try {
+        await new Promise((r) => setTimeout(r, 100))
+        await el.play()
+        setPlaying(true)
+      } catch {
+        showError(`Play failed: ${e instanceof Error ? e.message : 'unknown'}`)
+        setPlaying(false)
+      }
     }
   }, [setPlaying])
 
   const pause = useCallback(() => {
     mediaRef.current?.pause()
-    // Video is paused by default (seek-framed), no need to pause it
     setPlaying(false)
   }, [setPlaying])
 
@@ -292,7 +291,6 @@ export function useAudioEngine() {
       mediaRef.current.currentTime = time
       setCurrentTime(time)
     }
-    // Immediately sync video frame to new position
     if (videoRef.current) {
       videoRef.current.currentTime = time
     }
