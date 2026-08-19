@@ -11,14 +11,23 @@ function setAudioSessionType() {
   }
 }
 
-// Silent audio anchor: keeps iOS audio session alive when main audio is paused
-let silentAnchorEl: HTMLAudioElement | null = null
-let silentAnchorUrl: string | null = null
+function hideOffscreen(el: HTMLElement) {
+  el.style.position = 'fixed'
+  el.style.left = '-2px'
+  el.style.top = '-2px'
+  el.style.width = '1px'
+  el.style.height = '1px'
+  el.style.opacity = '0'
+  el.style.pointerEvents = 'none'
+}
 
 function createSilentWavBlob(): Blob {
-  const sampleRate = 44100
-  const numSamples = sampleRate * 2
-  const buffer = new ArrayBuffer(44 + numSamples * 2)
+  const sampleRate = 8000
+  const durationSeconds = 2
+  const numSamples = durationSeconds * sampleRate
+  const blockAlign = 2
+  const dataSize = numSamples * blockAlign
+  const buffer = new ArrayBuffer(44 + dataSize)
   const view = new DataView(buffer)
 
   function writeString(offset: number, str: string) {
@@ -28,38 +37,32 @@ function createSilentWavBlob(): Blob {
   }
 
   writeString(0, 'RIFF')
-  view.setUint32(4, 36 + numSamples * 2, true)
+  view.setUint32(4, 36 + dataSize, true)
   writeString(8, 'WAVE')
   writeString(12, 'fmt ')
   view.setUint32(16, 16, true)
   view.setUint16(20, 1, true)
   view.setUint16(22, 1, true)
   view.setUint32(24, sampleRate, true)
-  view.setUint32(28, sampleRate * 2, true)
-  view.setUint16(32, 2, true)
+  view.setUint32(28, sampleRate * blockAlign, true)
+  view.setUint16(32, blockAlign, true)
   view.setUint16(34, 16, true)
   writeString(36, 'data')
-  view.setUint32(40, numSamples * 2, true)
-  // Samples are all zeros (silent)
+  view.setUint32(40, dataSize, true)
 
   return new Blob([buffer], { type: 'audio/wav' })
 }
 
-function startSilentAnchor() {
-  if (silentAnchorEl) return
-
-  const blob = createSilentWavBlob()
-  silentAnchorUrl = URL.createObjectURL(blob)
-
-  const audio = new Audio()
-  audio.src = silentAnchorUrl
-  audio.loop = true
-  audio.volume = 0
-  audio.muted = true
-  audio.preload = 'auto'
-  audio.play().catch(() => {})
-
-  silentAnchorEl = audio
+function updatePositionState(el: HTMLMediaElement | null) {
+  if (!el || !('mediaSession' in navigator)) return
+  if (!Number.isFinite(el.duration) || el.duration <= 0) return
+  try {
+    navigator.mediaSession.setPositionState({
+      duration: el.duration,
+      playbackRate: el.playbackRate || 1,
+      position: Math.min(Math.max(0, el.currentTime), el.duration),
+    })
+  } catch {}
 }
 
 export function useAudioEngine() {
@@ -69,6 +72,8 @@ export function useAudioEngine() {
   const videoContainerRef = useRef<HTMLDivElement | null>(null)
   const rafRef = useRef(0)
   const cleanupRef = useRef<(() => void) | null>(null)
+  const pendingPlayRef = useRef(false)
+  const lastPosUpdateRef = useRef(0)
 
   const {
     isPlaying,
@@ -84,27 +89,88 @@ export function useAudioEngine() {
 
   const currentTrack = queue[currentTrackIndex]
 
-  const cleanupMedia = useCallback(() => {
+  const currentTrackRef = useRef(currentTrack)
+  currentTrackRef.current = currentTrack
+
+  const stopRaf = useCallback(() => {
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current)
+      rafRef.current = 0
+    }
+  }, [])
+
+  const startVideoSync = useCallback(() => {
+    stopRaf()
+    const tick = () => {
+      const audio = mediaRef.current
+      const video = videoRef.current
+      if (audio && video && !audio.paused) {
+        const diff = Math.abs(video.currentTime - audio.currentTime)
+        if (diff > 0.12) {
+          try {
+            video.currentTime = audio.currentTime
+          } catch {}
+        }
+      }
+      if (mediaRef.current && !mediaRef.current.paused) {
+        rafRef.current = requestAnimationFrame(tick)
+      }
+    }
+    rafRef.current = requestAnimationFrame(tick)
+  }, [stopRaf])
+
+  const cleanupVideo = useCallback(() => {
     if (cleanupRef.current) {
       cleanupRef.current()
       cleanupRef.current = null
     }
-    if (mediaRef.current) {
-      const el = mediaRef.current
-      el.pause()
-      el.removeAttribute('src')
-      el.load()
-      mediaRef.current = null
-    }
     if (videoRef.current) {
-      if (videoRef.current.parentNode) {
-        videoRef.current.parentNode.removeChild(videoRef.current)
-      }
+      const v = videoRef.current
+      v.pause()
+      v.removeAttribute('src')
+      v.load()
+      if (v.parentNode) v.parentNode.removeChild(v)
       videoRef.current = null
     }
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current)
-      rafRef.current = 0
+  }, [])
+
+  const syncVideoToAudio = useCallback(() => {
+    const audio = mediaRef.current
+    const video = videoRef.current
+    if (!audio || !video || !video.src) return
+    if (Math.abs(video.currentTime - audio.currentTime) > 0.25) {
+      try {
+        video.currentTime = audio.currentTime
+      } catch {}
+    }
+  }, [])
+
+  const attachVideo = useCallback((url: string) => {
+    const container = videoContainerRef.current
+    let video = videoRef.current
+    if (!video) {
+      video = document.createElement('video')
+      video.muted = true
+      video.playsInline = true
+      video.setAttribute('webkit-playsinline', 'true')
+      video.setAttribute('playsinline', 'true')
+      video.preload = 'auto'
+      video.controls = false
+      video.style.width = '100%'
+      video.style.height = '100%'
+      video.style.objectFit = 'contain'
+      video.style.borderRadius = '12px'
+      video.style.touchAction = 'manipulation'
+      video.style.background = '#000'
+      videoRef.current = video
+    }
+    if (container && video.parentNode !== container) {
+      container.innerHTML = ''
+      container.appendChild(video)
+    }
+    if (video.src !== url) {
+      video.src = url
+      video.load()
     }
   }, [])
 
@@ -127,12 +193,55 @@ export function useAudioEngine() {
     }
   }, [setCurrentTrackIndex, setPlaying])
 
+  const play = useCallback(async () => {
+    const el = mediaRef.current
+    if (!el || !el.src) return
+
+    setAudioSessionType()
+
+    // Start silent anchor — never let it die
+    try {
+      const silentEl = document.querySelector('audio[data-silent="true"]') as HTMLAudioElement | null
+      if (silentEl) silentEl.play().catch(() => {})
+    } catch {}
+
+    try {
+      await el.play()
+    } catch (err) {
+      // Retry once after short delay — iOS often rejects first play() after session goes stale
+      await new Promise(r => setTimeout(r, 120))
+      try {
+        setAudioSessionType()
+        await el.play()
+      } catch {
+        setPlaying(false)
+        return
+      }
+    }
+
+    // Kick the muted video so iOS keeps the video-style lock screen UI
+    if (videoRef.current && videoRef.current.src) {
+      try {
+        videoRef.current.currentTime = el.currentTime
+        videoRef.current.play().catch(() => {})
+      } catch {}
+      startVideoSync()
+    }
+
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'playing'
+      updatePositionState(el)
+    }
+    setPlaying(true)
+  }, [setPlaying, startVideoSync])
+
   const loadTrack = useCallback(async (trackIndex: number) => {
     const { queue } = usePlayerStore.getState()
     const track = queue[trackIndex]
     if (!track) return
 
-    cleanupMedia()
+    stopRaf()
+    cleanupVideo()
 
     if (blobUrlRef.current) {
       URL.revokeObjectURL(blobUrlRef.current)
@@ -146,135 +255,20 @@ export function useAudioEngine() {
     }
     blobUrlRef.current = url
 
-    // Create <audio> element (source of truth for ALL files)
-    const audio = new Audio()
-    audio.preload = 'auto'
-    audio.controls = false
-    audio.src = url
-    audio.load()
+    const el = mediaRef.current
+    if (!el) return
 
-    const updatePosition = () => {
-      if (!('mediaSession' in navigator)) return
-      if (!Number.isFinite(audio.duration) || audio.duration <= 0) return
-      try {
-        navigator.mediaSession.setPositionState({
-          duration: audio.duration,
-          playbackRate: 1,
-          position: Math.min(audio.currentTime, audio.duration),
-        })
-      } catch {}
-    }
+    setCurrentTime(0)
+    setDuration(0)
 
-    audio.addEventListener('timeupdate', () => {
-      setCurrentTime(audio.currentTime ?? 0)
-      const now = Date.now()
-      if (now - (audio as any)._lastPosUpdate > 1000) {
-        ;(audio as any)._lastPosUpdate = now
-        updatePosition()
-      }
-    })
-    audio.addEventListener('loadedmetadata', () => {
-      const d = audio.duration
-      if (Number.isFinite(d) && d > 0) {
-        setDuration(d)
-        updatePosition()
-      }
-    })
-    audio.addEventListener('durationchange', () => {
-      const d = audio.duration
-      if (Number.isFinite(d) && d > 0) {
-        setDuration(d)
-        updatePosition()
-      }
-    })
-    audio.addEventListener('ended', () => {
-      handleTrackEnd()
-    })
-    audio.addEventListener('error', () => {
-      if (mediaRef.current !== audio) return
-      showError(`Audio error: ${track.name}`)
-      setPlaying(false)
-    })
-    audio.addEventListener('play', () => {
-      if (mediaRef.current !== audio) return
-      setPlaying(true)
-      if ('mediaSession' in navigator) {
-        navigator.mediaSession.playbackState = 'playing'
-      }
-      // Start RAF for video sync if video track
-      if (videoRef.current && rafRef.current === 0) {
-        const syncVideoFrame = () => {
-          if (videoRef.current && mediaRef.current && !mediaRef.current.paused) {
-            const diff = Math.abs(videoRef.current.currentTime - mediaRef.current.currentTime)
-            if (diff > 0.1) {
-              videoRef.current.currentTime = mediaRef.current.currentTime
-            }
-          }
-          if (mediaRef.current && !mediaRef.current.paused) {
-            rafRef.current = requestAnimationFrame(syncVideoFrame)
-          }
-        }
-        rafRef.current = requestAnimationFrame(syncVideoFrame)
-      }
-    })
-    audio.addEventListener('pause', () => {
-      if (mediaRef.current !== audio) return
-      setPlaying(false)
-      if ('mediaSession' in navigator) {
-        navigator.mediaSession.playbackState = 'paused'
-      }
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current)
-        rafRef.current = 0
-      }
-    })
-
-    // Hidden in DOM so iOS can track position
-    audio.style.position = 'fixed'
-    audio.style.left = '-1px'
-    audio.style.top = '-1px'
-    audio.style.width = '1px'
-    audio.style.height = '1px'
-    audio.style.opacity = '0'
-    audio.style.pointerEvents = 'none'
-    document.body.appendChild(audio)
-
-    mediaRef.current = audio
+    pendingPlayRef.current = true
+    el.src = url
+    el.load()
 
     if (track.mediaType === 'video') {
-      const v = document.createElement('video')
-      v.playsInline = true
-      v.setAttribute('webkit-playsinline', 'true')
-      v.muted = true
-      v.controls = false
-      v.preload = 'auto'
-      v.src = url
-      v.style.position = 'absolute'
-      v.style.inset = '0'
-      v.style.width = '100%'
-      v.style.height = '100%'
-      v.style.objectFit = 'contain'
-      v.style.borderRadius = '12px'
-      v.style.touchAction = 'manipulation'
-      videoRef.current = v
-
-      if (videoContainerRef.current) {
-        videoContainerRef.current.appendChild(v)
-      }
-
-      const onVisible = () => {
-        if (document.visibilityState === 'visible' && audio && !audio.paused && videoRef.current) {
-          videoRef.current.currentTime = audio.currentTime
-        }
-      }
-      document.addEventListener('visibilitychange', onVisible)
-
-      cleanupRef.current = () => {
-        document.removeEventListener('visibilitychange', onVisible)
-      }
+      attachVideo(url)
     }
 
-    // Announce track to MediaSession
     if ('mediaSession' in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: track.name,
@@ -284,77 +278,22 @@ export function useAudioEngine() {
     }
 
     setAudioSessionType()
-
-    // Wait for audio buffer to be ready (prevents play() failures on iOS)
-    await new Promise<void>((resolve) => {
-      const onCanPlay = () => {
-        audio.removeEventListener('canplaythrough', onCanPlay)
-        audio.removeEventListener('error', onError)
-        resolve()
-      }
-      const onError = () => {
-        audio.removeEventListener('canplaythrough', onCanPlay)
-        audio.removeEventListener('error', onError)
-        resolve()
-      }
-      audio.addEventListener('canplaythrough', onCanPlay)
-      audio.addEventListener('error', onError)
-      setTimeout(resolve, 3000)
-    })
-
-    setAudioSessionType()
-
-    try {
-      await audio.play()
-      updatePosition()
-      if ('mediaSession' in navigator) {
-        navigator.mediaSession.playbackState = 'playing'
-        updatePosition()
-      }
-      setPlaying(true)
-    } catch (e) {
-      showError(`Play failed: ${e instanceof Error ? e.message : 'unknown'}`)
-      setPlaying(false)
-    }
-  }, [cleanupMedia, setCurrentTime, setDuration, setPlaying, handleTrackEnd])
-
-  const play = useCallback(async () => {
-    const el = mediaRef.current
-    if (!el) return
-
-    setAudioSessionType()
-
-    try {
-      await el.play()
-      if ('mediaSession' in navigator) {
-        navigator.mediaSession.playbackState = 'playing'
-        if (Number.isFinite(el.duration) && el.duration > 0) {
-          try {
-            navigator.mediaSession.setPositionState({
-              duration: el.duration,
-              playbackRate: 1,
-              position: Math.min(el.currentTime, el.duration),
-            })
-          } catch {}
-        }
-      }
-      setPlaying(true)
-    } catch (e) {
-      setAudioSessionType()
-      try {
-        await el.play()
-        setPlaying(true)
-      } catch {
-        showError(`Play failed: ${e instanceof Error ? e.message : 'unknown'}`)
-        setPlaying(false)
-      }
-    }
-  }, [setPlaying])
+  }, [cleanupVideo, setCurrentTime, setDuration, attachVideo, stopRaf])
 
   const pause = useCallback(() => {
-    mediaRef.current?.pause()
+    const el = mediaRef.current
+    if (!el) return
+    el.pause()
+    // Intentionally do NOT pause the silent anchor — that tears down the iOS session
+    // and is the #1 reason a later play() silently fails.
+    videoRef.current?.pause()
+    stopRaf()
     setPlaying(false)
-  }, [setPlaying])
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'paused'
+      updatePositionState(el)
+    }
+  }, [setPlaying, stopRaf])
 
   const togglePlay = useCallback(() => {
     if (isPlaying) {
@@ -365,25 +304,18 @@ export function useAudioEngine() {
   }, [isPlaying, play, pause])
 
   const seek = useCallback((time: number) => {
-    if (mediaRef.current) {
-      mediaRef.current.currentTime = time
-      setCurrentTime(time)
-    }
+    const el = mediaRef.current
+    if (!el) return
+    const max = Number.isFinite(el.duration) ? el.duration : time
+    const clamped = Math.max(0, Math.min(time, max))
+    el.currentTime = clamped
     if (videoRef.current) {
-      videoRef.current.currentTime = time
+      try {
+        videoRef.current.currentTime = clamped
+      } catch {}
     }
-    if ('mediaSession' in navigator && mediaRef.current) {
-      const el = mediaRef.current
-      if (Number.isFinite(el.duration) && el.duration > 0) {
-        try {
-          navigator.mediaSession.setPositionState({
-            duration: el.duration,
-            playbackRate: 1,
-            position: Math.min(time, el.duration),
-          })
-        } catch {}
-      }
-    }
+    setCurrentTime(clamped)
+    updatePositionState(el)
   }, [setCurrentTime])
 
   const nextTrack = useCallback(() => {
@@ -410,28 +342,156 @@ export function useAudioEngine() {
     setCurrentTrackIndex(index)
   }, [setCurrentTrackIndex])
 
+  // Create persistent audio + silent anchor elements ONCE on mount
+  useEffect(() => {
+    const audio = document.createElement('audio')
+    audio.preload = 'auto'
+    audio.controls = false
+    audio.setAttribute('playsinline', 'true')
+    audio.setAttribute('webkit-playsinline', 'true')
+    audio.setAttribute('x-webkit-airplay', 'allow')
+    hideOffscreen(audio)
+    document.body.appendChild(audio)
+    mediaRef.current = audio
+
+    const silentBlob = createSilentWavBlob()
+    const silentUrl = URL.createObjectURL(silentBlob)
+    const silent = document.createElement('audio')
+    silent.src = silentUrl
+    silent.loop = true
+    silent.preload = 'auto'
+    silent.volume = 0.001
+    silent.setAttribute('data-silent', 'true')
+    silent.setAttribute('playsinline', 'true')
+    hideOffscreen(silent)
+    document.body.appendChild(silent)
+    silent.play().catch(() => {})
+
+    const onTimeUpdate = () => {
+      if (mediaRef.current !== audio) return
+      setCurrentTime(audio.currentTime)
+      const now = performance.now()
+      if (now - lastPosUpdateRef.current > 800) {
+        lastPosUpdateRef.current = now
+        updatePositionState(audio)
+        syncVideoToAudio()
+      }
+    }
+    const onLoadedMetadata = () => {
+      if (mediaRef.current !== audio) return
+      const d = audio.duration
+      if (Number.isFinite(d) && d > 0) {
+        setDuration(d)
+        updatePositionState(audio)
+      }
+    }
+    const onPlay = () => {
+      if (mediaRef.current !== audio) return
+      setPlaying(true)
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.playbackState = 'playing'
+        updatePositionState(audio)
+      }
+      if (videoRef.current && !videoRef.current.paused) {
+        startVideoSync()
+      } else if (videoRef.current && videoRef.current.src) {
+        try {
+          videoRef.current.currentTime = audio.currentTime
+          videoRef.current.play().catch(() => {})
+        } catch {}
+        startVideoSync()
+      }
+    }
+    const onPause = () => {
+      if (mediaRef.current !== audio) return
+      if (document.visibilityState === 'visible' || audio.ended) {
+        setPlaying(false)
+        if ('mediaSession' in navigator) {
+          navigator.mediaSession.playbackState = 'paused'
+          updatePositionState(audio)
+        }
+        stopRaf()
+      }
+    }
+    const onEnded = () => {
+      if (mediaRef.current !== audio) return
+      handleTrackEnd()
+    }
+    const onError = () => {
+      if (mediaRef.current !== audio) return
+      const track = usePlayerStore.getState().queue[usePlayerStore.getState().currentTrackIndex]
+      showError(`Audio error: ${track?.name || 'unknown'}`)
+      setPlaying(false)
+    }
+    const onCanPlay = () => {
+      if (mediaRef.current !== audio) return
+      if (pendingPlayRef.current) {
+        pendingPlayRef.current = false
+        play()
+      }
+    }
+
+    audio.addEventListener('timeupdate', onTimeUpdate)
+    audio.addEventListener('loadedmetadata', onLoadedMetadata)
+    audio.addEventListener('durationchange', onLoadedMetadata)
+    audio.addEventListener('play', onPlay)
+    audio.addEventListener('pause', onPause)
+    audio.addEventListener('ended', onEnded)
+    audio.addEventListener('error', onError)
+    audio.addEventListener('canplay', onCanPlay)
+    audio.addEventListener('seeked', () => {
+      if (mediaRef.current === audio) updatePositionState(audio)
+    })
+
+    setAudioSessionType()
+
+    return () => {
+      audio.removeEventListener('timeupdate', onTimeUpdate)
+      audio.removeEventListener('loadedmetadata', onLoadedMetadata)
+      audio.removeEventListener('durationchange', onLoadedMetadata)
+      audio.removeEventListener('play', onPlay)
+      audio.removeEventListener('pause', onPause)
+      audio.removeEventListener('ended', onEnded)
+      audio.removeEventListener('error', onError)
+      audio.removeEventListener('canplay', onCanPlay)
+      audio.pause()
+      audio.removeAttribute('src')
+      audio.load()
+      audio.remove()
+      silent.pause()
+      silent.removeAttribute('src')
+      silent.load()
+      silent.remove()
+      URL.revokeObjectURL(silentUrl)
+      mediaRef.current = null
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Load track when currentTrackIndex or queue changes
   useEffect(() => {
     if (currentTrack && queue.length > 0) {
       loadTrack(currentTrackIndex)
     }
   }, [currentTrackIndex, currentTrack?.id])
 
+  // Volume
   useEffect(() => {
     if (mediaRef.current) {
       mediaRef.current.volume = isMuted ? 0 : volume
     }
   }, [volume, isMuted])
 
+  // Cleanup blob URLs on unmount
   useEffect(() => {
     return () => {
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current)
       }
-      cleanupMedia()
     }
   }, [])
 
-  // CRITICAL: Auto-resume when app returns to foreground (from old working version)
+  // Auto-resume when app returns to foreground
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
@@ -439,31 +499,25 @@ export function useAudioEngine() {
         const el = mediaRef.current
         if (el && wasPlaying && el.paused && !el.ended) {
           setAudioSessionType()
-          el.play().catch(() => {})
+          play()
         }
+        // Re-sync video to audio
+        if (el && videoRef.current && videoRef.current.src && !el.paused) {
+          try {
+            videoRef.current.currentTime = el.currentTime
+            videoRef.current.play().catch(() => {})
+          } catch {}
+          startVideoSync()
+        }
+      } else {
+        // Backgrounding: pause video but keep audio going
+        videoRef.current?.pause()
+        stopRaf()
       }
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
-  }, [])
-
-  // Silent audio anchor: keeps iOS audio session alive when main audio is paused
-  useEffect(() => {
-    const startAnchor = () => {
-      startSilentAnchor()
-      document.removeEventListener('click', startAnchor)
-      document.removeEventListener('touchstart', startAnchor)
-    }
-    document.addEventListener('click', startAnchor, { once: true })
-    document.addEventListener('touchstart', startAnchor, { once: true })
-    // Also try immediately (may work in PWA standalone mode)
-    startSilentAnchor()
-
-    return () => {
-      document.removeEventListener('click', startAnchor)
-      document.removeEventListener('touchstart', startAnchor)
-    }
-  }, [])
+  }, [play, startVideoSync, stopRaf])
 
   return {
     play,
