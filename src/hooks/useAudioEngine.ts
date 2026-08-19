@@ -11,6 +11,57 @@ function setAudioSessionType() {
   }
 }
 
+// Silent audio anchor: keeps iOS audio session alive when main audio is paused
+let silentAnchorEl: HTMLAudioElement | null = null
+let silentAnchorUrl: string | null = null
+
+function createSilentWavBlob(): Blob {
+  const sampleRate = 44100
+  const numSamples = sampleRate * 2
+  const buffer = new ArrayBuffer(44 + numSamples * 2)
+  const view = new DataView(buffer)
+
+  function writeString(offset: number, str: string) {
+    for (let i = 0; i < str.length; i++) {
+      view.setUint8(offset + i, str.charCodeAt(i))
+    }
+  }
+
+  writeString(0, 'RIFF')
+  view.setUint32(4, 36 + numSamples * 2, true)
+  writeString(8, 'WAVE')
+  writeString(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * 2, true)
+  view.setUint16(32, 2, true)
+  view.setUint16(34, 16, true)
+  writeString(36, 'data')
+  view.setUint32(40, numSamples * 2, true)
+  // Samples are all zeros (silent)
+
+  return new Blob([buffer], { type: 'audio/wav' })
+}
+
+function startSilentAnchor() {
+  if (silentAnchorEl) return
+
+  const blob = createSilentWavBlob()
+  silentAnchorUrl = URL.createObjectURL(blob)
+
+  const audio = new Audio()
+  audio.src = silentAnchorUrl
+  audio.loop = true
+  audio.volume = 0
+  audio.muted = true
+  audio.preload = 'auto'
+  audio.play().catch(() => {})
+
+  silentAnchorEl = audio
+}
+
 export function useAudioEngine() {
   const mediaRef = useRef<HTMLMediaElement | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -394,6 +445,24 @@ export function useAudioEngine() {
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [])
+
+  // Silent audio anchor: keeps iOS audio session alive when main audio is paused
+  useEffect(() => {
+    const startAnchor = () => {
+      startSilentAnchor()
+      document.removeEventListener('click', startAnchor)
+      document.removeEventListener('touchstart', startAnchor)
+    }
+    document.addEventListener('click', startAnchor, { once: true })
+    document.addEventListener('touchstart', startAnchor, { once: true })
+    // Also try immediately (may work in PWA standalone mode)
+    startSilentAnchor()
+
+    return () => {
+      document.removeEventListener('click', startAnchor)
+      document.removeEventListener('touchstart', startAnchor)
+    }
   }, [])
 
   return {
