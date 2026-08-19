@@ -3,6 +3,14 @@ import { usePlayerStore } from '../stores/playerStore'
 import { getFileURLFromOPFS } from '../lib/opfs'
 import { showError } from '../components/ui/Toast'
 
+function setAudioSessionType() {
+  if ('audioSession' in navigator) {
+    try {
+      (navigator as any).audioSession.type = 'playback'
+    } catch {}
+  }
+}
+
 export function useAudioEngine() {
   const mediaRef = useRef<HTMLMediaElement | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -55,6 +63,7 @@ export function useAudioEngine() {
       const el = mediaRef.current
       if (el) {
         el.currentTime = 0
+        setAudioSessionType()
         el.play().catch(() => {})
       }
       return
@@ -91,6 +100,7 @@ export function useAudioEngine() {
     audio.preload = 'auto'
     audio.controls = false
     audio.src = url
+    audio.load()
 
     const updatePosition = () => {
       if (!('mediaSession' in navigator)) return
@@ -104,7 +114,6 @@ export function useAudioEngine() {
       } catch {}
     }
 
-    // Single set of event handlers — no duplicates
     audio.addEventListener('timeupdate', () => {
       setCurrentTime(audio.currentTime ?? 0)
       const now = Date.now()
@@ -159,9 +168,7 @@ export function useAudioEngine() {
     })
     audio.addEventListener('pause', () => {
       if (mediaRef.current !== audio) return
-      if (!audio.seeking && (document.visibilityState === 'visible' || audio.ended)) {
-        setPlaying(false)
-      }
+      setPlaying(false)
       if ('mediaSession' in navigator) {
         navigator.mediaSession.playbackState = 'paused'
       }
@@ -204,7 +211,6 @@ export function useAudioEngine() {
         videoContainerRef.current.appendChild(v)
       }
 
-      // Sync video to audio when coming back to foreground
       const onVisible = () => {
         if (document.visibilityState === 'visible' && audio && !audio.paused && videoRef.current) {
           videoRef.current.currentTime = audio.currentTime
@@ -212,7 +218,6 @@ export function useAudioEngine() {
       }
       document.addEventListener('visibilitychange', onVisible)
 
-      // Store cleanup for this track's extra listeners
       cleanupRef.current = () => {
         document.removeEventListener('visibilitychange', onVisible)
       }
@@ -226,6 +231,27 @@ export function useAudioEngine() {
         album: track.album || 'Unknown Album',
       })
     }
+
+    setAudioSessionType()
+
+    // Wait for audio buffer to be ready (prevents play() failures on iOS)
+    await new Promise<void>((resolve) => {
+      const onCanPlay = () => {
+        audio.removeEventListener('canplaythrough', onCanPlay)
+        audio.removeEventListener('error', onError)
+        resolve()
+      }
+      const onError = () => {
+        audio.removeEventListener('canplaythrough', onCanPlay)
+        audio.removeEventListener('error', onError)
+        resolve()
+      }
+      audio.addEventListener('canplaythrough', onCanPlay)
+      audio.addEventListener('error', onError)
+      setTimeout(resolve, 3000)
+    })
+
+    setAudioSessionType()
 
     try {
       await audio.play()
@@ -245,6 +271,8 @@ export function useAudioEngine() {
     const el = mediaRef.current
     if (!el) return
 
+    setAudioSessionType()
+
     try {
       await el.play()
       if ('mediaSession' in navigator) {
@@ -261,9 +289,8 @@ export function useAudioEngine() {
       }
       setPlaying(true)
     } catch (e) {
-      // iOS may reject play() if audio session is stale — retry once after short delay
+      setAudioSessionType()
       try {
-        await new Promise((r) => setTimeout(r, 100))
         await el.play()
         setPlaying(true)
       } catch {
@@ -351,6 +378,22 @@ export function useAudioEngine() {
       }
       cleanupMedia()
     }
+  }, [])
+
+  // CRITICAL: Auto-resume when app returns to foreground (from old working version)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        const { isPlaying: wasPlaying } = usePlayerStore.getState()
+        const el = mediaRef.current
+        if (el && wasPlaying && el.paused && !el.ended) {
+          setAudioSessionType()
+          el.play().catch(() => {})
+        }
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [])
 
   return {
