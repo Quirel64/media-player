@@ -285,9 +285,9 @@ export function useAudioEngine() {
     const el = mediaRef.current
     if (!el) return
     el.pause()
+    // Intentionally do NOT pause the silent anchor — it keeps the iOS session alive
     videoRef.current?.pause()
     stopRaf()
-    // Anchor stays playing — keeps iOS session alive
     setPlaying(false)
     if ('mediaSession' in navigator) {
       navigator.mediaSession.playbackState = 'paused'
@@ -371,8 +371,8 @@ export function useAudioEngine() {
     const onTimeUpdate = () => {
       if (mediaRef.current !== audio) return
       setCurrentTime(audio.currentTime)
-      // Call setPositionState on EVERY timeupdate — no throttle.
-      // This tells iOS the TRACK position, overriding the anchor's position.
+      // Call setPositionState on EVERY timeupdate to override the anchor's position
+      // on the iOS lock screen seek bar
       updatePositionState(audio)
       syncVideoToAudio()
     }
