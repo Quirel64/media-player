@@ -21,6 +21,38 @@ function hideOffscreen(el: HTMLElement) {
   el.style.pointerEvents = 'none'
 }
 
+function createSilentWavBlob(): Blob {
+  const sampleRate = 8000
+  const durationSeconds = 2
+  const numSamples = durationSeconds * sampleRate
+  const blockAlign = 2
+  const dataSize = numSamples * blockAlign
+  const buffer = new ArrayBuffer(44 + dataSize)
+  const view = new DataView(buffer)
+
+  function writeString(offset: number, str: string) {
+    for (let i = 0; i < str.length; i++) {
+      view.setUint8(offset + i, str.charCodeAt(i))
+    }
+  }
+
+  writeString(0, 'RIFF')
+  view.setUint32(4, 36 + dataSize, true)
+  writeString(8, 'WAVE')
+  writeString(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * blockAlign, true)
+  view.setUint16(32, blockAlign, true)
+  view.setUint16(34, 16, true)
+  writeString(36, 'data')
+  view.setUint32(40, dataSize, true)
+
+  return new Blob([buffer], { type: 'audio/wav' })
+}
+
 function updatePositionState(el: HTMLMediaElement | null) {
   if (!el || !('mediaSession' in navigator)) return
   if (!Number.isFinite(el.duration) || el.duration <= 0) return
@@ -167,6 +199,12 @@ export function useAudioEngine() {
 
     setAudioSessionType()
 
+    // Ensure silent anchor is playing (keeps iOS session alive)
+    try {
+      const silentEl = document.querySelector('audio[data-silent="true"]') as HTMLAudioElement | null
+      if (silentEl && silentEl.paused) silentEl.play().catch(() => {})
+    } catch {}
+
     try {
       await el.play()
     } catch (err) {
@@ -247,7 +285,6 @@ export function useAudioEngine() {
     if (!el) return
     el.pause()
     // Intentionally do NOT pause the silent anchor — that tears down the iOS session
-    // and is the #1 reason a later play() silently fails.
     videoRef.current?.pause()
     stopRaf()
     setPlaying(false)
@@ -304,7 +341,7 @@ export function useAudioEngine() {
     setCurrentTrackIndex(index)
   }, [setCurrentTrackIndex])
 
-  // Create persistent audio element ONCE on mount
+  // Create persistent audio + silent anchor elements ONCE on mount
   useEffect(() => {
     const audio = document.createElement('audio')
     audio.preload = 'auto'
@@ -316,12 +353,26 @@ export function useAudioEngine() {
     document.body.appendChild(audio)
     mediaRef.current = audio
 
+    // Silent anchor: never paused, loops forever, keeps iOS session alive
+    const silentBlob = createSilentWavBlob()
+    const silentUrl = URL.createObjectURL(silentBlob)
+    const silent = document.createElement('audio')
+    silent.src = silentUrl
+    silent.loop = true
+    silent.preload = 'auto'
+    silent.volume = 0.001
+    silent.setAttribute('data-silent', 'true')
+    silent.setAttribute('playsinline', 'true')
+    hideOffscreen(silent)
+    document.body.appendChild(silent)
+
     const onTimeUpdate = () => {
       if (mediaRef.current !== audio) return
       setCurrentTime(audio.currentTime)
       const now = performance.now()
       if (now - lastPosUpdateRef.current > 800) {
         lastPosUpdateRef.current = now
+        // Always use TRACK position for lock screen display
         updatePositionState(audio)
         syncVideoToAudio()
       }
@@ -357,6 +408,7 @@ export function useAudioEngine() {
         setPlaying(false)
         if ('mediaSession' in navigator) {
           navigator.mediaSession.playbackState = 'paused'
+          // Set position to TRACK's paused position (not anchor's position)
           updatePositionState(audio)
         }
         stopRaf()
@@ -407,6 +459,11 @@ export function useAudioEngine() {
       audio.removeAttribute('src')
       audio.load()
       audio.remove()
+      silent.pause()
+      silent.removeAttribute('src')
+      silent.load()
+      silent.remove()
+      URL.revokeObjectURL(silentUrl)
       mediaRef.current = null
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -7,8 +7,9 @@ A PWA media player web app that plays audio and video files, built with React + 
 
 ## Architecture
 - **Storage**: OPFS for file blobs, IndexedDB for metadata (tracks, playlists, settings)
-- **Audio engine**: Single `<audio>` element as source of truth for ALL files (audio and video). No Web Audio API. No hidden `<video>` for audio files.
+- **Audio engine**: Single `<audio>` element as source of truth for ALL files (audio and video). No Web Audio API. No hidden `<video>` for audio files. Persistent element created once on mount, only `src` changes per track.
 - **Video display**: For video files, a `<video>` element is created but kept **paused** and seek-framed via `requestAnimationFrame` to show the correct video frame. Only `<audio>` actually plays → single instance, no dual-player issues.
+- **iOS session keeping**: Silent audio anchor (volume=0.001, never paused) loops continuously to keep iOS audio session alive. `setPositionState()` always set to TRACK position (not anchor position) so seek bar shows correct time. Artwork switches between music note (playing) and pause icon (paused).
 - **State**: Zustand store (`playerStore.ts`)
 - **Shuffle**: Fisher-Yates with no-repeat cycling
 - **Media Session API**: Lock screen controls, metadata, seek bar
@@ -66,13 +67,14 @@ Current implementation in `useFolderPicker.ts` handles this correctly.
 ### What We Removed (and Why)
 - **Web Audio API** (`AudioContext`, `GainNode`, `MediaElementAudioSourceNode`): Interfered with iOS media session tracking. Audio now plays directly from `<audio>` element to speakers.
 - **Hidden `<video>` for audio files**: Confused iOS about session type. Audio files now use only `<audio>`.
-- **`navigator.audioSession.type = 'playback'`**: Overrode iOS's automatic session type detection.
+- **`navigator.audioSession.type = 'playback'`**: Initially removed, then **restored** — needed for the PWA/OPFS setup to keep sessions alive.
 - **`previoustrack`/`nexttrack` handlers**: These hide the ±10s skip buttons on iOS lock screen.
 - **Per-track volume** (was via Web Audio gain node): Removed with Web Audio. Global volume still works via `el.volume`.
+- **Silent anchor was temporarily removed**, then **restored** with corrected behavior: never paused, volume=0.001 (not muted), `setPositionState()` always overrides to show track position.
 
 ## File Structure
 - `src/hooks/useAudioEngine.ts` — Core engine: `<audio>` source of truth, `<video>` seek-framed for display, play/pause/seek/next/prev
-- `src/hooks/useMediaSession.ts` — Lock screen handlers: play, pause, seekto, seekbackward, seekforward (NO previoustrack/nexttrack)
+- `src/hooks/useMediaSession.ts` — Lock screen handlers: play, pause, seekto, seekbackward, seekforward (NO previoustrack/nexttrack). Switches artwork based on play/pause state.
 - `src/hooks/useFolderPicker.ts` — File picking, OPFS storage, IndexedDB persistence
 - `src/stores/playerStore.ts` — Zustand state (queue, shuffle, repeat, volume)
 - `src/lib/opfs.ts` — OPFS read/write/delete
@@ -80,6 +82,7 @@ Current implementation in `useFolderPicker.ts` handles this correctly.
 - `src/lib/shuffle.ts` — Fisher-Yates shuffle, track ID generation
 - `src/lib/types.ts` — Track, Playlist, RepeatMode types
 - `src/lib/format.ts` — Shared utilities (formatTime)
+- `src/lib/artwork.ts` — SVG artwork generation for MediaSession lock screen (music note for playing, pause icon for paused)
 - `src/components/player/PlayBar.tsx` — Bottom controls (seek, play, shuffle, repeat)
 - `src/components/player/NowPlaying.tsx` — Video player / audio art display
 - `src/components/playlist/TrackList.tsx` — Track list with selection mode
@@ -105,6 +108,36 @@ User tests on iOS device (Brave browser + Safari) and Windows laptop.
 2. Old videos (16+ years) may have missing duration metadata
 3. Audio files sometimes don't save when adding via file picker (intermittent)
 4. **File persistence bug**: Adding files from a second folder works in-app, but force-closing the app loses the second batch. First batch persists. Likely a race condition in `saveTracks` — the `tx.done` promise may not resolve before force-close. Need to call `requestPersistentStorage()` before each save.
+5. **Silent anchor session keeping**: Current approach uses a looping silent anchor that NEVER pauses + `setPositionState()` always set to TRACK position. If iOS ignores `setPositionState()` and shows anchor position instead, fall back to backup approaches below.
+
+## Backup Approaches for iOS Session Keeping
+If the current "anchor always plays + setPositionState override" approach fails (iOS shows anchor position on seek bar instead of track position), use one of these:
+
+### Approach A: Handoff Pattern
+- Track playing → anchor paused (no conflict)
+- Track paused → anchor playing (session stays alive)
+- Press play → pause anchor, play track
+- Press pause → pause track, start anchor
+- Pros: No seek bar jumping, clean session state
+- Cons: Complex coordination, brief moment where both could be playing
+
+### Approach B: Anchor Rewind
+- Anchor plays continuously (keeps session alive)
+- Rewind anchor to 0 every second (`anchor.currentTime = 0`)
+- This keeps anchor near position 0 while still "playing"
+- Pros: Simple, anchor stays at a known position
+- Cons: Constant rewinding, potential audio glitches
+
+### Approach C: Dual setPositionState
+- Both anchor and track play simultaneously (current approach but with more frequent `setPositionState()` calls)
+- Call `setPositionState()` on every `timeupdate` (not throttled)
+- Pros: Simplest code
+- Cons: May still see brief seek bar jumps between positions
+
+### Approach D: Remove Anchor Entirely
+- No anchor at all, just persistent audio element
+- Risk: iOS may kill session after ~30 seconds of pause (WebKit Bug 261858)
+- Only viable if iOS doesn't actually kill paused sessions in current iOS version
 
 ## Planned Features
 1. **Skip mode toggle**: Switch between ±10s skip buttons and prev/next track buttons on lock screen. Test app has working implementation — simple `setMode()` toggle between `skip10` and `prevnext`. To integrate into main app settings or as a one-button cycle.

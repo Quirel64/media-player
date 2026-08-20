@@ -1,25 +1,31 @@
 import { useEffect, useRef } from 'react'
 import { usePlayerStore } from '../stores/playerStore'
+import { getPlayingArtwork, getPausedArtwork } from '../lib/artwork'
 
 export function useMediaSession() {
   const playRef = useRef<(() => void) | null>(null)
   const pauseRef = useRef<(() => void) | null>(null)
   const seekRef = useRef<((time: number) => void) | null>(null)
 
-  const { currentTrackIndex, queue } = usePlayerStore()
+  const { currentTrackIndex, queue, isPlaying } = usePlayerStore()
   const currentTrack = queue[currentTrackIndex]
 
+  // Update metadata with track info + artwork
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
+    if (!currentTrack) return
 
-    if (currentTrack) {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: currentTrack.name,
-        artist: currentTrack.artist || 'Unknown Artist',
-        album: currentTrack.album || 'Unknown Album',
-      })
-    }
-  }, [currentTrack, currentTrack?.id])
+    const artwork = isPlaying ? getPlayingArtwork() : getPausedArtwork()
+
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: currentTrack.name,
+      artist: currentTrack.artist || 'Unknown Artist',
+      album: currentTrack.album || 'Unknown Album',
+      artwork: [
+        { src: artwork, sizes: '300x300', type: 'image/svg+xml' },
+      ],
+    })
+  }, [currentTrack, currentTrack?.id, isPlaying])
 
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
