@@ -365,6 +365,7 @@ export function useAudioEngine() {
     silent.setAttribute('playsinline', 'true')
     hideOffscreen(silent)
     document.body.appendChild(silent)
+    silent.play().catch(() => {})
 
     const onTimeUpdate = () => {
       if (mediaRef.current !== audio) return
