@@ -68,6 +68,7 @@ function updatePositionState(el: HTMLMediaElement | null) {
 export function useAudioEngine() {
   const mediaRef = useRef<HTMLMediaElement | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const silentRef = useRef<HTMLAudioElement | null>(null)
   const blobUrlRef = useRef<string | null>(null)
   const videoContainerRef = useRef<HTMLDivElement | null>(null)
   const rafRef = useRef(0)
@@ -199,11 +200,13 @@ export function useAudioEngine() {
 
     setAudioSessionType()
 
-    // Ensure silent anchor is playing (keeps iOS session alive)
-    try {
-      const silentEl = document.querySelector('audio[data-silent="true"]') as HTMLAudioElement | null
-      if (silentEl && silentEl.paused) silentEl.play().catch(() => {})
-    } catch {}
+    // CRITICAL: Start silent anchor BEFORE main track.
+    // This registers the iOS audio session. Must await to ensure it starts.
+    if (silentRef.current) {
+      try {
+        await silentRef.current.play()
+      } catch {}
+    }
 
     try {
       await el.play()
@@ -365,7 +368,7 @@ export function useAudioEngine() {
     silent.setAttribute('playsinline', 'true')
     hideOffscreen(silent)
     document.body.appendChild(silent)
-    silent.play().catch(() => {})
+    silentRef.current = silent
 
     const onTimeUpdate = () => {
       if (mediaRef.current !== audio) return
