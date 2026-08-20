@@ -200,11 +200,16 @@ export function useAudioEngine() {
 
     setAudioSessionType()
 
-    // CRITICAL: Start silent anchor BEFORE main track.
-    // This registers the iOS audio session. Must await to ensure it starts.
+    // CRITICAL: On first play, start anchor to register iOS audio session,
+    // then immediately pause it and hand off to the track.
+    // On subsequent plays (resume from pause), anchor is already playing
+    // from the pause() handoff — just pause it and play the track.
     if (silentRef.current) {
       try {
-        await silentRef.current.play()
+        if (silentRef.current.paused) {
+          await silentRef.current.play()
+        }
+        silentRef.current.pause()
       } catch {}
     }
 
@@ -287,9 +292,14 @@ export function useAudioEngine() {
     const el = mediaRef.current
     if (!el) return
     el.pause()
-    // Intentionally do NOT pause the silent anchor — that tears down the iOS session
     videoRef.current?.pause()
     stopRaf()
+
+    // HANDOFF: start anchor when track pauses — keeps iOS session alive
+    if (silentRef.current && silentRef.current.paused) {
+      silentRef.current.play().catch(() => {})
+    }
+
     setPlaying(false)
     if ('mediaSession' in navigator) {
       navigator.mediaSession.playbackState = 'paused'
