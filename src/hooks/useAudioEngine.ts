@@ -74,7 +74,6 @@ export function useAudioEngine() {
   const rafRef = useRef(0)
   const cleanupRef = useRef<(() => void) | null>(null)
   const pendingPlayRef = useRef(false)
-  const lastPosUpdateRef = useRef(0)
 
   const {
     isPlaying,
@@ -200,16 +199,10 @@ export function useAudioEngine() {
 
     setAudioSessionType()
 
-    // CRITICAL: On first play, start anchor to register iOS audio session,
-    // then immediately pause it and hand off to the track.
-    // On subsequent plays (resume from pause), anchor is already playing
-    // from the pause() handoff — just pause it and play the track.
+    // Ensure silent anchor is playing — keeps iOS audio session alive
     if (silentRef.current) {
       try {
-        if (silentRef.current.paused) {
-          await silentRef.current.play()
-        }
-        silentRef.current.pause()
+        await silentRef.current.play()
       } catch {}
     }
 
@@ -294,12 +287,7 @@ export function useAudioEngine() {
     el.pause()
     videoRef.current?.pause()
     stopRaf()
-
-    // HANDOFF: start anchor when track pauses — keeps iOS session alive
-    if (silentRef.current && silentRef.current.paused) {
-      silentRef.current.play().catch(() => {})
-    }
-
+    // Anchor stays playing — keeps iOS session alive
     setPlaying(false)
     if ('mediaSession' in navigator) {
       navigator.mediaSession.playbackState = 'paused'
@@ -383,13 +371,10 @@ export function useAudioEngine() {
     const onTimeUpdate = () => {
       if (mediaRef.current !== audio) return
       setCurrentTime(audio.currentTime)
-      const now = performance.now()
-      if (now - lastPosUpdateRef.current > 800) {
-        lastPosUpdateRef.current = now
-        // Always use TRACK position for lock screen display
-        updatePositionState(audio)
-        syncVideoToAudio()
-      }
+      // Call setPositionState on EVERY timeupdate — no throttle.
+      // This tells iOS the TRACK position, overriding the anchor's position.
+      updatePositionState(audio)
+      syncVideoToAudio()
     }
     const onLoadedMetadata = () => {
       if (mediaRef.current !== audio) return

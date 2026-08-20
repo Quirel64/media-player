@@ -110,16 +110,12 @@ User tests on iOS device (Brave browser + Safari) and Windows laptop.
 4. **File persistence bug**: Adding files from a second folder works in-app, but force-closing the app loses the second batch. First batch persists. Likely a race condition in `saveTracks` — the `tx.done` promise may not resolve before force-close. Need to call `requestPersistentStorage()` before each save.
 5. **Silent anchor session keeping**: Current approach uses a looping silent anchor that NEVER pauses + `setPositionState()` always set to TRACK position. If iOS ignores `setPositionState()` and shows anchor position instead, fall back to backup approaches below.
 
-## Backup Approaches for iOS Session Keeping
-If the current "anchor always plays + setPositionState override" approach fails (iOS shows anchor position on seek bar instead of track position), use one of these:
-
-### Approach A: Handoff Pattern
+### Approach A: Handoff Pattern (TESTED - DOES NOT WORK)
 - Track playing → anchor paused (no conflict)
 - Track paused → anchor playing (session stays alive)
 - Press play → pause anchor, play track
 - Press pause → pause track, start anchor
-- Pros: No seek bar jumping, clean session state
-- Cons: Complex coordination, brief moment where both could be playing
+- **TEST RESULT**: Failed. iOS lock screen play/pause controls target the element that is currently playing (the anchor), not through our MediaSession handlers. So when anchor is playing and user presses play on lock screen, iOS plays the anchor directly (bypassing our handler). This causes double-toggle chaos where buttons reverse and state desyncs. **Root cause**: iOS play/pause from lock screen does NOT go through our `setActionHandler` when it has a preferred element — it controls the element directly.
 
 ### Approach B: Anchor Rewind
 - Anchor plays continuously (keeps session alive)
@@ -127,17 +123,20 @@ If the current "anchor always plays + setPositionState override" approach fails 
 - This keeps anchor near position 0 while still "playing"
 - Pros: Simple, anchor stays at a known position
 - Cons: Constant rewinding, potential audio glitches
+- **STATUS: UNTESTED**
 
 ### Approach C: Dual setPositionState
 - Both anchor and track play simultaneously (current approach but with more frequent `setPositionState()` calls)
 - Call `setPositionState()` on every `timeupdate` (not throttled)
 - Pros: Simplest code
 - Cons: May still see brief seek bar jumps between positions
+- **STATUS: CURRENT APPROACH (testing with no throttle)**
 
 ### Approach D: Remove Anchor Entirely
 - No anchor at all, just persistent audio element
 - Risk: iOS may kill session after ~30 seconds of pause (WebKit Bug 261858)
 - Only viable if iOS doesn't actually kill paused sessions in current iOS version
+- **STATUS: TESTED — Does NOT work. iOS kills the session without an active audio element.**
 
 ## Planned Features
 1. **Skip mode toggle**: Switch between ±10s skip buttons and prev/next track buttons on lock screen. Test app has working implementation — simple `setMode()` toggle between `skip10` and `prevnext`. To integrate into main app settings or as a one-button cycle.
