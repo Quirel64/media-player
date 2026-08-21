@@ -65,7 +65,7 @@ iOS Safari has a known bug where dynamically created `<input type="file">` eleme
 Current implementation in `useFolderPicker.ts` handles this correctly.
 
 ### What We Removed (and Why)
-- **Web Audio API** (`AudioContext`, `GainNode`, `MediaElementAudioSourceNode`): Interfered with iOS media session tracking. Audio now plays directly from `<audio>` element to speakers.
+- **Web Audio API** (`AudioContext`, `GainNode`, `MediaElementAudiosourceNode`): Interfered with iOS media session tracking. Audio now plays directly from `<audio>` element to speakers.
 - **Hidden `<video>` for audio files**: Confused iOS about session type. Audio files now use only `<audio>`.
 - **`navigator.audioSession.type = 'playback'`**: Initially removed, then **restored** — needed for the PWA/OPFS setup to keep sessions alive.
 - **`previoustrack`/`nexttrack` handlers**: These hide the ±10s skip buttons on iOS lock screen.
@@ -95,7 +95,7 @@ Current implementation in `useFolderPicker.ts` handles this correctly.
 
 ### Test Projects (reference, not deployed with main app)
 - `custom-lock-screen-media-player/` — DeepSeek's test app with mode toggle, event log, lock screen preview
-- `custom-lock-screen-media-player (1)/` — ChatGPT Sol's simpler test app
+- `custom-lock-screen-media-player (1)/` — ChatGPT Sol's version with **correct handoff implementation** (duration-matched WAV, position-matching, manual rewind, mutex)
 - `custom-lock-screen-media-player (2)/` — Arena.ai's version with working skip mode toggle
 
 ## Testing Notes
@@ -110,35 +110,58 @@ User tests on iOS device (Brave browser + Safari) and Windows laptop.
 4. **File persistence bug**: Adding files from a second folder works in-app, but force-closing the app loses the second batch. First batch persists. Likely a race condition in `saveTracks` — the `tx.done` promise may not resolve before force-close. Need to call `requestPersistentStorage()` before each save.
 5. **Silent anchor session keeping**: Current approach uses a looping silent anchor that NEVER pauses + `setPositionState()` always set to TRACK position. If iOS ignores `setPositionState()` and shows anchor position instead, fall back to backup approaches below.
 
-## Backup Approaches for iOS Session Keeping
-If the current "anchor always plays + setPositionState override" approach fails (iOS shows anchor position on seek bar instead of track position), use one of these:
+## iOS Session Keeping — Complete Research Summary
 
-### Approach A: Handoff Pattern
-- Track playing → anchor paused (no conflict)
-- Track paused → anchor playing (session stays alive)
-- Press play → pause anchor, play track
-- Press pause → pause track, start anchor
-- Pros: No seek bar jumping, clean session state
-- Cons: Complex coordination, brief moment where both could be playing
+### What we've proven through testing:
+1. **Anchor is REQUIRED** — Without any audio element playing in background, iOS kills the session after ~30 seconds
+2. **Two elements playing simultaneously causes seek bar jumping** — iOS reads position from BOTH elements, `setPositionState()` is not strong enough to override
+3. **Handoff (switching which element plays) is too fragile** — iOS's toggle play/pause button gets confused about state, causing reversed buttons and double-tap requirements
+4. **Artwork switching works reliably** — Music note when playing, pause icon when paused, via `MediaMetadata` updates
+5. **`setPositionState()` on every timeupdate doesn't help** — iOS still reads anchor's natural position between calls
+6. **Brave browser's playlist keeps sessions for ~30 minutes** — But their session keeping is in native Rust code, not accessible via JavaScript
 
-### Approach B: Anchor Rewind
-- Anchor plays continuously (keeps session alive)
-- Rewind anchor to 0 every second (`anchor.currentTime = 0`)
-- This keeps anchor near position 0 while still "playing"
-- Pros: Simple, anchor stays at a known position
-- Cons: Constant rewinding, potential audio glitches
+### The correct approach (from ChatGPT Sol's test app):
+**Duration-matched handoff with exclusive ownership:**
 
-### Approach C: Dual setPositionState
-- Both anchor and track play simultaneously (current approach but with more frequent `setPositionState()` calls)
-- Call `setPositionState()` on every `timeupdate` (not throttled)
-- Pros: Simplest code
-- Cons: May still see brief seek bar jumps between positions
+1. **Duration-matched silent WAV**: Generate a silent WAV of the **exact same duration** as the track (not a 2-second loop)
+2. **Position-matching**: When pausing, seek the silent element to the **same position** as the track before playing it
+3. **Exclusive ownership mutex**: `handoffLockRef` prevents both elements from playing simultaneously
+4. **Manual rewind every ~1 second**: Silent element rewinds itself to keep seek bar frozen at paused position
+5. **`playbackRate: 0` when paused**: Tells iOS "this is frozen" so seek bar doesn't move
+6. **`onSilentPause` auto-restart**: If iOS pauses the placeholder, immediately restart it
+7. **Ignore flags**: `ignoreTrackPauseRef`/`ignoreSilentPauseRef` prevent event re-entry during handoff
 
-### Approach D: Remove Anchor Entirely
-- No anchor at all, just persistent audio element
-- Risk: iOS may kill session after ~30 seconds of pause (WebKit Bug 261858)
-- Only viable if iOS doesn't actually kill paused sessions in current iOS version
+### The handoff flow:
+```
+PLAYING (owner=track):
+  Track plays, silent paused
+  setPositionState(track.duration, track.currentTime, playbackRate: 1)
+
+PAUSE:
+  1. Save frozenPos = track.currentTime
+  2. Pause track (with ignore flag)
+  3. Generate silent WAV of same duration as track
+  4. Seek silent to frozenPos (with 1.2s headroom so it never hits ended)
+  5. Play silent → it owns the session
+  6. Silent rewinds itself every ~1s → seek bar stays frozen
+  7. setPositionState(track.duration, frozenPos, playbackRate: 0)
+
+RESUME:
+  1. Stop silent (with ignore flag)
+  2. Restore track.currentTime = frozenPos
+  3. Play track → it owns the session
+  4. setPositionState(track.duration, track.currentTime, playbackRate: 1)
+```
+
+### Why this works:
+- Only ONE element plays at a time → no seek bar jumping
+- Duration matches → no duration conflict on seek bar
+- Position matches → no position jump when switching
+- Rewind keeps seek bar frozen → no movement while paused
+- Auto-restart prevents iOS from killing the session
+- Mutex prevents race conditions during handoff
 
 ## Planned Features
 1. **Skip mode toggle**: Switch between ±10s skip buttons and prev/next track buttons on lock screen. Test app has working implementation — simple `setMode()` toggle between `skip10` and `prevnext`. To integrate into main app settings or as a one-button cycle.
 2. **Playlist feature**: User mentioned as alternative focus.
+3. **Implement duration-matched handoff**: Integrate the correct handoff approach from ChatGPT Sol's test app into the main media-player.
