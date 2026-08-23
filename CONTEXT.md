@@ -95,8 +95,7 @@ Current implementation in `useFolderPicker.ts` handles this correctly.
 
 ### Test Projects (reference, not deployed with main app)
 - `custom-lock-screen-media-player/` — DeepSeek's test app with mode toggle, event log, lock screen preview
-- `custom-lock-screen-media-player (1)/` — ChatGPT Sol's version with **correct handoff implementation** (duration-matched WAV, position-matching, manual rewind, mutex)
-- `custom-lock-screen-media-player (2)/` — Arena.ai's version with working skip mode toggle
+- `custom-lock-screen-media-player-the-new-one/` — ChatGPT Sol patched test app (**PWA handoff fixes**: timeupdate pinning, 0.0001 playbackRate, anchor pause→resume, hard-release anchor, watchdog retries) → deployed at `https://quirel64.github.io/custom-lock-screen-media-player/`
 
 ## Testing Notes
 User tests on iOS device (Brave browser + Safari) and Windows laptop.
@@ -120,48 +119,60 @@ User tests on iOS device (Brave browser + Safari) and Windows laptop.
 5. **`setPositionState()` on every timeupdate doesn't help** — iOS still reads anchor's natural position between calls
 6. **Brave browser's playlist keeps sessions for ~30 minutes** — But their session keeping is in native Rust code, not accessible via JavaScript
 
-### The correct approach (from ChatGPT Sol's test app):
-**Duration-matched handoff with exclusive ownership:**
+### The correct approach (from ChatGPT Sol's patched test app):
+**Duration-matched handoff with PWA-specific fixes:**
 
-1. **Duration-matched silent WAV**: Generate a silent WAV of the **exact same duration** as the track (not a 2-second loop)
+1. **Duration-matched silent WAV**: Generate a silent WAV of the **exact same duration** as the track (capped at 15 min to limit memory)
 2. **Position-matching**: When pausing, seek the silent element to the **same position** as the track before playing it
 3. **Exclusive ownership mutex**: `handoffLockRef` prevents both elements from playing simultaneously
-4. **Manual rewind every ~1 second**: Silent element rewinds itself to keep seek bar frozen at paused position
-5. **`playbackRate: 0` when paused**: Tells iOS "this is frozen" so seek bar doesn't move
-6. **`onSilentPause` auto-restart**: If iOS pauses the placeholder, immediately restart it
-7. **Ignore flags**: `ignoreTrackPauseRef`/`ignoreSilentPauseRef` prevent event re-entry during handoff
+4. **Near-zero playbackRate (0.0001)**: Anchor crawls so lock-screen clock barely moves even when JS is suspended
+5. **Timeupdate-based pinning**: `requestAnimationFrame` stops on lock screen, but `timeupdate` events still fire — pin anchor from `timeupdate`
+6. **Lock-screen pause while anchor = resume**: While anchor plays, iOS still shows || and fires `pause` — that "pause" really means "resume the real track" (`remotePauseOrResume`)
+7. **Anchor pause event → resume**: In PWA, iOS can pause anchor directly without MediaSession `pause` handler — anchor's native `pause` event also triggers resume
+8. **Hard-release anchor on resume**: `pause()` + `removeAttribute('src')` + `load()` + `revokeObjectURL` so iOS stops treating anchor as active lock-screen item
+9. **Watchdog retries**: PWA may drop first hidden `play()` — retry at 450ms and 1200ms
+10. **Suppress flag**: `suppressAnchorPauseRef` prevents programmatic anchor pauses from triggering resume loop
+11. **Seek while anchor**: Move both track and anchor `currentTime` + `setPositionState` with `frozenDuration`
 
 ### The handoff flow:
 ```
 PLAYING (owner=track):
-  Track plays, silent paused
+  Track plays at playbackRate 1, anchor fully released (no src)
   setPositionState(track.duration, track.currentTime, playbackRate: 1)
 
 PAUSE:
-  1. Save frozenPos = track.currentTime
+  1. Save frozenPos = track.currentTime, frozenDuration = track.duration
   2. Pause track (with ignore flag)
   3. Generate silent WAV of same duration as track
-  4. Seek silent to frozenPos (with 1.2s headroom so it never hits ended)
-  5. Play silent → it owns the session
-  6. Silent rewinds itself every ~1s → seek bar stays frozen
-  7. setPositionState(track.duration, frozenPos, playbackRate: 0)
+  4. Seek silent to frozenPos
+  5. Play silent at playbackRate 0.0001 → it owns the session
+  6. Pin loop: rAF when foregrounded + anchor timeupdate when locked → seek bar frozen
+  7. setPositionState(frozenDuration, frozenPos, playbackRate: 1)
 
-RESUME:
-  1. Stop silent (with ignore flag)
+RESUME (lock-screen pause while anchor owns session → interpreted as resume):
+  1. Hard-release anchor (pause, remove src, revoke URL)
   2. Restore track.currentTime = frozenPos
-  3. Play track → it owns the session
+  3. Play track → it owns the session (with watchdog retries)
   4. setPositionState(track.duration, track.currentTime, playbackRate: 1)
 ```
 
-### Why this works:
-- Only ONE element plays at a time → no seek bar jumping
-- Duration matches → no duration conflict on seek bar
-- Position matches → no position jump when switching
-- Rewind keeps seek bar frozen → no movement while paused
-- Auto-restart prevents iOS from killing the session
-- Mutex prevents race conditions during handoff
+### Why previous version failed on PWA (but worked on web):
+- `requestAnimationFrame` stops when PWA is locked/backgrounded → pin loop never ran → anchor drifted to end
+- Lock-screen center button still showed || (anchor is playing) → pressing it fired `pause` → old code re-handoffed to anchor instead of resuming track
+- In PWA, iOS can pause anchor directly without MediaSession handler → need anchor `pause` event listener
+- Leaving anchor `src` attached made iOS keep treating anchor as active lock-screen item after resume
+
+### Latest test results (2026-08-23):
+- Handoff pause works on both web and PWA (anchor appears, track pauses)
+- PWA required all 4 fixes above to make resume work; web only needed basic handoff
+- Still need to verify: does track audio actually play after PWA resume, or is anchor still taking over?
 
 ## Planned Features
 1. **Skip mode toggle**: Switch between ±10s skip buttons and prev/next track buttons on lock screen. Test app has working implementation — simple `setMode()` toggle between `skip10` and `prevnext`. To integrate into main app settings or as a one-button cycle.
 2. **Playlist feature**: User mentioned as alternative focus.
 3. **Implement duration-matched handoff**: Integrate the correct handoff approach from ChatGPT Sol's test app into the main media-player.
+4. **something something brotger complaints**: addding a value system that influences the yates algorythm based on values given by the user.
+5. **something something brotger complaints2**: adding a stack feature where the user can add stack on top or below a queue which would play first over the current playlist.
+6. **something something brotger complaints3**: addding a value system that influences the yates algorythm based on values given by the user.
+
+

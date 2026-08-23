@@ -21,7 +21,7 @@ export default function App() {
   const currentTrack = queue[currentTrackIndex] || null
 
   const { pickFolder, pickFiles, loadSavedTracks, clearAll, removeTracks } = useFolderPicker()
-  const { play, pause, togglePlay, nextTrack, prevTrack, seek, goToTrack, videoContainerRef } = useAudioEngine()
+  const { play, pause, remotePauseOrResume, togglePlay, nextTrack, prevTrack, seek, goToTrack, videoContainerRef } = useAudioEngine()
   const { setHandlers } = useMediaSession()
 
   useEffect(() => {
@@ -42,11 +42,12 @@ export default function App() {
     setHandlers({
       onPlay: play,
       onPause: pause,
+      onRemotePauseOrResume: remotePauseOrResume,
       onPrev: prevTrack,
       onNext: nextTrack,
       onSeek: seek,
     })
-  }, [play, pause, prevTrack, nextTrack, seek])
+  }, [play, pause, remotePauseOrResume, prevTrack, nextTrack, seek])
 
   const handleSelectTrack = useCallback(
     (index: number) => {

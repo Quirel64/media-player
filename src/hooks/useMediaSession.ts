@@ -5,63 +5,54 @@ import { getPlayingArtwork, getPausedArtwork } from '../lib/artwork'
 export function useMediaSession() {
   const playRef = useRef<(() => void) | null>(null)
   const pauseRef = useRef<(() => void) | null>(null)
+  // When anchor owns session, iOS lock screen still shows || and fires "pause".
+  // That pause really means "resume the real track".
+  const remotePauseOrResumeRef = useRef<(() => void) | null>(null)
   const seekRef = useRef<((time: number) => void) | null>(null)
 
   const { currentTrackIndex, queue, isPlaying } = usePlayerStore()
   const currentTrack = queue[currentTrackIndex]
 
-  // Update metadata with track info + artwork
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
     if (!currentTrack) return
-
     const artwork = isPlaying ? getPlayingArtwork() : getPausedArtwork()
-
     navigator.mediaSession.metadata = new MediaMetadata({
       title: currentTrack.name,
       artist: currentTrack.artist || 'Unknown Artist',
       album: currentTrack.album || 'Unknown Album',
-      artwork: [
-        { src: artwork, sizes: '300x300', type: 'image/svg+xml' },
-      ],
+      artwork: [{ src: artwork, sizes: '300x300', type: 'image/svg+xml' }],
     })
   }, [currentTrack, currentTrack?.id, isPlaying])
 
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
-
     const safeSetHandler = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
       try {
         navigator.mediaSession.setActionHandler(action, handler)
       } catch {}
     }
-
     safeSetHandler('play', () => {
       playRef.current?.()
     })
-
+    // Route through remotePauseOrResume when available so anchor-owned pauses become resumes.
     safeSetHandler('pause', () => {
-      pauseRef.current?.()
+      if (remotePauseOrResumeRef.current) remotePauseOrResumeRef.current()
+      else pauseRef.current?.()
     })
-
     safeSetHandler('seekto', (details) => {
-      if (details.seekTime != null) {
-        seekRef.current?.(details.seekTime)
-      }
+      if (details.seekTime != null) seekRef.current?.(details.seekTime)
     })
-
     safeSetHandler('seekbackward', (details) => {
       const { currentTime } = usePlayerStore.getState()
       const offset = details.seekOffset ?? 10
       seekRef.current?.(Math.max(0, currentTime - offset))
     })
-
     safeSetHandler('seekforward', (details) => {
       const { currentTime, duration } = usePlayerStore.getState()
       const offset = details.seekOffset ?? 10
       seekRef.current?.(Math.min(duration, currentTime + offset))
     })
-
     return () => {
       safeSetHandler('play', null)
       safeSetHandler('pause', null)
@@ -74,12 +65,14 @@ export function useMediaSession() {
   const setHandlers = (handlers: {
     onPlay: () => void
     onPause: () => void
+    onRemotePauseOrResume: () => void
     onPrev: () => void
     onNext: () => void
     onSeek: (time: number) => void
   }) => {
     playRef.current = handlers.onPlay
     pauseRef.current = handlers.onPause
+    remotePauseOrResumeRef.current = handlers.onRemotePauseOrResume
     seekRef.current = handlers.onSeek
   }
 
