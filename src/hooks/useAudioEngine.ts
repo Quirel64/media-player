@@ -313,39 +313,30 @@ export function useAudioEngine() {
     } catch {}
 
     setAudioSessionType()
-    try {
-      await anchor.play()
-    } catch {
-      await new Promise((r) => setTimeout(r, 100))
-      try {
-        setAudioSessionType()
-        await anchor.play()
-      } catch {
-        return
-      }
-    }
+    // ISOLATION TEST: don't actually play the anchor. We want to see if the
+    // session stays alive for 6 min with correct ▶️ artwork, without anchor playing.
+    // Original anchor.play() block is commented out — restore if isolation fails.
+    // try {
+    //   await anchor.play()
+    // } catch {
+    //   await new Promise((r) => setTimeout(r, 100))
+    //   try {
+    //     setAudioSessionType()
+    //     await anchor.play()
+    //   } catch {
+    //     return
+    //   }
+    // }
 
-    // Near-zero playbackRate: lock-screen clock barely moves even if JS is suspended.
-    try {
-      anchor.playbackRate = 0.0001
-    } catch {
-      try {
-        anchor.playbackRate = 0.0625
-      } catch {}
-    }
+    // Keep position published so lock screen shows frozen seek bar.
+    publishPosition(frozenDurationRef.current, frozenPosRef.current, 0)
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
 
-    // rAF pin loop for foreground; timeupdate handles background (rAF stops on lock screen).
-    stopPinRaf()
-    const pin = () => {
-      const a = silentRef.current
-      if (!a || a.paused || ownerRef.current !== 'anchor') return
-      pinAnchor()
-      rafPinRef.current = requestAnimationFrame(pin)
-    }
-    rafPinRef.current = requestAnimationFrame(pin)
+    // Isolation: anchor not playing, so no playbackRate/pin loop needed.
 
     ownerRef.current = 'anchor'
-    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
+    // Keep paused artwork (▶️) — isolation tests whether session survives
+    // without anchor actually playing.
   }, [ensureAnchorDuration, pinAnchor, stopPinRaf])
 
   const handleTrackEnd = useCallback(() => {
