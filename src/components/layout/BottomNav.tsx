@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion'
 
-export type TabId = 'add' | 'library' | 'playlists'
+export type TabId = 'add' | 'library' | 'playlists' | 'logs'
 
 interface BottomNavProps {
   activeTab: TabId
@@ -12,6 +12,7 @@ const tabs: { id: TabId; label: string; icon: string }[] = [
   { id: 'add', label: 'Add', icon: '+' },
   { id: 'library', label: 'Library', icon: '♫' },
   { id: 'playlists', label: 'Playlists', icon: '📋' },
+  { id: 'logs', label: 'Logs', icon: '≡' },
 ]
 
 export function BottomNav({ activeTab, onTabChange, trackCount }: BottomNavProps) {

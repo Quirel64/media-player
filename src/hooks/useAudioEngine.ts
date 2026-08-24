@@ -2,6 +2,7 @@ import { useRef, useEffect, useCallback } from 'react'
 import { usePlayerStore } from '../stores/playerStore'
 import { getFileURLFromOPFS } from '../lib/opfs'
 import { showError } from '../components/ui/Toast'
+import { addLog } from '../lib/logger'
 
 /* 
   PLAIN LANGUAGE OVERVIEW
@@ -372,115 +373,152 @@ export function useAudioEngine() {
 
     ownerRef.current = 'anchor'
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
+    addLog(`handoff -> ANCHOR @ ${pos.toFixed(1)}s / ${dur.toFixed(1)}s`)
   }, [ensureAnchorDuration, pinAnchor, stopPinRaf])
 
   const handleTrackEnd = useCallback(() => {
     const { repeatMode, getNextTrackIndex } = usePlayerStore.getState()
+    addLog(`track ended, repeat=${repeatMode}`)
     if (repeatMode === 'one') {
       const el = mediaRef.current
       if (el) {
         el.currentTime = 0
         setAudioSessionType()
-        el.play().catch(() => {})
+        el.play().catch((e) => addLog(`repeat-one play failed: ${String(e)}`))
       }
       return
     }
     const nextIndex = getNextTrackIndex()
     if (nextIndex !== null) {
+      addLog(`auto-next to index ${nextIndex}`)
       setCurrentTrackIndex(nextIndex)
     } else {
       setPlaying(false)
-      // Keep session alive at end of playlist too
+      addLog('end of queue -> anchor')
       void handoffToAnchor()
     }
   }, [setCurrentTrackIndex, setPlaying, handoffToAnchor])
 
   // PLAY: anchor -> track (exclusive handoff)
-  // This is where PWA resume was breaking: if el.play() failed, we handed straight
-  // back to anchor, so user saw "anchor paused then nothing". Now we keep retrying.
-  const play = useCallback(async () => {
+  // FIX: keep the user tap gesture for PWA. The first el.play() is called
+  // synchronously (no await before it) so iOS still sees it as "user tapped lock screen".
+  const play = useCallback(() => {
     const el = mediaRef.current
     if (!el || !el.src) return
     if (handoffLockRef.current) return
     handoffLockRef.current = true
 
-    try {
-      // If we were paused, restore saved position before playing
-      if (ownerRef.current === 'anchor') {
-        try {
-          el.currentTime = frozenPosRef.current
-        } catch {}
-      }
-
-      // Kill anchor BEFORE starting track (never both playing)
-      hardReleaseAnchor()
-      setAudioSessionType()
-
+    // If we were paused, restore saved position before playing
+    if (ownerRef.current === 'anchor') {
       try {
-        if (el.readyState < 2) {
-          pendingPlayRef.current = true
-          el.load()
-          return
-        }
-        await el.play()
-      } catch (err) {
-        // PWA: first play() from lock screen can be dropped even though it's a user gesture.
-        // Don't immediately give up and go back to anchor - that hides the failure.
-        // The watchdog below will retry; we just log the reason.
-        console.warn('[play] first attempt failed, will retry:', err)
-        await new Promise((r) => setTimeout(r, 120))
-        try {
-          setAudioSessionType()
-          await el.play()
-        } catch (err2) {
-          console.warn('[play] retry failed, keeping track as owner for watchdog:', err2)
-          // Keep owner as track so watchdog retries can still fire (don't hand back to anchor yet)
-          ownerRef.current = 'track'
-          setPlaying(false)
-          if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
-          // Don't auto-handoff - let watchdog try again. If still failed after 2s, handoff will be retried on next pause.
-          return
-        }
-      }
-
-      const video = videoRef.current
-      if (video && video.src) {
-        try {
-          video.pause()
-          video.currentTime = el.currentTime
-        } catch {}
-      }
-
-      pendingPlayRef.current = false
-      ownerRef.current = 'track'
-      setPlaying(true)
-      if ('mediaSession' in navigator) {
-        navigator.mediaSession.playbackState = 'playing'
-        publishPosition(el.duration, el.currentTime, 1)
-      }
-      startVideoSync()
-    } finally {
-      handoffLockRef.current = false
+        el.currentTime = frozenPosRef.current
+      } catch {}
+      addLog(`resume from anchor @ ${frozenPosRef.current.toFixed(1)}s`)
     }
+
+    // Kill anchor BEFORE starting track (never both playing) - synchronous, keeps gesture
+    hardReleaseAnchor()
+    setAudioSessionType()
+
+    if (el.readyState < 2) {
+      pendingPlayRef.current = true
+      el.load()
+      handoffLockRef.current = false
+      addLog('play deferred: readyState <2, waiting for canplay')
+      return
+    }
+
+    // Call play synchronously to keep the user gesture (don't await before this)
+    const playPromise = el.play()
+    if (!playPromise) {
+      handoffLockRef.current = false
+      return
+    }
+
+    playPromise
+      .then(() => {
+        const video = videoRef.current
+        if (video && video.src) {
+          try {
+            video.pause()
+            video.currentTime = el.currentTime
+          } catch {}
+        }
+        pendingPlayRef.current = false
+        ownerRef.current = 'track'
+        setPlaying(true)
+        if ('mediaSession' in navigator) {
+          navigator.mediaSession.playbackState = 'playing'
+          publishPosition(el.duration, el.currentTime, 1)
+        }
+        startVideoSync()
+        addLog(`play succeeded @ ${el.currentTime.toFixed(1)}s`)
+        handoffLockRef.current = false
+      })
+      .catch((err) => {
+        const msg = String(err)
+        const isNotAllowed = msg.includes('NotAllowedError')
+        addLog(`play failed: ${msg} ${isNotAllowed ? '(PWA needs tap - will retry)' : ''}`)
+        console.warn('[play] first attempt failed:', err)
+
+        // Retry after a short delay - watchdog will also retry at 450/1200ms
+        window.setTimeout(() => {
+          setAudioSessionType()
+          const retryPromise = el.play()
+          if (!retryPromise) {
+            handoffLockRef.current = false
+            return
+          }
+          retryPromise
+            .then(() => {
+              pendingPlayRef.current = false
+              ownerRef.current = 'track'
+              setPlaying(true)
+              if ('mediaSession' in navigator) {
+                navigator.mediaSession.playbackState = 'playing'
+                publishPosition(el.duration, el.currentTime, 1)
+              }
+              startVideoSync()
+              addLog(`play retry succeeded @ ${el.currentTime.toFixed(1)}s`)
+              handoffLockRef.current = false
+            })
+            .catch((err2) => {
+              addLog(`play retry failed: ${String(err2)}`)
+              console.warn('[play] retry failed:', err2)
+              // Keep as track so watchdog can still try, don't auto-handoff to anchor
+              ownerRef.current = 'track'
+              setPlaying(false)
+              if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
+              if (isNotAllowed) showError(`Play blocked: ${String(err2).slice(0, 80)} - tap again`)
+              handoffLockRef.current = false
+            })
+        }, 120)
+      })
   }, [setPlaying, startVideoSync, hardReleaseAnchor])
 
   // Resume with retries: PWA sometimes drops the first play() when hidden, so retry at 450ms and 1200ms
   const requestResumeFromAnchor = useCallback(
-    (_source: string) => {
+    (source: string) => {
       const now = Date.now()
-      if (now - lastResumeRef.current < 650) return
+      if (now - lastResumeRef.current < 650) {
+        addLog(`resume ${source} ignored (debounce)`)
+        return
+      }
       lastResumeRef.current = now
-      void play()
+      addLog(`resume requested via ${source}`)
+      play()
       window.setTimeout(() => {
         const track = mediaRef.current
         if (ownerRef.current === 'track' && track && track.paused && !track.ended) {
-          void play()
+          addLog('watchdog retry #1')
+          play()
         }
       }, 450)
       window.setTimeout(() => {
         const track = mediaRef.current
         if (ownerRef.current === 'track' && track && track.paused && !track.ended) {
-          void play()
+          addLog('watchdog retry #2')
+          play()
         }
       }, 1200)
     },
@@ -580,6 +618,7 @@ export function useAudioEngine() {
         publishPosition(el.duration, pos, 0)
       }
 
+      addLog(`pause @ ${pos.toFixed(1)}s -> handing to anchor`)
       await handoffToAnchor()
       publishPosition(frozenDurationRef.current || el.duration, frozenPosRef.current, 0)
     } finally {
@@ -593,6 +632,7 @@ export function useAudioEngine() {
     const owner = ownerRef.current
     const anchor = silentRef.current
     const track = mediaRef.current
+    addLog(`remote pause/resume: owner=${owner} trackPaused=${track?.paused} anchorPaused=${anchor?.paused}`)
     if (owner === 'anchor' || (track?.paused && anchor && !anchor.paused)) {
       requestResumeFromAnchor('mediaSession-pause')
       return
@@ -790,6 +830,7 @@ export function useAudioEngine() {
     const onCanPlay = () => {
       if (mediaRef.current !== audio) return
       if (pendingPlayRef.current) {
+        addLog(`canplay -> pendingPlay true, calling play()`)
         pendingPlayRef.current = false
         play()
       }

@@ -11,6 +11,7 @@ import { useFolderPicker } from './hooks/useFolderPicker'
 import { usePlayerStore } from './stores/playerStore'
 import { requestPersistentStorage, getSetting, saveSetting } from './lib/idb'
 import { ToastContainer } from './components/ui/Toast'
+import { EventLog } from './components/ui/EventLog'
 import type { TabId } from './components/layout/BottomNav'
 import type { Track } from './lib/types'
 import type { LockScreenMode } from './lib/types'
@@ -117,6 +118,18 @@ export default function App() {
             <div className="text-center text-slate-500">
               <div className="mb-2 text-4xl">📋</div>
               <p className="text-sm">Playlists coming soon</p>
+            </div>
+          </div>
+        )
+      case 'logs':
+        return (
+          <div className="flex h-full flex-col p-4">
+            <div className="mb-3">
+              <h2 className="text-sm font-semibold text-white">Debug Log</h2>
+              <p className="text-xs text-slate-500">Shows play/pause/handoff and any NotAllowedError — check here after testing on lock screen.</p>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <EventLog />
             </div>
           </div>
         )
