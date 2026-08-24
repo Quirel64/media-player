@@ -296,21 +296,17 @@ export function useAudioEngine() {
     }
   }, [])
 
-  // Completely remove silent file so iOS stops treating it as "now playing"
-  // Called before we start the real track again
+  // Release anchor but KEEP the blob URL cached so next handoff is instant.
+  // Before: we revoked the URL and cleared duration -> every pause had to rebuild a 2MB WAV (7s on PWA) while holding handoffLock, so a quick resume tap was ignored.
+  // Now: just pause, keep URL/duration, so ensureAnchorDuration can reuse it instantly.
   const hardReleaseAnchor = useCallback(() => {
     const silent = silentRef.current
     stopPinRaf()
     if (silent) {
       suppressNextAnchorPause()
       silent.pause()
-      silent.removeAttribute('src')
-      silent.load()
-      if (silentUrlRef.current) {
-        URL.revokeObjectURL(silentUrlRef.current)
-        silentUrlRef.current = null
-      }
-      silentDurationRef.current = 0
+      // Don't remove src / revoke URL - keep it cached for instant reuse. Just pause.
+      // iOS stops treating it as active once paused; we don't need to fully unload.
     }
     ownerRef.current = 'track'
   }, [stopPinRaf, suppressNextAnchorPause])
@@ -592,38 +588,34 @@ export function useAudioEngine() {
   const pause = useCallback(async () => {
     const el = mediaRef.current
     if (!el) return
-    if (handoffLockRef.current) return
-    handoffLockRef.current = true
-
-    try {
-      const pos = el.currentTime
-      frozenPosRef.current = pos
-      if (Number.isFinite(el.duration) && el.duration > 0) {
-        frozenDurationRef.current = el.duration
-      }
-
-      // Pause real track, but ignore its "pause" event (we handle handoff ourselves)
-      ignoreTrackPauseRef.current = true
-      el.pause()
-      videoRef.current?.pause()
-      stopRaf()
-      window.setTimeout(() => {
-        ignoreTrackPauseRef.current = false
-      }, 50)
-
-      setPlaying(false)
-      setCurrentTime(pos)
-      if ('mediaSession' in navigator) {
-        navigator.mediaSession.playbackState = 'paused'
-        publishPosition(el.duration, pos, 0)
-      }
-
-      addLog(`pause @ ${pos.toFixed(1)}s -> handing to anchor`)
-      await handoffToAnchor()
-      publishPosition(frozenDurationRef.current || el.duration, frozenPosRef.current, 0)
-    } finally {
-      handoffLockRef.current = false
+    // Don't block pause if a previous handoff is still building - user explicitly paused
+    // (the old handoffLock check here caused resume to be ignored while handoff built)
+    const pos = el.currentTime
+    frozenPosRef.current = pos
+    if (Number.isFinite(el.duration) && el.duration > 0) {
+      frozenDurationRef.current = el.duration
     }
+
+    // Pause real track, but ignore its "pause" event (we handle handoff ourselves)
+    ignoreTrackPauseRef.current = true
+    el.pause()
+    videoRef.current?.pause()
+    stopRaf()
+    window.setTimeout(() => {
+      ignoreTrackPauseRef.current = false
+    }, 50)
+
+    setPlaying(false)
+    setCurrentTime(pos)
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'paused'
+      publishPosition(el.duration, pos, 0)
+    }
+
+    addLog(`pause @ ${pos.toFixed(1)}s -> handing to anchor`)
+    // handoffToAnchor now reuses cached blob, so this is <200ms not 7s
+    await handoffToAnchor()
+    publishPosition(frozenDurationRef.current || el.duration, frozenPosRef.current, 0)
   }, [setPlaying, setCurrentTime, stopRaf, handoffToAnchor])
 
   // When iOS fires "pause" while anchor owns session, that pause really means "resume"
