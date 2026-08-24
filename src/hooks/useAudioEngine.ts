@@ -3,8 +3,27 @@ import { usePlayerStore } from '../stores/playerStore'
 import { getFileURLFromOPFS } from '../lib/opfs'
 import { showError } from '../components/ui/Toast'
 
+/* 
+  PLAIN LANGUAGE OVERVIEW
+  =======================
+  This file is the player brain. One invisible <audio> does all real playback.
+  For videos, a paused <video> is moved frame-by-frame to match the audio.
+
+  The iOS 30-second kill problem:
+  - If you pause and lock the phone, iOS kills the audio session after ~30s.
+  - Fix = "handoff": while playing, ONLY the real track plays.
+             while paused, we pause the track and play a silent WAV that is
+             exactly as long as the track, frozen at the pause position.
+             iOS thinks "something is still playing" so it keeps the session alive.
+             On resume we kill the silent file and resume the real track.
+
+  Only ONE element ever plays at a time -> no seek bar fighting.
+*/
+
+// Who currently owns the iOS audio session
 type SessionOwner = 'idle' | 'track' | 'anchor'
 
+// Tell iOS we want background playback (needed for PWA)
 function setAudioSessionType() {
   if ('audioSession' in navigator) {
     try {
@@ -13,6 +32,7 @@ function setAudioSessionType() {
   }
 }
 
+// Hide an element off-screen but keep it in the DOM (iOS needs it attached)
 function hideOffscreen(el: HTMLElement) {
   el.style.position = 'fixed'
   el.style.left = '-2px'
@@ -23,10 +43,11 @@ function hideOffscreen(el: HTMLElement) {
   el.style.pointerEvents = 'none'
 }
 
-// Cap to 15 min to keep memory reasonable; longer tracks loop + pin.
+// Silent file settings: cap at 15min to avoid huge files, low sample rate is fine for silence
 const MAX_SILENT_SECONDS = 15 * 60
 const SILENT_SAMPLE_RATE = 8000
 
+// Build a silent WAV file in memory of a given duration (seconds)
 function createSilentWavBlob(durationSeconds: number): Blob {
   const seconds = Math.max(1, Math.min(Number(durationSeconds) || 2, MAX_SILENT_SECONDS))
   const numSamples = Math.floor(seconds * SILENT_SAMPLE_RATE)
@@ -53,6 +74,7 @@ function createSilentWavBlob(durationSeconds: number): Blob {
   return new Blob([buffer], { type: 'audio/wav' })
 }
 
+// Tell the lock screen what time to show (so it shows song time, not silent file time)
 function publishPosition(duration: number, position: number, playbackRate: number) {
   if (!('mediaSession' in navigator)) return
   if (!Number.isFinite(duration) || duration <= 0) return
@@ -60,6 +82,7 @@ function publishPosition(duration: number, position: number, playbackRate: numbe
   try {
     navigator.mediaSession.setPositionState({ duration, playbackRate, position: pos })
   } catch {
+    // Some iOS versions reject playbackRate 0, retry with 1
     if (playbackRate === 0) {
       try {
         navigator.mediaSession.setPositionState({ duration, playbackRate: 1, position: pos })
@@ -69,29 +92,30 @@ function publishPosition(duration: number, position: number, playbackRate: numbe
 }
 
 export function useAudioEngine() {
-  const mediaRef = useRef<HTMLMediaElement | null>(null)
-  const videoRef = useRef<HTMLVideoElement | null>(null)
-  const silentRef = useRef<HTMLAudioElement | null>(null)
-  const blobUrlRef = useRef<string | null>(null)
-  const videoContainerRef = useRef<HTMLDivElement | null>(null)
-  const rafRef = useRef(0)
-  const rafPinRef = useRef(0)
-  const cleanupRef = useRef<(() => void) | null>(null)
-  const pendingPlayRef = useRef(false)
+  // --- Elements (created once, never recreated) ---
+  const mediaRef = useRef<HTMLMediaElement | null>(null) // real track
+  const videoRef = useRef<HTMLVideoElement | null>(null) // paused video for picture
+  const silentRef = useRef<HTMLAudioElement | null>(null) // silent keep-alive
+  const blobUrlRef = useRef<string | null>(null) // URL for current track file
+  const videoContainerRef = useRef<HTMLDivElement | null>(null) // where video gets inserted
 
-  // Handoff state
-  const ownerRef = useRef<SessionOwner>('idle')
-  const frozenPosRef = useRef(0)
-  const frozenDurationRef = useRef(0)
-  const handoffLockRef = useRef(false)
-  const ignoreTrackPauseRef = useRef(false)
-  const suppressAnchorPauseRef = useRef(false)
-  const lastResumeRef = useRef(0)
-  const silentUrlRef = useRef<string | null>(null)
-  const silentDurationRef = useRef(0)
+  // --- Animation frames ---
+  const rafRef = useRef(0) // video sync loop
+  const rafPinRef = useRef(0) // silent pin loop (only when app visible)
+
+  // --- Handoff state (the core of the 30s fix) ---
+  const ownerRef = useRef<SessionOwner>('idle') // who owns iOS session right now
+  const frozenPosRef = useRef(0) // where we paused (so we can resume there)
+  const frozenDurationRef = useRef(0) // track duration at pause
+  const handoffLockRef = useRef(false) // prevents play+pause at same time
+  const ignoreTrackPauseRef = useRef(false) // ignore the pause event we triggered ourselves
+  const suppressAnchorPauseRef = useRef(false) // ignore anchor pause we triggered ourselves
+  const lastResumeRef = useRef(0) // debounce resume
+  const silentUrlRef = useRef<string | null>(null) // URL for silent file
+  const silentDurationRef = useRef(0) // how long silent file actually is
+  const pendingPlayRef = useRef(false) // track was requested before file loaded
 
   const {
-    isPlaying: _isPlaying,
     currentTrackIndex,
     volume,
     isMuted,
@@ -103,8 +127,8 @@ export function useAudioEngine() {
   } = usePlayerStore()
 
   const currentTrack = queue[currentTrackIndex]
-  const currentTrackRef = useRef(currentTrack)
-  currentTrackRef.current = currentTrack
+
+  // --- Small helpers ---
 
   const stopRaf = useCallback(() => {
     if (rafRef.current) {
@@ -120,13 +144,17 @@ export function useAudioEngine() {
     }
   }, [])
 
-  const suppressNextAnchorPause = useCallback((_reason: string) => {
+  // For 700ms after we pause the anchor ourselves, ignore its "pause" event
+  // (otherwise it would think user pressed pause and try to resume)
+  const suppressNextAnchorPause = useCallback(() => {
     suppressAnchorPauseRef.current = true
     window.setTimeout(() => {
       suppressAnchorPauseRef.current = false
     }, 700)
   }, [])
 
+  // Keep silent file frozen at paused position + keep lock screen bar showing that position
+  // This runs from BOTH rAF (when app visible) and timeupdate (when locked - rAF stops)
   const pinAnchor = useCallback(() => {
     const silent = silentRef.current
     if (!silent || ownerRef.current !== 'anchor') return
@@ -152,6 +180,7 @@ export function useAudioEngine() {
     }
   }, [])
 
+  // Keep paused video picture in sync with audio (only when track is playing)
   const startVideoSync = useCallback(() => {
     stopRaf()
     const tick = () => {
@@ -173,10 +202,6 @@ export function useAudioEngine() {
   }, [stopRaf])
 
   const cleanupVideo = useCallback(() => {
-    if (cleanupRef.current) {
-      cleanupRef.current()
-      cleanupRef.current = null
-    }
     if (videoRef.current) {
       const v = videoRef.current
       v.pause()
@@ -226,21 +251,21 @@ export function useAudioEngine() {
       video.src = url
       video.load()
     }
-    video.pause()
+    video.pause() // always start paused, audio drives playback
   }, [])
 
+  // Make sure silent file has same duration as current track (reuse if already close)
   const ensureAnchorDuration = useCallback(async (trackDuration: number) => {
     const silent = silentRef.current
     if (!silent) return
     const target = Math.max(1, Number.isFinite(trackDuration) ? trackDuration : 2)
-    // Reuse if within 0.5s - avoid rebuilding same duration
     if (
       silentUrlRef.current &&
       Math.abs(silentDurationRef.current - target) < 0.5 &&
       Number.isFinite(silent.duration) &&
       silent.duration > 0
     )
-      return
+      return // already correct, reuse
 
     if (silentUrlRef.current) {
       URL.revokeObjectURL(silentUrlRef.current)
@@ -265,19 +290,18 @@ export function useAudioEngine() {
         resolve()
       }, 500)
     })
-    // Actual duration may differ slightly from target
     if (Number.isFinite(silent.duration) && silent.duration > 0) {
       silentDurationRef.current = silent.duration
     }
   }, [])
 
-  // Hard-release anchor: stop pinning, pause, remove src, revoke blob.
-  // Prevents iOS PWA from still treating anchor as active lock-screen item.
+  // Completely remove silent file so iOS stops treating it as "now playing"
+  // Called before we start the real track again
   const hardReleaseAnchor = useCallback(() => {
     const silent = silentRef.current
     stopPinRaf()
     if (silent) {
-      suppressNextAnchorPause('handoff-to-track')
+      suppressNextAnchorPause()
       silent.pause()
       silent.removeAttribute('src')
       silent.load()
@@ -290,6 +314,8 @@ export function useAudioEngine() {
     ownerRef.current = 'track'
   }, [stopPinRaf, suppressNextAnchorPause])
 
+  // PAUSE HANDOFF: track -> silent
+  // Save position, build silent file of same length, jump to same time, play it almost frozen
   const handoffToAnchor = useCallback(async () => {
     const track = mediaRef.current
     const anchor = silentRef.current
@@ -325,6 +351,7 @@ export function useAudioEngine() {
       }
     }
 
+    // Crawl super slowly so even if iOS reads anchor time, it barely moves
     try {
       anchor.playbackRate = 0.0001
     } catch {
@@ -333,6 +360,7 @@ export function useAudioEngine() {
       } catch {}
     }
 
+    // Pin loop for when app is visible (when locked, timeupdate does the pinning)
     stopPinRaf()
     const pin = () => {
       const a = silentRef.current
@@ -362,11 +390,12 @@ export function useAudioEngine() {
       setCurrentTrackIndex(nextIndex)
     } else {
       setPlaying(false)
-      // Keep session alive at end-of-playlist via anchor at final position.
+      // Keep session alive at end of playlist too
       void handoffToAnchor()
     }
   }, [setCurrentTrackIndex, setPlaying, handoffToAnchor])
 
+  // PLAY: anchor -> track (exclusive handoff)
   const play = useCallback(async () => {
     const el = mediaRef.current
     if (!el || !el.src) return
@@ -374,14 +403,14 @@ export function useAudioEngine() {
     handoffLockRef.current = true
 
     try {
-      // If anchor owns session, restore track position first.
+      // If we were paused, restore saved position before playing
       if (ownerRef.current === 'anchor') {
         try {
           el.currentTime = frozenPosRef.current
         } catch {}
       }
 
-      // Exclusive handoff: hard-release anchor BEFORE starting track.
+      // Kill anchor BEFORE starting track (never both playing)
       hardReleaseAnchor()
       setAudioSessionType()
 
@@ -426,7 +455,7 @@ export function useAudioEngine() {
     }
   }, [setPlaying, startVideoSync, hardReleaseAnchor, handoffToAnchor])
 
-  // Resume from anchor with watchdog retries (PWA may drop first hidden play).
+  // Resume with retries: PWA sometimes drops the first play() when hidden, so retry at 450ms and 1200ms
   const requestResumeFromAnchor = useCallback(
     (_source: string) => {
       const now = Date.now()
@@ -458,7 +487,7 @@ export function useAudioEngine() {
       stopRaf()
       cleanupVideo()
       stopPinRaf()
-      suppressNextAnchorPause('load-track')
+      suppressNextAnchorPause()
       silentRef.current?.pause()
       ownerRef.current = 'idle'
       frozenPosRef.current = 0
@@ -524,6 +553,7 @@ export function useAudioEngine() {
         frozenDurationRef.current = el.duration
       }
 
+      // Pause real track, but ignore its "pause" event (we handle handoff ourselves)
       ignoreTrackPauseRef.current = true
       el.pause()
       videoRef.current?.pause()
@@ -540,16 +570,14 @@ export function useAudioEngine() {
       }
 
       await handoffToAnchor()
-      // Publish frozen position after handoff so lock screen shows correct seek bar.
       publishPosition(frozenDurationRef.current || el.duration, frozenPosRef.current, 0)
     } finally {
       handoffLockRef.current = false
     }
   }, [setPlaying, setCurrentTime, stopRaf, handoffToAnchor])
 
-  // Called when iOS fires MediaSession "pause" while anchor owns session.
-  // In that state the lock-screen center button still shows || (something is playing)
-  // so that "pause" really means "resume the real track".
+  // When iOS fires "pause" while anchor owns session, that pause really means "resume"
+  // (lock screen still shows || because anchor is playing)
   const remotePauseOrResume = useCallback(() => {
     const owner = ownerRef.current
     const anchor = silentRef.current
@@ -585,7 +613,7 @@ export function useAudioEngine() {
           videoRef.current.currentTime = clamped
         } catch {}
       }
-      // If anchor owns session, keep it pinned to new position so scrub-while-paused doesn't jump.
+      // If paused (anchor owns), move anchor too so scrubbing doesn't jump back
       if (ownerRef.current === 'anchor' && silentRef.current) {
         try {
           const a = silentRef.current
@@ -635,7 +663,7 @@ export function useAudioEngine() {
     setCurrentTrackIndex(index)
   }, [setCurrentTrackIndex])
 
-  // Create persistent audio + silent anchor elements ONCE on mount
+  // Create the two audio elements ONCE when app starts
   useEffect(() => {
     const audio = document.createElement('audio')
     audio.preload = 'auto'
@@ -650,15 +678,15 @@ export function useAudioEngine() {
     const silent = document.createElement('audio')
     silent.preload = 'auto'
     silent.loop = true
-    silent.volume = 0.001
+    silent.volume = 0.001 // not 0, not muted - iOS requires audible volume to keep session
     silent.setAttribute('data-silent', 'true')
     silent.setAttribute('playsinline', 'true')
     hideOffscreen(silent)
     document.body.appendChild(silent)
     silentRef.current = silent
 
+    // Anchor events: timeupdate is the only one that still fires on lock screen
     const onAnchorTimeUpdate = () => {
-      // rAF is suspended on lock screen, but timeupdate still fires for the active anchor.
       pinAnchor()
     }
     const onAnchorPlay = () => {
@@ -672,11 +700,10 @@ export function useAudioEngine() {
     const onAnchorPause = () => {
       if (ownerRef.current === 'anchor') {
         if (suppressAnchorPauseRef.current) return
-        // If MediaSession pause already triggered a resume within 800ms, ignore this duplicate native event.
-        if (Date.now() - lastResumeRef.current < 800) return
-        // If another app (YouTube) interrupted while we're fully backgrounded, don't fight it — just release.
+        if (Date.now() - lastResumeRef.current < 800) return // duplicate with mediaSession pause
+        // If another app interrupted while backgrounded, don't fight - just release
         if (document.hidden) {
-          suppressNextAnchorPause('system-interruption')
+          suppressNextAnchorPause()
           stopPinRaf()
           silent.pause()
           silent.removeAttribute('src')
@@ -690,7 +717,7 @@ export function useAudioEngine() {
           if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
           return
         }
-        // PWA quirk: iOS can pause anchor directly without MediaSession pause handler.
+        // PWA quirk: iOS paused anchor directly, not via mediaSession handler -> treat as resume
         requestResumeFromAnchor('anchor-pause-event')
       }
     }
@@ -698,9 +725,10 @@ export function useAudioEngine() {
     silent.addEventListener('play', onAnchorPlay)
     silent.addEventListener('pause', onAnchorPause)
 
+    // Real track events
     const onTimeUpdate = () => {
       if (mediaRef.current !== audio) return
-      if (ownerRef.current === 'anchor') return
+      if (ownerRef.current === 'anchor') return // ignore when anchor owns session
       setCurrentTime(audio.currentTime)
       publishPosition(audio.duration, audio.currentTime, 1)
       syncVideoToAudio()
@@ -735,7 +763,7 @@ export function useAudioEngine() {
     const onPause = () => {
       if (mediaRef.current !== audio) return
       if (ignoreTrackPauseRef.current) return
-      // Handoff is handled in pause(). This only fires for unexpected pauses.
+      // Real handoff is handled in pause(), this is just for unexpected pauses
     }
     const onEnded = () => {
       if (mediaRef.current !== audio) return
@@ -801,14 +829,14 @@ export function useAudioEngine() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Load track when currentTrackIndex or queue changes
+  // When user picks a different track, load it
   useEffect(() => {
     if (currentTrack && queue.length > 0) {
       loadTrack(currentTrackIndex)
     }
   }, [currentTrackIndex, currentTrack?.id])
 
-  // Volume
+  // Keep volume in sync
   useEffect(() => {
     if (mediaRef.current) {
       mediaRef.current.volume = isMuted ? 0 : volume
@@ -824,7 +852,7 @@ export function useAudioEngine() {
     }
   }, [])
 
-  // Auto-resume when app returns to foreground
+  // When app comes back to front, fix up playback
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
@@ -836,8 +864,6 @@ export function useAudioEngine() {
           play()
         } else if (ownerRef.current === 'anchor' && silent && silent.paused) {
           setAudioSessionType()
-          // Anchor was paused while backgrounded - restart it to keep session alive.
-          // If user actually wants to resume, the next lock-screen tap will do it.
           silent.play().catch(() => {})
         }
         if (ownerRef.current === 'track' && el && videoRef.current && videoRef.current.src && !el.paused) {
