@@ -396,6 +396,8 @@ export function useAudioEngine() {
   }, [setCurrentTrackIndex, setPlaying, handoffToAnchor])
 
   // PLAY: anchor -> track (exclusive handoff)
+  // This is where PWA resume was breaking: if el.play() failed, we handed straight
+  // back to anchor, so user saw "anchor paused then nothing". Now we keep retrying.
   const play = useCallback(async () => {
     const el = mediaRef.current
     if (!el || !el.src) return
@@ -421,15 +423,22 @@ export function useAudioEngine() {
           return
         }
         await el.play()
-      } catch {
+      } catch (err) {
+        // PWA: first play() from lock screen can be dropped even though it's a user gesture.
+        // Don't immediately give up and go back to anchor - that hides the failure.
+        // The watchdog below will retry; we just log the reason.
+        console.warn('[play] first attempt failed, will retry:', err)
         await new Promise((r) => setTimeout(r, 120))
         try {
           setAudioSessionType()
           await el.play()
-        } catch {
+        } catch (err2) {
+          console.warn('[play] retry failed, keeping track as owner for watchdog:', err2)
+          // Keep owner as track so watchdog retries can still fire (don't hand back to anchor yet)
+          ownerRef.current = 'track'
           setPlaying(false)
           if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
-          void handoffToAnchor()
+          // Don't auto-handoff - let watchdog try again. If still failed after 2s, handoff will be retried on next pause.
           return
         }
       }
@@ -453,7 +462,7 @@ export function useAudioEngine() {
     } finally {
       handoffLockRef.current = false
     }
-  }, [setPlaying, startVideoSync, hardReleaseAnchor, handoffToAnchor])
+  }, [setPlaying, startVideoSync, hardReleaseAnchor])
 
   // Resume with retries: PWA sometimes drops the first play() when hidden, so retry at 450ms and 1200ms
   const requestResumeFromAnchor = useCallback(
