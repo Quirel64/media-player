@@ -13,7 +13,7 @@ interface PlayBarProps {
 }
 
 export function PlayBar({ currentTrack, onTogglePlay, onNext, onPrev, onSeek }: PlayBarProps) {
-  const { isPlaying, currentTime, duration, volume, isMuted, shuffleOn, repeatMode, queue, setVolume, toggleMute, toggleShuffle, cycleRepeat } =
+  const { isPlaying, currentTime, duration, volume, isMuted, shuffleOn, repeatMode, queue, lockScreenMode, setVolume, toggleMute, toggleShuffle, cycleRepeat, toggleLockScreenMode } =
     usePlayerStore()
 
   const seekBarRef = useRef<HTMLDivElement>(null)
@@ -175,6 +175,20 @@ export function PlayBar({ currentTrack, onTogglePlay, onNext, onPrev, onSeek }: 
               )}
             </button>
           )}
+          {/* Lock screen mode toggle: skip10 (±10s) vs prevnext (<< >>) */}
+          <button
+            onClick={toggleLockScreenMode}
+            className="ml-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-wide transition-colors"
+            style={{
+              borderColor: lockScreenMode === 'skip10' ? '#6366f1' : '#334155',
+              color: lockScreenMode === 'skip10' ? '#818cf8' : '#94a3b8',
+              background: lockScreenMode === 'skip10' ? 'rgba(99,102,241,0.12)' : 'transparent',
+              touchAction: 'manipulation',
+            }}
+            title={lockScreenMode === 'skip10' ? 'Lock screen: ±10s skip (tap to switch to Prev/Next)' : 'Lock screen: Prev/Next track (tap to switch to ±10s)'}
+          >
+            {lockScreenMode === 'skip10' ? '±10s' : '◀▶'}
+          </button>
         </div>
 
         {/* Seek bar */}

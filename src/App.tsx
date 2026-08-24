@@ -9,10 +9,11 @@ import { useAudioEngine } from './hooks/useAudioEngine'
 import { useMediaSession } from './hooks/useMediaSession'
 import { useFolderPicker } from './hooks/useFolderPicker'
 import { usePlayerStore } from './stores/playerStore'
-import { requestPersistentStorage } from './lib/idb'
+import { requestPersistentStorage, getSetting, saveSetting } from './lib/idb'
 import { ToastContainer } from './components/ui/Toast'
 import type { TabId } from './components/layout/BottomNav'
 import type { Track } from './lib/types'
+import type { LockScreenMode } from './lib/types'
 
 export default function App() {
   const [ready, setReady] = useState(false)
@@ -27,6 +28,10 @@ export default function App() {
   useEffect(() => {
     const init = async () => {
       await requestPersistentStorage()
+      const savedMode = await getSetting('lockScreenMode') as LockScreenMode | undefined
+      if (savedMode === 'skip10' || savedMode === 'prevnext') {
+        usePlayerStore.getState().setLockScreenMode(savedMode)
+      }
       const tracks = await loadSavedTracks()
       if (tracks.length > 0) {
         setActiveTab('library')
@@ -37,6 +42,12 @@ export default function App() {
     }
     init()
   }, [])
+
+  // Persist lock screen mode
+  const lockScreenMode = usePlayerStore((s) => s.lockScreenMode)
+  useEffect(() => {
+    saveSetting('lockScreenMode', lockScreenMode)
+  }, [lockScreenMode])
 
   useEffect(() => {
     setHandlers({

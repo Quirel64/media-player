@@ -34,3 +34,4 @@ export interface PlayerState {
 }
 
 export type RepeatMode = 'off' | 'all' | 'one'
+export type LockScreenMode = 'skip10' | 'prevnext'

@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion'
+import { usePlayerStore } from '../../stores/playerStore'
 
 interface SidebarProps {
   trackCount: number
@@ -8,6 +9,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ trackCount, onPickFolder, onPickFiles, onClearAll }: SidebarProps) {
+  const { lockScreenMode, toggleLockScreenMode } = usePlayerStore()
   return (
     <div className="flex h-full flex-col p-4">
       <div className="mb-6">
@@ -20,6 +22,24 @@ export function Sidebar({ trackCount, onPickFolder, onPickFiles, onClearAll }: S
         <SidebarItem label="Playlists" count={0} />
         <SidebarItem label="Settings" />
       </nav>
+
+      <div className="mb-4 rounded-lg border border-slate-800 bg-slate-800/50 p-3">
+        <p className="mb-2 text-xs font-semibold text-slate-400">Lock screen buttons</p>
+        <button
+          onClick={toggleLockScreenMode}
+          className="w-full rounded-md px-3 py-2 text-xs font-medium transition-colors"
+          style={{
+            background: lockScreenMode === 'skip10' ? 'rgba(99,102,241,0.15)' : 'rgba(148,163,184,0.12)',
+            color: lockScreenMode === 'skip10' ? '#818cf8' : '#cbd5e1',
+            border: `1px solid ${lockScreenMode === 'skip10' ? '#6366f1' : '#475569'}`,
+          }}
+        >
+          {lockScreenMode === 'skip10' ? '±10s skip (round arrows)' : '◀▶ Prev / Next (chevrons)'}
+        </button>
+        <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">
+          {lockScreenMode === 'skip10' ? 'Lock screen shows ±10s + seek bar' : 'Lock screen shows << >> + seek bar'}
+        </p>
+      </div>
 
       <div className="mt-auto space-y-2">
         <button

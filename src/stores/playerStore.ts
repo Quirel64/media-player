@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Track, RepeatMode } from '../lib/types'
+import type { Track, RepeatMode, LockScreenMode } from '../lib/types'
 import { fisherYatesShuffle } from '../lib/shuffle'
 
 interface PlayerStore {
@@ -12,6 +12,7 @@ interface PlayerStore {
   shuffleOn: boolean
   shuffleOrder: number[]
   repeatMode: RepeatMode
+  lockScreenMode: LockScreenMode
   queue: Track[]
   originalOrder: Track[]
   trackVolumes: Record<string, number>
@@ -23,6 +24,8 @@ interface PlayerStore {
   toggleMute: () => void
   toggleShuffle: () => void
   cycleRepeat: () => void
+  setLockScreenMode: (mode: LockScreenMode) => void
+  toggleLockScreenMode: () => void
   setQueue: (tracks: Track[]) => void
   setOriginalOrder: (tracks: Track[]) => void
   setTrackVolume: (trackId: string, volume: number) => void
@@ -46,6 +49,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   originalOrder: [],
   trackVolumes: {},
 
+  lockScreenMode: 'skip10',
   setPlaying: (playing) => set({ isPlaying: playing }),
   setCurrentTrackIndex: (index) => set({ currentTrackIndex: index }),
   setCurrentTime: (time) => set({ currentTime: time }),
@@ -53,6 +57,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   setVolume: (volume) => set({ volume, isMuted: volume === 0 }),
   toggleMute: () => set((s) => ({ isMuted: !s.isMuted })),
   setShuffleOrder: (order) => set({ shuffleOrder: order }),
+  setLockScreenMode: (mode) => set({ lockScreenMode: mode }),
+  toggleLockScreenMode: () => set((s) => ({ lockScreenMode: s.lockScreenMode === 'skip10' ? 'prevnext' : 'skip10' })),
 
   toggleShuffle: () => {
     const { shuffleOn, queue, currentTrackIndex } = get()
