@@ -489,7 +489,7 @@ export function useAudioEngine() {
 
   const loadTrack = useCallback(
     async (trackIndex: number) => {
-      const { queue } = usePlayerStore.getState()
+      const { queue, isPlaying: wasPlaying } = usePlayerStore.getState()
       const track = queue[trackIndex]
       if (!track) return
 
@@ -519,7 +519,9 @@ export function useAudioEngine() {
       setCurrentTime(0)
       setDuration(0)
 
-      pendingPlayRef.current = true
+      // Only autoplay if we were already playing (track end -> next, or user pressed next while playing)
+      // Before: always true -> tried to autoplay on first load without gesture -> NotAllowedError + fade out
+      pendingPlayRef.current = wasPlaying
       el.src = url
       el.load()
 
