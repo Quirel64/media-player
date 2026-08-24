@@ -313,30 +313,37 @@ export function useAudioEngine() {
     } catch {}
 
     setAudioSessionType()
-    // ISOLATION TEST: don't actually play the anchor. We want to see if the
-    // session stays alive for 6 min with correct ▶️ artwork, without anchor playing.
-    // Original anchor.play() block is commented out — restore if isolation fails.
-    // try {
-    //   await anchor.play()
-    // } catch {
-    //   await new Promise((r) => setTimeout(r, 100))
-    //   try {
-    //     setAudioSessionType()
-    //     await anchor.play()
-    //   } catch {
-    //     return
-    //   }
-    // }
+    try {
+      await anchor.play()
+    } catch {
+      await new Promise((r) => setTimeout(r, 100))
+      try {
+        setAudioSessionType()
+        await anchor.play()
+      } catch {
+        return
+      }
+    }
 
-    // Keep position published so lock screen shows frozen seek bar.
-    publishPosition(frozenDurationRef.current, frozenPosRef.current, 0)
-    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
+    try {
+      anchor.playbackRate = 0.0001
+    } catch {
+      try {
+        anchor.playbackRate = 0.0625
+      } catch {}
+    }
 
-    // Isolation: anchor not playing, so no playbackRate/pin loop needed.
+    stopPinRaf()
+    const pin = () => {
+      const a = silentRef.current
+      if (!a || a.paused || ownerRef.current !== 'anchor') return
+      pinAnchor()
+      rafPinRef.current = requestAnimationFrame(pin)
+    }
+    rafPinRef.current = requestAnimationFrame(pin)
 
     ownerRef.current = 'anchor'
-    // Keep paused artwork (▶️) — isolation tests whether session survives
-    // without anchor actually playing.
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
   }, [ensureAnchorDuration, pinAnchor, stopPinRaf])
 
   const handleTrackEnd = useCallback(() => {
@@ -665,6 +672,24 @@ export function useAudioEngine() {
     const onAnchorPause = () => {
       if (ownerRef.current === 'anchor') {
         if (suppressAnchorPauseRef.current) return
+        // If MediaSession pause already triggered a resume within 800ms, ignore this duplicate native event.
+        if (Date.now() - lastResumeRef.current < 800) return
+        // If another app (YouTube) interrupted while we're fully backgrounded, don't fight it — just release.
+        if (document.hidden) {
+          suppressNextAnchorPause('system-interruption')
+          stopPinRaf()
+          silent.pause()
+          silent.removeAttribute('src')
+          silent.load()
+          if (silentUrlRef.current) {
+            URL.revokeObjectURL(silentUrlRef.current)
+            silentUrlRef.current = null
+          }
+          silentDurationRef.current = 0
+          ownerRef.current = 'idle'
+          if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
+          return
+        }
         // PWA quirk: iOS can pause anchor directly without MediaSession pause handler.
         requestResumeFromAnchor('anchor-pause-event')
       }
