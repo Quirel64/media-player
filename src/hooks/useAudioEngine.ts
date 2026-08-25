@@ -527,13 +527,32 @@ export function useAudioEngine() {
       const track = queue[trackIndex]
       if (!track) return
 
+      // Keep session alive while loading next track if we were playing.
+      // Before: always went idle + paused anchor -> lock screen showed app icon + "speelt niets af" during the OPFS load (2-3s on PWA), and next play lost its gesture.
+      const keepAlive = wasPlaying && queue.length > 1
+      if (keepAlive) {
+        addLog(`loadTrack ${track.name} - keeping anchor alive while loading (wasPlaying)`)
+        // Don't clear frozenPos - keep last position so anchor stays pinned if needed
+        // Ensure anchor is playing at frozen pos to keep lock screen alive during load
+        if (ownerRef.current !== 'anchor' && silentRef.current?.paused) {
+          // If track was playing, hand off to anchor at current pos so session doesn't die during OPFS fetch
+          const el = mediaRef.current
+          if (el && Number.isFinite(el.duration) && el.duration > 0) {
+            frozenPosRef.current = el.currentTime
+            frozenDurationRef.current = el.duration
+          }
+          void handoffToAnchor()
+        }
+      } else {
+        stopPinRaf()
+        suppressNextAnchorPause()
+        silentRef.current?.pause()
+        ownerRef.current = 'idle'
+        frozenPosRef.current = 0
+      }
+
       stopRaf()
       cleanupVideo()
-      stopPinRaf()
-      suppressNextAnchorPause()
-      silentRef.current?.pause()
-      ownerRef.current = 'idle'
-      frozenPosRef.current = 0
 
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current)
