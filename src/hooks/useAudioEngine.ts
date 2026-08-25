@@ -532,16 +532,26 @@ export function useAudioEngine() {
       const keepAlive = wasPlaying && queue.length > 1
       if (keepAlive) {
         addLog(`loadTrack ${track.name} - keeping anchor alive while loading (wasPlaying)`)
-        // Don't clear frozenPos - keep last position so anchor stays pinned if needed
-        // Ensure anchor is playing at frozen pos to keep lock screen alive during load
         if (ownerRef.current !== 'anchor' && silentRef.current?.paused) {
-          // If track was playing, hand off to anchor at current pos so session doesn't die during OPFS fetch
           const el = mediaRef.current
           if (el && Number.isFinite(el.duration) && el.duration > 0) {
             frozenPosRef.current = el.currentTime
             frozenDurationRef.current = el.duration
           }
           void handoffToAnchor()
+          // For next track, start at 0, not at previous track's end position.
+          // handoffToAnchor just set frozenPos to previous track's end (e.g. 132.8), but new track should start at 0.
+          // Reset to 0 immediately so when new track's play() restores frozenPos it starts at beginning.
+          // Keep a short delay to let handoff set anchor duration, then overwrite.
+          const resetToZero = () => {
+            frozenPosRef.current = 0
+            // Keep duration for new track will be set on loadedmetadata; keep current for now
+          }
+          // Defer to next tick so handoff's sync part (frozenPos = 132.8) happens first, then we overwrite to 0
+          setTimeout(resetToZero, 0)
+        } else if (ownerRef.current === 'anchor') {
+          // Already handing off - just reset frozenPos to 0 for next track's start
+          frozenPosRef.current = 0
         }
       } else {
         stopPinRaf()
