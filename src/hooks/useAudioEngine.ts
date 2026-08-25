@@ -255,18 +255,23 @@ export function useAudioEngine() {
     video.pause() // always start paused, audio drives playback
   }, [])
 
-  // Make sure silent file has same duration as current track (reuse if already close)
+  // Make sure silent file has same duration as current track (reuse cached blob if already close)
   const ensureAnchorDuration = useCallback(async (trackDuration: number) => {
     const silent = silentRef.current
     if (!silent) return
     const target = Math.max(1, Number.isFinite(trackDuration) ? trackDuration : 2)
-    if (
-      silentUrlRef.current &&
-      Math.abs(silentDurationRef.current - target) < 0.5 &&
-      Number.isFinite(silent.duration) &&
-      silent.duration > 0
-    )
-      return // already correct, reuse
+    // Reuse cached blob if duration matches - don't check silent.duration because we remove src on hardRelease (duration becomes NaN but blob is still cached)
+    if (silentUrlRef.current && Math.abs(silentDurationRef.current - target) < 0.5) {
+      // If anchor has no src (we removed it on resume), restore it from cache instantly
+      if (!silent.src || silent.src === '' || silent.src === window.location.href) {
+        silent.src = silentUrlRef.current
+        silent.load()
+        // Don't wait for metadata if we're reusing - duration already known from silentDurationRef
+        addLog(`anchor reused from cache: ${target.toFixed(1)}s`)
+        return
+      }
+      if (Number.isFinite(silent.duration) && silent.duration > 0) return // already correct, reuse
+    }
 
     if (silentUrlRef.current) {
       URL.revokeObjectURL(silentUrlRef.current)
@@ -296,17 +301,19 @@ export function useAudioEngine() {
     }
   }, [])
 
-  // Release anchor but KEEP the blob URL cached so next handoff is instant.
-  // Before: we revoked the URL and cleared duration -> every pause had to rebuild a 2MB WAV (7s on PWA) while holding handoffLock, so a quick resume tap was ignored.
-  // Now: just pause, keep URL/duration, so ensureAnchorDuration can reuse it instantly.
+  // Hard-release anchor so iOS stops treating it as now-playing, but KEEP blob URL cached for instant reuse.
+  // Before (first version): revoked URL every time -> 7s rebuild on PWA, resume tap ignored.
+  // Before (second version): just paused and kept src -> iOS PWA kept anchor as active session, track play succeeded but no audio/bar freeze, and after 2-3 next-tracks the session got confused.
+  // Now: remove src (so iOS fully hands session back to track) but keep cached blob URL + duration for instant restore.
   const hardReleaseAnchor = useCallback(() => {
     const silent = silentRef.current
     stopPinRaf()
     if (silent) {
       suppressNextAnchorPause()
       silent.pause()
-      // Don't remove src / revoke URL - keep it cached for instant reuse. Just pause.
-      // iOS stops treating it as active once paused; we don't need to fully unload.
+      // Remove src so iOS knows anchor is done, but DON'T revoke the cached blob URL - keep it for next handoff
+      silent.removeAttribute('src')
+      silent.load()
     }
     ownerRef.current = 'track'
   }, [stopPinRaf, suppressNextAnchorPause])
