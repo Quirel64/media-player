@@ -67,6 +67,9 @@ export function useAudioEngine() {
   const suppressAnchorPauseRef = useRef(false)
   const lastResumeRef = useRef(0)
   const prevTrackIdRef = useRef<string | null>(null)
+  // Guards for rapid next-track spam (seek bar shenanigans → 'speelt niets af')
+  const loadGenRef = useRef(0)
+  const lastSeekNextRef = useRef(0)
 
   const { currentTrackIndex, queue, volume, isMuted, setPlaying, setCurrentTime, setDuration, setCurrentTrackIndex } = usePlayerStore()
   const currentTrack = queue[currentTrackIndex]
@@ -382,9 +385,16 @@ export function useAudioEngine() {
     const isNearEnd = Number.isFinite(el.duration) && el.duration > 0 && clamped >= el.duration - 0.4
     const { isPlaying: wasPlaying } = usePlayerStore.getState()
     if (isNearEnd && wasPlaying && ownerRef.current === 'track') {
+      const now = Date.now()
+      // Debounce rapid seek spam — previous fix for 'speelt niets af' after shenanigans
+      if (pendingPlayRef.current || now - lastSeekNextRef.current < 500) {
+        addLog(`seek near end ignored (debounce pendingPlay=${pendingPlayRef.current})`)
+        return
+      }
       const { getNextTrackIndex } = usePlayerStore.getState()
       const n = getNextTrackIndex()
       if (n !== null) {
+        lastSeekNextRef.current = now
         addLog(`seek near end ${clamped.toFixed(1)}/${el.duration.toFixed(1)} -> auto-next ${n} (gesture)`)
         el.currentTime = clamped
         frozenPosRef.current = clamped
@@ -443,6 +453,7 @@ export function useAudioEngine() {
   }, [setCurrentTrackIndex, setPlaying, handoffToAnchor])
 
   const loadTrack = useCallback(async (trackIndex: number) => {
+    const gen = ++loadGenRef.current
     const { queue: q, isPlaying: wasPlaying } = usePlayerStore.getState()
     const track = q[trackIndex]
     if (!track) return
@@ -453,6 +464,8 @@ export function useAudioEngine() {
     }
 
     // Keep anchor alive while OPFS loads next file if we were playing -> no "speelt niets af" gap on lock screen
+    // Plain English: if we were playing and there's a queue, don't let iOS think silence = dead session.
+    // Instead, keep the silent anchor playing at the old track's end position until the new file is ready.
     const keepAlive = wasPlaying && q.length > 1
     if (keepAlive) {
       if (ownerRef.current !== 'anchor' && anchorRef.current?.paused) {
@@ -480,15 +493,28 @@ export function useAudioEngine() {
     if (blobUrlRef.current) { URL.revokeObjectURL(blobUrlRef.current); blobUrlRef.current = null }
 
     const url = await getFileURLFromOPFS(track.fileName)
+    // If user spammed next/seek, a newer loadTrack already started — abandon this stale one
+    if (gen !== loadGenRef.current) {
+      addLog(`load [${trackIndex+1}] stale (gen ${gen} vs ${loadGenRef.current}) abandoned`)
+      if (url) URL.revokeObjectURL(url)
+      return
+    }
     if (!url) { showError(`File not found: ${track.fileName}`); return }
     blobUrlRef.current = url
 
     const el = mediaRef.current
     if (!el) return
+    // Fresh track always starts at 0 in the UI, even while file loads
     setCurrentTime(0)
     setDuration(0)
     pendingPlayRef.current = wasPlaying
     prevTrackIdRef.current = track.id
+    if (gen !== loadGenRef.current) {
+      addLog(`load stale after OPFS (gen ${gen}) abandoned before src set`)
+      URL.revokeObjectURL(url)
+      blobUrlRef.current = null
+      return
+    }
     el.src = url
     el.load()
 
