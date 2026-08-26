@@ -3,143 +3,88 @@ import { usePlayerStore } from '../stores/playerStore'
 import { getPlayingArtwork, getPausedArtwork } from '../lib/artwork'
 
 /*
-  PLAIN LANGUAGE OVERVIEW
-  =======================
-  This file talks to the iPhone lock screen.
-
-  What it does:
-  1. Shows song info on lock screen (title, artist, cover art)
-     - When playing: music note artwork
-     - When paused (anchor keeping session alive): pause icon artwork
-     -> This is how user knows "is it really paused?" since iOS always shows || while anchor plays
-
-  2. Tells iOS which buttons to show on lock screen:
-     - skip10 mode:  registers seekbackward/seekforward  -> round ±10s arrows + seek bar
-     - prevnext mode: registers previoustrack/nexttrack  -> << >> chevrons + seek bar
-     - NEVER both at once -> iOS bug makes it random depending on version/PWA vs browser
-     Your toggle in PlayBar switches lockScreenMode and this file re-registers handlers
-
-  3. Handles button presses from lock screen:
-     - play  -> play the real track
-     - pause -> SPECIAL: while anchor owns session, iOS still shows || and fires "pause"
-              that pause really means "resume the real track" (remotePauseOrResume)
-     - seekto / seekbackward / seekforward -> jump in song
-     - previoustrack / nexttrack -> switch song (only in prevnext mode)
+  Lock screen bridge.
+  - Shows title/artist/artwork (note when playing, pause icon when paused via anchor)
+  - Registers either skip10 (±10s) or prevnext (<< >>) buttons, never both (iOS bug)
+  - Central pause button routes through remotePauseOrResume because while anchor plays iOS still shows || and pause really means resume
 */
 
 export function useMediaSession() {
-  // Refs so lock screen handlers always call the LATEST functions
-  // (iOS keeps the handler even after React re-renders, so we use refs)
   const playRef = useRef<(() => void) | null>(null)
   const pauseRef = useRef<(() => void) | null>(null)
-  // When anchor owns session, "pause" from lock screen means "resume track"
   const remotePauseOrResumeRef = useRef<(() => void) | null>(null)
-  const seekRef = useRef<((time: number) => void) | null>(null)
+  const seekRef = useRef<((t: number) => void) | null>(null)
   const prevRef = useRef<(() => void) | null>(null)
   const nextRef = useRef<(() => void) | null>(null)
 
   const { currentTrackIndex, queue, isPlaying, lockScreenMode } = usePlayerStore()
   const currentTrack = queue[currentTrackIndex]
 
-  // Keep lock screen song info + artwork in sync
+  // Artwork sync
   useEffect(() => {
-    if (!('mediaSession' in navigator)) return
-    if (!currentTrack) return
-    // Swap artwork so user can tell "real playing" vs "paused but anchor keeping alive"
-    const artwork = isPlaying ? getPlayingArtwork() : getPausedArtwork()
+    if (!('mediaSession' in navigator) || !currentTrack) return
+    const art = isPlaying ? getPlayingArtwork() : getPausedArtwork()
     navigator.mediaSession.metadata = new MediaMetadata({
       title: currentTrack.name,
       artist: currentTrack.artist || 'Unknown Artist',
       album: currentTrack.album || 'Unknown Album',
-      artwork: [{ src: artwork, sizes: '300x300', type: 'image/svg+xml' }],
+      artwork: [{ src: art, sizes: '300x300', type: 'image/svg+xml' }],
     })
   }, [currentTrack, currentTrack?.id, isPlaying])
 
-  // Register lock screen button handlers - re-runs when user toggles mode
+  // Button handlers — re-register when mode toggles
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
-    const safeSetHandler = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
-      try {
-        navigator.mediaSession.setActionHandler(action, handler)
-      } catch {
-        // Some browsers don't support all actions, ignore
-      }
+    const safe = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
+      try { navigator.mediaSession.setActionHandler(action, handler) } catch { /* ignore */ }
     }
 
-    // Center play button on lock screen
-    safeSetHandler('play', () => {
-      playRef.current?.()
-    })
-
-    // Center pause button - ROUTES THROUGH remotePauseOrResume
-    // Why: when anchor is playing (paused state), lock screen still shows ||
-    // so this "pause" actually means "resume the real song"
-    safeSetHandler('pause', () => {
+    safe('play', () => playRef.current?.())
+    safe('pause', () => {
       if (remotePauseOrResumeRef.current) remotePauseOrResumeRef.current()
       else pauseRef.current?.()
     })
+    safe('seekto', (d) => { if (d.seekTime != null) seekRef.current?.(d.seekTime) })
 
-    // Dragging the seek bar on lock screen
-    safeSetHandler('seekto', (details) => {
-      if (details.seekTime != null) seekRef.current?.(details.seekTime)
-    })
-
-    // --- Toggle logic: ONLY ONE set at a time (iOS bug if both) ---
     if (lockScreenMode === 'skip10') {
-      // Show round ±10s arrows - good for scrubbing inside a track
-      safeSetHandler('seekbackward', (details) => {
+      safe('seekbackward', (d) => {
         const { currentTime } = usePlayerStore.getState()
-        const offset = details.seekOffset ?? 10
-        seekRef.current?.(Math.max(0, currentTime - offset))
+        seekRef.current?.(Math.max(0, currentTime - (d.seekOffset ?? 10)))
       })
-      safeSetHandler('seekforward', (details) => {
+      safe('seekforward', (d) => {
         const { currentTime, duration } = usePlayerStore.getState()
-        const offset = details.seekOffset ?? 10
-        seekRef.current?.(Math.min(duration, currentTime + offset))
+        seekRef.current?.(Math.min(duration, currentTime + (d.seekOffset ?? 10)))
       })
-      // Turn OFF chevrons so iOS doesn't get confused
-      safeSetHandler('previoustrack', null)
-      safeSetHandler('nexttrack', null)
+      safe('previoustrack', null)
+      safe('nexttrack', null)
     } else {
-      // Show << >> chevrons - good for switching tracks
-      safeSetHandler('previoustrack', () => {
-        prevRef.current?.()
-      })
-      safeSetHandler('nexttrack', () => {
-        nextRef.current?.()
-      })
-      // Turn OFF skip arrows
-      safeSetHandler('seekbackward', null)
-      safeSetHandler('seekforward', null)
+      safe('previoustrack', () => prevRef.current?.())
+      safe('nexttrack', () => nextRef.current?.())
+      safe('seekbackward', null)
+      safe('seekforward', null)
     }
 
-    // Cleanup when component unmounts or mode changes
     return () => {
-      safeSetHandler('play', null)
-      safeSetHandler('pause', null)
-      safeSetHandler('seekto', null)
-      safeSetHandler('seekbackward', null)
-      safeSetHandler('seekforward', null)
-      safeSetHandler('previoustrack', null)
-      safeSetHandler('nexttrack', null)
+      safe('play', null); safe('pause', null); safe('seekto', null)
+      safe('seekbackward', null); safe('seekforward', null)
+      safe('previoustrack', null); safe('nexttrack', null)
     }
   }, [lockScreenMode])
 
-  // Called from App.tsx to wire up real functions (play, pause, etc.)
-  const setHandlers = (handlers: {
+  const setHandlers = (h: {
     onPlay: () => void
     onPause: () => void
-    onRemotePauseOrResume: () => void // the special pause->resume handler
+    onRemotePauseOrResume: () => void
     onPrev: () => void
     onNext: () => void
-    onSeek: (time: number) => void
+    onSeek: (t: number) => void
   }) => {
-    playRef.current = handlers.onPlay
-    pauseRef.current = handlers.onPause
-    remotePauseOrResumeRef.current = handlers.onRemotePauseOrResume
-    prevRef.current = handlers.onPrev
-    nextRef.current = handlers.onNext
-    seekRef.current = handlers.onSeek
+    playRef.current = h.onPlay
+    pauseRef.current = h.onPause
+    remotePauseOrResumeRef.current = h.onRemotePauseOrResume
+    prevRef.current = h.onPrev
+    nextRef.current = h.onNext
+    seekRef.current = h.onSeek
   }
 
   return { setHandlers }
