@@ -4,6 +4,7 @@ import { getFileURLFromOPFS } from '../lib/opfs'
 import { showError } from '../components/ui/Toast'
 import { addLog } from '../lib/logger'
 import { createSilentWavBlob } from '../lib/silentAudio'
+import { getPlayingArtwork, getPausedArtwork } from '../lib/artwork'
 
 /*
   Clean rebuild — iOS 30s pause persistence via silent-anchor handoff.
@@ -244,9 +245,13 @@ export function useAudioEngine() {
     const el = mediaRef.current
     if (!el || !el.src) { addLog('play aborted: no src'); return }
 
-    if (ownerRef.current === 'anchor') {
+    // For auto-next (pendingPlay), new track must start at 0, not old frozenPos
+    const isResumeFromPause = ownerRef.current === 'anchor' && !pendingPlayRef.current
+    if (isResumeFromPause) {
       try { el.currentTime = frozenPosRef.current } catch { /* ignore */ }
       addLog(`resume from anchor @ ${frozenPosRef.current.toFixed(1)}s`)
+    } else if (ownerRef.current === 'anchor' && pendingPlayRef.current) {
+      addLog(`auto-next from anchor, ignore frozen ${frozenPosRef.current.toFixed(1)}s -> start 0`)
     }
 
     releaseAnchor()
@@ -435,7 +440,9 @@ export function useAudioEngine() {
           frozenPosRef.current = el.currentTime
           frozenDurationRef.current = el.duration
         }
-        void handoffToAnchor().then(() => { frozenPosRef.current = 0 })
+        void handoffToAnchor()
+        // Don't reset frozenPos to 0 here — play() will ignore it for auto-next via pendingPlay guard
+        // Lock screen stays frozen at old track's position until new track starts
       } else if (ownerRef.current === 'anchor') {
         frozenPosRef.current = 0
       }
@@ -466,9 +473,17 @@ export function useAudioEngine() {
     if (track.mediaType === 'video') attachVideo(url)
 
     if ('mediaSession' in navigator) {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: track.name, artist: track.artist || 'Unknown Artist', album: track.album || 'Unknown Album',
-      })
+      const artwork = wasPlaying ? getPlayingArtwork() : getPausedArtwork()
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: track.name, artist: track.artist || 'Unknown Artist', album: track.album || 'Unknown Album',
+          artwork: [{ src: artwork, sizes: '300x300', type: 'image/svg+xml' }],
+        })
+      } catch {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: track.name, artist: track.artist || 'Unknown Artist', album: track.album || 'Unknown Album',
+        })
+      }
     }
     setAudioSessionType()
     addLog(`load [${trackIndex + 1}/${q.length}] ${track.name} autoplay=${wasPlaying}`)
