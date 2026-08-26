@@ -284,15 +284,19 @@ export function useAudioEngine() {
           startVideoSync()
           addLog(`play retry ok @ ${el.currentTime.toFixed(1)}s`)
         }).catch((e2) => {
-          addLog(`play retry failed: ${String(e2)}`)
+          addLog(`play retry failed: ${String(e2)} — keeping anchor alive`)
+          // PWA background auto-next has no gesture -> keep anchor so session doesn't die after 30s
+          // User can then tap lock-screen pause (which counts as gesture) to retry via watchdog
           ownerRef.current = 'track'
           setPlaying(false)
           if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
           if (notAllowed) showError(`Play blocked: ${String(e2).slice(0, 80)} — tap again`)
+          // Fall back to anchor at current position so lock screen stays alive
+          void handoffToAnchor()
         })
       }, 120)
     })
-  }, [releaseAnchor, setPlaying, startVideoSync])
+  }, [releaseAnchor, setPlaying, startVideoSync, handoffToAnchor])
 
   const requestResumeFromAnchor = useCallback((source: string) => {
     const now = Date.now()
@@ -352,6 +356,24 @@ export function useAudioEngine() {
     if (!el) return
     const max = Number.isFinite(el.duration) ? el.duration : time
     const clamped = Math.max(0, Math.min(time, max))
+    // If user scrubs to within 0.4s of end while playing, treat as "next track" gesture
+    // This preserves the user gesture so PWA next-track play succeeds (ended event has no gesture)
+    const isNearEnd = Number.isFinite(el.duration) && el.duration > 0 && clamped >= el.duration - 0.4
+    const { isPlaying: wasPlaying } = usePlayerStore.getState()
+    if (isNearEnd && wasPlaying && ownerRef.current === 'track') {
+      const { getNextTrackIndex } = usePlayerStore.getState()
+      const n = getNextTrackIndex()
+      if (n !== null) {
+        addLog(`seek near end ${clamped.toFixed(1)}/${el.duration.toFixed(1)} -> auto-next ${n} (gesture)`)
+        el.currentTime = clamped
+        frozenPosRef.current = clamped
+        setCurrentTime(clamped)
+        // Use same gesture-preserving path as >> button
+        setCurrentTrackIndex(n)
+        return
+      }
+    }
+
     el.currentTime = clamped
     frozenPosRef.current = clamped
     if (videoRef.current?.src) { try { videoRef.current.currentTime = clamped } catch { /* ignore */ } }
@@ -369,7 +391,7 @@ export function useAudioEngine() {
       publishPosition(el.duration, clamped, ownerRef.current === 'track' ? 1 : 0)
     }
     setCurrentTime(clamped)
-  }, [setCurrentTime])
+  }, [setCurrentTime, setCurrentTrackIndex])
 
   const nextTrack = useCallback(() => {
     const { getNextTrackIndex } = usePlayerStore.getState()
