@@ -301,19 +301,17 @@ export function useAudioEngine() {
     }
   }, [])
 
-  // Hard-release anchor so iOS stops treating it as now-playing, but KEEP blob URL cached for instant reuse.
-  // Before (first version): revoked URL every time -> 7s rebuild on PWA, resume tap ignored.
-  // Before (second version): just paused and kept src -> iOS PWA kept anchor as active session, track play succeeded but no audio/bar freeze, and after 2-3 next-tracks the session got confused.
-  // Now: remove src (so iOS fully hands session back to track) but keep cached blob URL + duration for instant restore.
+  // Next-track fix from v1: keep anchor src attached, just pause it.
+  // v1 always kept the 2s loop playing, so next-track never lost session during OPFS load.
+  // Exclusive remove-src caused PWA to keep old session after 2-3 switches (play succeeded but no audio).
+  // Now: just pause, keep src + cached blob, so next handoff reuses instantly and session stays alive.
   const hardReleaseAnchor = useCallback(() => {
     const silent = silentRef.current
     stopPinRaf()
     if (silent) {
       suppressNextAnchorPause()
       silent.pause()
-      // Remove src so iOS knows anchor is done, but DON'T revoke the cached blob URL - keep it for next handoff
-      silent.removeAttribute('src')
-      silent.load()
+      // Keep src attached (like v1) - only pause, don't unload. Prevents PWA session confusion after many next-tracks.
     }
     ownerRef.current = 'track'
   }, [stopPinRaf, suppressNextAnchorPause])
