@@ -66,6 +66,7 @@ export function useAudioEngine() {
   const pendingPlayRef = useRef(false)
   const suppressAnchorPauseRef = useRef(false)
   const lastResumeRef = useRef(0)
+  const prevTrackIdRef = useRef<string | null>(null)
 
   const { currentTrackIndex, queue, volume, isMuted, setPlaying, setCurrentTime, setDuration, setCurrentTrackIndex } = usePlayerStore()
   const currentTrack = queue[currentTrackIndex]
@@ -245,16 +246,31 @@ export function useAudioEngine() {
     const el = mediaRef.current
     if (!el || !el.src) { addLog('play aborted: no src'); return }
 
-    // For auto-next (pendingPlay), new track must start at 0, not old frozenPos
-    const isResumeFromPause = ownerRef.current === 'anchor' && !pendingPlayRef.current
+    // Three-state idea: pause saves once to frozenPos, play sends it back, then anchor reset to 0.
+    // If track id changed, always start at 0 (new track) regardless of frozenPos.
+    const isNewTrack = currentTrack?.id !== prevTrackIdRef.current
+    const isResumeFromPause = ownerRef.current === 'anchor' && !pendingPlayRef.current && !isNewTrack
     if (isResumeFromPause) {
       try { el.currentTime = frozenPosRef.current } catch { /* ignore */ }
       addLog(`resume from anchor @ ${frozenPosRef.current.toFixed(1)}s`)
     } else if (ownerRef.current === 'anchor' && pendingPlayRef.current) {
-      addLog(`auto-next from anchor, ignore frozen ${frozenPosRef.current.toFixed(1)}s -> start 0`)
+      addLog(`auto-next from anchor, ignore frozen ${frozenPosRef.current.toFixed(1)}s -> start 0 (track ${isNewTrack ? 'changed' : 'same'})`)
+      try { el.currentTime = 0 } catch { /* ignore */ }
+      // Reset anchor so next pause saves cleanly from 0
+      const a = anchorRef.current
+      if (a) { try { a.currentTime = 0 } catch { /* ignore */ } }
+      frozenPosRef.current = 0
+    } else if (isNewTrack && !pendingPlayRef.current) {
+      // Direct track change without pendingPlay (e.g., user tapped track) — ensure 0
+      try { if (el.currentTime !== 0) el.currentTime = 0 } catch { /* ignore */ }
     }
 
     releaseAnchor()
+    // After resume, anchor is paused — also reset its time to 0 so next handoff is clean
+    if (isResumeFromPause) {
+      const a = anchorRef.current
+      if (a) { try { a.currentTime = 0 } catch { /* ignore */ } }
+    }
     setAudioSessionType()
 
     if (el.readyState < 2) {
@@ -430,6 +446,11 @@ export function useAudioEngine() {
     const { queue: q, isPlaying: wasPlaying } = usePlayerStore.getState()
     const track = q[trackIndex]
     if (!track) return
+    const prevId = prevTrackIdRef.current
+    const isTrackChange = prevId !== null && prevId !== track.id
+    if (isTrackChange) {
+      addLog(`track change ${prevId?.slice(0,4)} -> ${track.id.slice(0,4)}: will reset pos to 0`)
+    }
 
     // Keep anchor alive while OPFS loads next file if we were playing -> no "speelt niets af" gap on lock screen
     const keepAlive = wasPlaying && q.length > 1
@@ -467,6 +488,7 @@ export function useAudioEngine() {
     setCurrentTime(0)
     setDuration(0)
     pendingPlayRef.current = wasPlaying
+    prevTrackIdRef.current = track.id
     el.src = url
     el.load()
 
@@ -556,7 +578,7 @@ export function useAudioEngine() {
       const t = usePlayerStore.getState().queue[usePlayerStore.getState().currentTrackIndex]
       showError(`Audio error: ${t?.name || 'unknown'}`); setPlaying(false)
     }
-    const onCanPlay = () => { if (mediaRef.current === audio && pendingPlayRef.current) { addLog('canplay -> play'); pendingPlayRef.current = false; play() } }
+    const onCanPlay = () => { if (mediaRef.current === audio && pendingPlayRef.current) { addLog('canplay -> play'); /* keep pendingPlay true until play() decides */ play() } }
 
     audio.addEventListener('timeupdate', onTimeUpdate)
     audio.addEventListener('loadedmetadata', onLoadedMetadata)
