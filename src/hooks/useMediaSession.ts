@@ -3,10 +3,10 @@ import { usePlayerStore } from '../stores/playerStore'
 import { getPlayingArtwork, getPausedArtwork } from '../lib/artwork'
 
 /*
-  Lock screen bridge.
-  - Shows title/artist/artwork (note when playing, pause icon when paused via anchor)
-  - Registers either skip10 (±10s) or prevnext (<< >>) buttons, never both (iOS bug)
-  - Central pause button routes through remotePauseOrResume because while anchor plays iOS still shows || and pause really means resume
+  Lock screen bridge — single-element freeze (no anchor).
+  - Shows title/artist/artwork (note when playing, pause icon when frozen)
+  - Registers either skip10 (±10s) or prevnext (<< >>) buttons via lockScreenMode toggle, never both (iOS bug)
+  - Central pause button routes through remotePauseOrResume because while frozen we keep audio playing at 0.001 vol — lock still shows ▶️ and pause means resume
 */
 
 export function useMediaSession() {

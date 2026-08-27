@@ -3,7 +3,6 @@ import { usePlayerStore } from '../stores/playerStore'
 import { getFileURLFromOPFS } from '../lib/opfs'
 import { showError } from '../components/ui/Toast'
 import { addLog } from '../lib/logger'
-import { getPlayingArtwork, getPausedArtwork } from '../lib/artwork'
 
 /*
   PLAN 1 — Single-element freeze (no anchor handoff).
@@ -62,6 +61,9 @@ export function useAudioEngine() {
     const target = frozenPosRef.current
     // Always re-assert frozen position — 0.0001 rate still crawls and web may ignore rate, so force every frame
     try { if (Math.abs(el.currentTime - target) > 0.01) el.currentTime = target } catch { /* ignore */ }
+    // Also freeze the fake video element (NowPlaying) — matches test app
+    const v = videoRef.current
+    if (v && v.src) { try { if (Math.abs(v.currentTime - target) > 0.12) v.currentTime = target } catch { /* ignore */ } }
     if (Number.isFinite(frozenDurRef.current) && frozenDurRef.current > 0) {
       try { navigator.mediaSession.setPositionState({ duration: frozenDurRef.current, playbackRate: 1, position: Math.min(target, frozenDurRef.current) }) } catch { /* ignore */ }
     }
@@ -268,11 +270,10 @@ export function useAudioEngine() {
 
     if (track.mediaType==='video') attachVideo(url)
 
+    // Let useMediaSession handle artwork based on isPlaying — don't clobber with wasPlaying
+    // This matches test app single-element and avoids app-icon flash
     if ('mediaSession' in navigator) {
-      const artwork = wasPlaying ? getPlayingArtwork() : getPausedArtwork()
-      try{ navigator.mediaSession.metadata = new MediaMetadata({ title: track.name, artist: track.artist||'Unknown Artist', album: track.album||'Unknown Album', artwork:[{src:artwork, sizes:'300x300', type:'image/svg+xml'}] }) }catch{
-        navigator.mediaSession.metadata = new MediaMetadata({ title: track.name, artist: track.artist||'Unknown Artist', album: track.album||'Unknown Album' })
-      }
+      try{ navigator.mediaSession.metadata = new MediaMetadata({ title: track.name, artist: track.artist||'Unknown Artist', album: track.album||'Unknown Album' }) }catch{ /* ignore */ }
     }
     setAudioSessionType()
     addLog(`load [${idx+1}/${q.length}] ${track.name} autoplay=${wasPlaying}`)
