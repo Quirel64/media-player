@@ -60,7 +60,8 @@ export function useAudioEngine() {
     const el = mediaRef.current
     if (!el || !isFrozenRef.current) return
     const target = frozenPosRef.current
-    if (Math.abs(el.currentTime - target) > 0.03) { try { el.currentTime = target } catch { /* ignore */ } }
+    // Always re-assert frozen position — 0.0001 rate still crawls and web may ignore rate, so force every frame
+    try { if (Math.abs(el.currentTime - target) > 0.01) el.currentTime = target } catch { /* ignore */ }
     if (Number.isFinite(frozenDurRef.current) && frozenDurRef.current > 0) {
       try { navigator.mediaSession.setPositionState({ duration: frozenDurRef.current, playbackRate: 1, position: Math.min(target, frozenDurRef.current) }) } catch { /* ignore */ }
     }
@@ -216,7 +217,12 @@ export function useAudioEngine() {
     addLog(`ended repeat=${repeatMode}`)
     if (repeatMode==='one') { const el=mediaRef.current; if(el){ el.currentTime=0; setAudioSessionType(); el.play().catch(e=>addLog(`repeat-one failed: ${String(e)}`)) } return }
     const n=getNextTrackIndex()
-    if (n!==null){ addLog(`auto-next ${n}`); setCurrentTrackIndex(n) }
+    if (n!==null){
+      addLog(`auto-next ${n}`)
+      // Ensure next load sees autoplay=true even though onPause will set isPlaying=false after ended
+      setPlaying(true)
+      setCurrentTrackIndex(n)
+    }
     else {
       // End of queue — freeze at end to keep session (like pause)
       const el=mediaRef.current
