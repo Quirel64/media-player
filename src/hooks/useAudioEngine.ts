@@ -105,11 +105,13 @@ export function useAudioEngine() {
       // Resume from frozen pause — same track
       if (!isNewTrack) {
         try { el.currentTime = frozenPosRef.current } catch {}
+        setCurrentTime(frozenPosRef.current)
         logFreeze(`unfreeze -> play from ${frozenPosRef.current.toFixed(1)}s`)
       } else {
         // Frozen but track changed (next via seek) — start 0
         try { el.currentTime = 0 } catch {}
         frozenPosRef.current = 0
+        setCurrentTime(0)
         addLog(`auto-next frozen new track -> start 0`)
       }
       try { el.volume = lastVolumeRef.current } catch {}
@@ -118,10 +120,12 @@ export function useAudioEngine() {
       stopPinRaf()
     } else if (isNewTrack && !pendingPlayRef.current) {
       try { if (el.currentTime !== 0) el.currentTime = 0 } catch {}
+      setCurrentTime(0)
     } else if (pendingPlayRef.current && isNewTrack) {
       // Auto-next via pendingPlay — ensure 0
       try { el.currentTime = 0 } catch {}
       frozenPosRef.current = 0
+      setCurrentTime(0)
       addLog(`auto-next pendingPlay new track -> start 0`)
     }
 
@@ -157,6 +161,7 @@ export function useAudioEngine() {
     isFrozenRef.current = true
     setPlaying(false)
     setCurrentTime(frozenPosRef.current)
+    addLog(`freeze setCurrentTime store=${frozenPosRef.current.toFixed(1)} el=${el.currentTime.toFixed(1)}`)
     if ('mediaSession' in navigator) { navigator.mediaSession.playbackState='paused'; publishPosition(frozenDurRef.current, frozenPosRef.current, 0) }
 
     stopPinRaf()
