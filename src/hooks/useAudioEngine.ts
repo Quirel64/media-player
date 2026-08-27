@@ -3,6 +3,7 @@ import { usePlayerStore } from '../stores/playerStore'
 import { getFileURLFromOPFS } from '../lib/opfs'
 import { showError } from '../components/ui/Toast'
 import { addLog } from '../lib/logger'
+import { getPlayingArtwork } from '../lib/artwork'
 
 /*
   PLAN 1 — Single-element freeze (no anchor handoff).
@@ -270,10 +271,12 @@ export function useAudioEngine() {
 
     if (track.mediaType==='video') attachVideo(url)
 
-    // Let useMediaSession handle artwork based on isPlaying — don't clobber with wasPlaying
-    // This matches test app single-element and avoids app-icon flash
+    // Single artwork (no toggle) — include it so load doesn't clobber to app-icon
     if ('mediaSession' in navigator) {
-      try{ navigator.mediaSession.metadata = new MediaMetadata({ title: track.name, artist: track.artist||'Unknown Artist', album: track.album||'Unknown Album' }) }catch{ /* ignore */ }
+      const art = getPlayingArtwork()
+      try{ navigator.mediaSession.metadata = new MediaMetadata({ title: track.name, artist: track.artist||'Unknown Artist', album: track.album||'Unknown Album', artwork: [{ src: art, sizes: '300x300', type: 'image/svg+xml' }] }) }catch{
+        try{ navigator.mediaSession.metadata = new MediaMetadata({ title: track.name, artist: track.artist||'Unknown Artist', album: track.album||'Unknown Album' }) }catch{ /* ignore */ }
+      }
     }
     setAudioSessionType()
     addLog(`load [${idx+1}/${q.length}] ${track.name} autoplay=${wasPlaying}`)

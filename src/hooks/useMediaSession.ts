@@ -1,10 +1,10 @@
 import { useEffect, useRef } from 'react'
 import { usePlayerStore } from '../stores/playerStore'
-import { getPlayingArtwork, getPausedArtwork } from '../lib/artwork'
+import { getPlayingArtwork } from '../lib/artwork'
 
 /*
   Lock screen bridge — single-element freeze (no anchor).
-  - Shows title/artist/artwork (note when playing, pause icon when frozen)
+  - Shows title/artist/artwork — single artwork now (no playing/paused toggle, anchor-era visual hack removed)
   - Registers either skip10 (±10s) or prevnext (<< >>) buttons via lockScreenMode toggle, never both (iOS bug)
   - Central pause button routes through remotePauseOrResume because while frozen we keep audio playing at 0.001 vol — lock still shows ▶️ and pause means resume
 */
@@ -17,20 +17,20 @@ export function useMediaSession() {
   const prevRef = useRef<(() => void) | null>(null)
   const nextRef = useRef<(() => void) | null>(null)
 
-  const { currentTrackIndex, queue, isPlaying, lockScreenMode } = usePlayerStore()
+  const { currentTrackIndex, queue, lockScreenMode } = usePlayerStore()
   const currentTrack = queue[currentTrackIndex]
 
-  // Artwork sync
+  // Artwork sync — single artwork (anchor toggle removed)
   useEffect(() => {
     if (!('mediaSession' in navigator) || !currentTrack) return
-    const art = isPlaying ? getPlayingArtwork() : getPausedArtwork()
+    const art = getPlayingArtwork()
     navigator.mediaSession.metadata = new MediaMetadata({
       title: currentTrack.name,
       artist: currentTrack.artist || 'Unknown Artist',
       album: currentTrack.album || 'Unknown Album',
       artwork: [{ src: art, sizes: '300x300', type: 'image/svg+xml' }],
     })
-  }, [currentTrack, currentTrack?.id, isPlaying])
+  }, [currentTrack, currentTrack?.id])
 
   // Button handlers — re-register when mode toggles
   useEffect(() => {
