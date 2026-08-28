@@ -106,30 +106,37 @@ export function useAudioEngine() {
 
     const isNewTrack = currentTrack?.id !== prevTrackIdRef.current
     if (isFrozenRef.current) {
-      // Resume from frozen pause — same track
+      // Resume from frozen pause — same track: force both bars immediately so lock-screen can't show 131
       if (!isNewTrack) {
         try { el.currentTime = frozenPosRef.current } catch {}
         setCurrentTime(frozenPosRef.current)
+        // Double publish: before and right after play, iOS sometimes shows stale duration/pos for a beat
+        publishPosition(frozenDurRef.current || el.duration, frozenPosRef.current, 1)
         logFreeze(`unfreeze -> play from ${frozenPosRef.current.toFixed(1)}s`)
       } else {
         // Frozen but track changed (next via seek) — start 0
         try { el.currentTime = 0 } catch {}
         frozenPosRef.current = 0
         setCurrentTime(0)
+        publishPosition(el.duration, 0, 1)
         addLog(`auto-next frozen new track -> start 0`)
       }
       try { el.volume = lastVolumeRef.current } catch {}
       try { el.playbackRate = 1 } catch {}
       isFrozenRef.current = false
       stopPinRaf()
+      // Immediate lock-screen correction in case iOS cached 131
+      try { navigator.mediaSession.setPositionState({ duration: el.duration || frozenDurRef.current, playbackRate: 1, position: Math.min(frozenPosRef.current, (el.duration || frozenDurRef.current) - 0.05) }) } catch {}
     } else if (isNewTrack && !pendingPlayRef.current) {
       try { if (el.currentTime !== 0) el.currentTime = 0 } catch {}
       setCurrentTime(0)
+      publishPosition(el.duration, 0, 1)
     } else if (pendingPlayRef.current && isNewTrack) {
       // Auto-next via pendingPlay — ensure 0
       try { el.currentTime = 0 } catch {}
       frozenPosRef.current = 0
       setCurrentTime(0)
+      publishPosition(el.duration, 0, 1)
       addLog(`auto-next pendingPlay new track -> start 0`)
     }
 
@@ -143,6 +150,9 @@ export function useAudioEngine() {
     if (videoRef.current?.src) { try{ videoRef.current.currentTime = el.currentTime; videoRef.current.play().catch(()=>{}) }catch{}; startVideoSync() }
     setIsPlayingWrap(true)
     if ('mediaSession' in navigator) { navigator.mediaSession.playbackState='playing'; publishPosition(el.duration, el.currentTime, 1) }
+    // Force correct lock-screen position 100ms later — iOS sometimes briefly shows stale 131 then snaps
+    window.setTimeout(() => { try { publishPosition(el.duration, el.currentTime, 1); setCurrentTime(el.currentTime) } catch {} }, 120)
+    window.setTimeout(() => { try { publishPosition(el.duration, el.currentTime, 1) } catch {} }, 400)
     addLog(`play ok @ ${el.currentTime.toFixed(1)}s vol=${el.volume}`)
   }, [currentTrack, startVideoSync])
 
