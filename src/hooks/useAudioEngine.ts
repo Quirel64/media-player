@@ -60,15 +60,16 @@ export function useAudioEngine() {
     const el = mediaRef.current
     if (!el || !isFrozenRef.current) return
     const target = frozenPosRef.current
-    // Always re-assert frozen position — 0.0001 rate still crawls and web may ignore rate, so force every frame
+    // Always re-assert frozen position and keep PlayBar store in sync — fixes bar at end while audio at 27.1
     try { if (Math.abs(el.currentTime - target) > 0.01) el.currentTime = target } catch { /* ignore */ }
-    // Also freeze the fake video element (NowPlaying) — matches test app
+    // Keep React store frozen too — onTime is blocked while frozen, so bar would otherwise stay at last non-frozen value
+    if (Math.abs(usePlayerStore.getState().currentTime - target) > 0.05) setCurrentTime(target)
     const v = videoRef.current
     if (v && v.src) { try { if (Math.abs(v.currentTime - target) > 0.12) v.currentTime = target } catch { /* ignore */ } }
     if (Number.isFinite(frozenDurRef.current) && frozenDurRef.current > 0) {
       try { navigator.mediaSession.setPositionState({ duration: frozenDurRef.current, playbackRate: 1, position: Math.min(target, frozenDurRef.current) }) } catch { /* ignore */ }
     }
-  }, [])
+  }, [setCurrentTime])
 
   const startVideoSync = useCallback(() => {
     stopVideoRaf()
