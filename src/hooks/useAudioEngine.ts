@@ -220,15 +220,15 @@ export function useAudioEngine() {
 
   const nextTrack = useCallback(() => {
     const { getNextTrackIndex } = usePlayerStore.getState()
-    const n = getNextTrackIndex(); if (n !== null) setCurrentTrackIndex(n)
-  }, [setCurrentTrackIndex])
+    const n = getNextTrackIndex(); if (n !== null) { setPlaying(true); setCurrentTrackIndex(n) }
+  }, [setCurrentTrackIndex, setPlaying])
   const prevTrack = useCallback(() => {
     const { getPrevTrackIndex, currentTime } = usePlayerStore.getState()
     if (currentTime > 3 || frozenPosRef.current > 3) { seek(0); return }
-    const p = getPrevTrackIndex(); if (p !== null) setCurrentTrackIndex(p)
-  }, [seek, setCurrentTrackIndex])
+    const p = getPrevTrackIndex(); if (p !== null) { setPlaying(usePlayerStore.getState().isPlaying || ownerRef.current==='track'); setCurrentTrackIndex(p) }
+  }, [seek, setCurrentTrackIndex, setPlaying])
 
-  const goToTrack = useCallback((i: number) => setCurrentTrackIndex(i), [setCurrentTrackIndex])
+  const goToTrack = useCallback((i: number) => { setPlaying(true); setCurrentTrackIndex(i) }, [setCurrentTrackIndex, setPlaying])
 
   const handleTrackEnd = useCallback(() => {
     const { getNextTrackIndex, repeatMode } = usePlayerStore.getState()
