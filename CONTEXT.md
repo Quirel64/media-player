@@ -5,14 +5,14 @@ A PWA media player web app that plays audio and video files, built with React + 
 
 **User has iOS devices + Windows laptop only** — no Mac, no Apple Developer account. This is why PWA was chosen over Tauri.
 
-## Architecture
+## Architecture — FINAL (Arena same-element)
 - **Storage**: OPFS for file blobs, IndexedDB for metadata (tracks, playlists, settings)
-- **Audio engine**: Single `<audio>` element as source of truth for ALL files (audio and video). No Web Audio API. No hidden `<video>` for audio files. Persistent element created once on mount, only `src` changes per track.
-- **Video display**: For video files, a `<video>` element is created but kept **paused** and seek-framed via `requestAnimationFrame` to show the correct video frame. Only `<audio>` actually plays → single instance, no dual-player issues.
-- **iOS session keeping**: Silent audio anchor (volume=0.001, never paused) loops continuously to keep iOS audio session alive. `setPositionState()` always set to TRACK position (not anchor position) so seek bar shows correct time. Artwork switches between music note (playing) and pause icon (paused).
+- **Audio engine**: ONE permanent `<audio>` (`controls=true`, hidden offscreen, `audioSession.type='playback'`) that swaps `src` track <-> duration-matched silent placeholder on the SAME element (no second element, no cross-element play). Silent WAV generated via `src/lib/silentAudio.ts` (`createSilentWavUrl`, 60min cap, 8kHz/4kHz, ~2MB for 125s). `HOLD_RATE=0.0000001` (4 months per second) so visual bar doesn't drift even though `rAF` stops when PWA hidden.
+- **Video display**: For video files, a `<video>` element is created but kept **paused** and seek-framed via `requestAnimationFrame` to show the correct frame when `sourceKind==='track'` and `!paused`.
+- **iOS session keeping**: Same-element handoff — `play` → `src=track`, `pause` → `src=silent placeholder` at `frozenPos` with `HOLD_RATE`, `resume` → `src=track` at `frozenPos`. All `play()` calls happen synchronously in the `MediaSession` action callback before any `await`, so PWA keeps activation (fixes `AbortError` cross-element). Queued `transitionRef`/`queuedCommandRef` handles overlapping `seek→100%`/`next` spam. `setPositionState` always with `trackDuration` + `frozenPos`, `publishPosition` not dependent on timers.
 - **State**: Zustand store (`playerStore.ts`)
 - **Shuffle**: Fisher-Yates with no-repeat cycling
-- **Media Session API**: Lock screen controls, metadata, seek bar
+- **Media Session API**: Lock screen controls, metadata (single artwork `src/lib/artwork.ts` now, no play/pause toggle), seek bar
 - **PWA**: vite-plugin-pwa, service worker, GitHub Actions deploy
 
 ## iOS-Specific Behavior (CRITICAL - Read this first)
@@ -53,7 +53,7 @@ iOS lock screen buttons are determined by which MediaSession action handlers are
 1. **PiP ("beeld in beeld")**: Does NOT work in standalone PWA mode (WebKit bug 303885). Only works in Safari browser mode. This is an Apple bug.
 2. **Fullscreen**: iOS native video player handles fullscreen via its own zoom arrows (blue arrows in top-left). Our custom button was conflicting — now removed.
 3. **webkitdirectory (folder select)**: Only works on iOS 18.4+. Older iOS shows file picker instead.
-4. **PWA audio lock screen controls**: Can become non-functional after pausing for ~30 seconds in PWA mode (WebKit Bug 261858). Must bring app to foreground to "wake up" the audio session.
+4. **PWA audio lock screen controls**: *Fixed* — previous WebKit Bug 261858 (controls dead after ~30s paused) is now fixed via same-element silent placeholder (26m+ gaps proven: `13:31:55` `7.99s` → `13:57:56` resume `7.99s`, `11:12:28` `93s` → `11:40:16`, `13:31` `HOLD_RATE 1e-7`). Must still use single-element, `HOLD_RATE 0.0000001`, and sync `play()` in action callback.
 5. **"Both" mode registration**: Registering both `seekbackward`/`seekforward` AND `previoustrack`/`nexttrack` simultaneously causes inconsistent lock screen UI. Only register one set at a time.
 
 ### File Picker on iOS (CRITICAL)
@@ -70,11 +70,11 @@ Current implementation in `useFolderPicker.ts` handles this correctly.
 - **`navigator.audioSession.type = 'playback'`**: Initially removed, then **restored** — needed for the PWA/OPFS setup to keep sessions alive.
 - **`previoustrack`/`nexttrack` handlers**: These hide the ±10s skip buttons on iOS lock screen.
 - **Per-track volume** (was via Web Audio gain node): Removed with Web Audio. Global volume still works via `el.volume`.
-- **Silent anchor was temporarily removed**, then **restored** with corrected behavior: never paused, volume=0.001 (not muted), `setPositionState()` always overrides to show track position.
+- **Dual-element silent anchor** (second `<audio>` at 0.001 with `handoff`, `pinAnchor`, `watchdog`) + **single-element freeze** (`volume 0.001` pin): Removed — PWA `AbortError` cross-element and bar drift to `131` while audio at `22.7`. Replaced by same-element silent placeholder (one permanent `<audio>` swaps `src` track<->WAV, `HOLD_RATE 1e-7`, duration-matched, not OPFS).
 
 ## File Structure
 - `src/hooks/useAudioEngine.ts` — Core engine: `<audio>` source of truth, `<video>` seek-framed for display, play/pause/seek/next/prev
-- `src/hooks/useMediaSession.ts` — Lock screen handlers: play, pause, seekto, seekbackward, seekforward (NO previoustrack/nexttrack). Switches artwork based on play/pause state.
+- `src/hooks/useMediaSession.ts` — Lock screen handlers: `play`/`pause`/`seekto` + `skip10` *or* `prevnext` (single artwork `getPlayingArtwork`, no toggle).
 - `src/hooks/useFolderPicker.ts` — File picking, OPFS storage, IndexedDB persistence
 - `src/stores/playerStore.ts` — Zustand state (queue, shuffle, repeat, volume)
 - `src/lib/opfs.ts` — OPFS read/write/delete
@@ -107,65 +107,31 @@ User tests on iOS device (Brave browser + Safari) and Windows laptop.
 2. Old videos (16+ years) may have missing duration metadata
 3. Audio files sometimes don't save when adding via file picker (intermittent)
 4. **File persistence bug**: Adding files from a second folder works in-app, but force-closing the app loses the second batch. First batch persists. Likely a race condition in `saveTracks` — the `tx.done` promise may not resolve before force-close. Need to call `requestPersistentStorage()` before each save.
-5. **Silent anchor session keeping**: Current approach uses a looping silent anchor that NEVER pauses + `setPositionState()` always set to TRACK position. If iOS ignores `setPositionState()` and shows anchor position instead, fall back to backup approaches below.
+5. **Session keeping — SOLVED** 2026-08-30: Same-element silent placeholder (Arena) with `HOLD_RATE 1e-7` — gaps `26m` `7.99→7.99`, `28m` `93→93`, `22m` `13.4→13.4` on PWA, no `AbortError`, `5h` `28125KB` placeholder still swaps in `0.5s`. In-app `ended`/`seek 100%` and lock `nexttrack` both `track resumed @0.03s` with one tap.
 
-## iOS Session Keeping — Complete Research Summary
+## iOS Session Keeping — Complete Research Summary — FINAL (Arena + your tweak)
 
 ### What we've proven through testing:
-1. **Anchor is REQUIRED** — Without any audio element playing in background, iOS kills the session after ~30 seconds
-2. **Two elements playing simultaneously causes seek bar jumping** — iOS reads position from BOTH elements, `setPositionState()` is not strong enough to override
-3. **Handoff (switching which element plays) is too fragile** — iOS's toggle play/pause button gets confused about state, causing reversed buttons and double-tap requirements
-4. **Artwork switching works reliably** — Music note when playing, pause icon when paused, via `MediaMetadata` updates
-5. **`setPositionState()` on every timeupdate doesn't help** — iOS still reads anchor's natural position between calls
-6. **Brave browser's playlist keeps sessions for ~30 minutes** — But their session keeping is in native Rust code, not accessible via JavaScript
+1. **A playing element is REQUIRED** — Without any `audio` `playing` (even silent), PWA kills session after ~30s (WebKit 261858). `volume 0.001` not `muted` is required.
+2. **Two elements at once = seek bar fighting** — iOS merges timelines. `0.25` still drifted visually; `1e-7` (your test) is effectively frozen (~4 months/sec).
+3. **Cross-element handoff is rejected on PWA** — `anchor.play()` → `AbortError` on `PWA` `home-screen standalone` but not Safari tab. Same-element `src` swap keeps the `MediaSession` activation because `play()` is called synchronously before `await`.
+4. **Duration-matched silent on same element fixes both** — `125.2s` track → `125.2s` silent at same `currentTime`, `HOLD_RATE 1e-7`, `setPositionState(trackDuration, frozenPos, HOLD_RATE)` stays `22.7` not `131`, one tap `▶️` resumes.
+5. **`rAF` stops when PWA hidden** — correctness can't depend on rewind timers; `timeupdate` pin is best-effort but `frozenPos` is authoritative.
 
-### The correct approach (from ChatGPT Sol's patched test app):
-**Duration-matched handoff with PWA-specific fixes:**
+### The correct approach — FINAL (Arena same-element, your 1e-7 tweak):
+**One permanent `<audio>` swaps `src` (no second element):**
+1. **Duration-matched silent WAV** on same element: `createSilentWavUrl(trackDuration)` `src/lib/silentAudio.ts:12` capped `60min` (`8kHz`/`4kHz`), `~2MB` for `125s`, not `OPFS` — `5h` `28125KB` still swaps in `0.5s`.
+2. ** `play()` → `src=track` at `frozenPos`**, `pause()` → `src=silent` at `frozenPos` with `HOLD_RATE 0.0000001` (your test: `0.25` still drifted, `1e-7`=4 months/sec). Both `play()` calls happen **synchronously** in the `MediaSession` `pause`/`play` callback before any `await` — keeps PWA activation, no `AbortError`.
+3. **Queued transitions** `transitionRef`/`queuedCommandRef` `src/hooks/useAudioEngine.ts:82` handles `seek→100%`/`next` spam that gave `speelt niets af`; `transitionToken` guards stale `loadTrack` gens.
+4. **No pin needed** — `frozenPos` is authoritative, `setPositionState(trackDuration, frozenPos, HOLD_RATE)` while anchor, `1` while track. Bar stays `7.99` for `26m` `13:31:55→13:57:56`, not `131`.
 
-1. **Duration-matched silent WAV**: Generate a silent WAV of the **exact same duration** as the track (capped at 15 min to limit memory)
-2. **Position-matching**: When pausing, seek the silent element to the **same position** as the track before playing it
-3. **Exclusive ownership mutex**: `handoffLockRef` prevents both elements from playing simultaneously
-4. **Near-zero playbackRate (0.0001)**: Anchor crawls so lock-screen clock barely moves even when JS is suspended
-5. **Timeupdate-based pinning**: `requestAnimationFrame` stops on lock screen, but `timeupdate` events still fire — pin anchor from `timeupdate`
-6. **Lock-screen pause while anchor = resume**: While anchor plays, iOS still shows || and fires `pause` — that "pause" really means "resume the real track" (`remotePauseOrResume`)
-7. **Anchor pause event → resume**: In PWA, iOS can pause anchor directly without MediaSession `pause` handler — anchor's native `pause` event also triggers resume
-8. **Hard-release anchor on resume**: `pause()` + `removeAttribute('src')` + `load()` + `revokeObjectURL` so iOS stops treating anchor as active lock-screen item
-9. **Watchdog retries**: PWA may drop first hidden `play()` — retry at 450ms and 1200ms
-10. **Suppress flag**: `suppressAnchorPauseRef` prevents programmatic anchor pauses from triggering resume loop
-11. **Seek while anchor**: Move both track and anchor `currentTime` + `setPositionState` with `frozenDuration`
-
-### The handoff flow:
+### The flow:
 ```
-PLAYING (owner=track):
-  Track plays at playbackRate 1, anchor fully released (no src)
-  setPositionState(track.duration, track.currentTime, playbackRate: 1)
-
-PAUSE:
-  1. Save frozenPos = track.currentTime, frozenDuration = track.duration
-  2. Pause track (with ignore flag)
-  3. Generate silent WAV of same duration as track
-  4. Seek silent to frozenPos
-  5. Play silent at playbackRate 0.0001 → it owns the session
-  6. Pin loop: rAF when foregrounded + anchor timeupdate when locked → seek bar frozen
-  7. setPositionState(frozenDuration, frozenPos, playbackRate: 1)
-
-RESUME (lock-screen pause while anchor owns session → interpreted as resume):
-  1. Hard-release anchor (pause, remove src, revoke URL)
-  2. Restore track.currentTime = frozenPos
-  3. Play track → it owns the session (with watchdog retries)
-  4. setPositionState(track.duration, track.currentTime, playbackRate: 1)
+PLAYING: audio.src = track blob, playbackRate=1, setPositionState(duration, currentTime,1), video rAF copies time
+PAUSE (tap ||): frozenPos = currentTime, ensureAnchor(duration) → activateSource('anchor', silentUrl, frozenPos) → media.src=silent, load, play() sync → owner=anchor, playbackState=playing, lock shows ▶️ (paused) but audio technically playing silent
+RESUME (tap ▶️ while anchor): activateSource('track', trackUrl, frozenPos) → media.src=track, load, play() sync → owner=track, video resumes
 ```
-
-### Why previous version failed on PWA (but worked on web):
-- `requestAnimationFrame` stops when PWA is locked/backgrounded → pin loop never ran → anchor drifted to end
-- Lock-screen center button still showed || (anchor is playing) → pressing it fired `pause` → old code re-handoffed to anchor instead of resuming track
-- In PWA, iOS can pause anchor directly without MediaSession handler → need anchor `pause` event listener
-- Leaving anchor `src` attached made iOS keep treating anchor as active lock-screen item after resume
-
-### Latest test results (2026-08-23):
-- Handoff pause works on both web and PWA (anchor appears, track pauses)
-- PWA required all 4 fixes above to make resume work; web only needed basic handoff
-- Still need to verify: does track audio actually play after PWA resume, or is anchor still taking over?
+Lock `||` while anchor still means `pause → resume` via `remotePauseOrResume` `src/hooks/useMediaSession.ts:35`.
 
 ## Planned Features
 1. **Skip mode toggle**: Switch between ±10s skip buttons and prev/next track buttons on lock screen. Test app has working implementation — simple `setMode()` toggle between `skip10` and `prevnext`. To integrate into main app settings or as a one-button cycle.
