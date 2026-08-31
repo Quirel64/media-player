@@ -47,7 +47,9 @@ iOS lock screen buttons are determined by which MediaSession action handlers are
 
 **Known issue**: Registering both `seekbackward`/`seekforward` AND `previoustrack`/`nexttrack` simultaneously causes inconsistent behavior. The test app explicitly warns: "This mirrors an easy-to-fall-into bug... Behavior becomes inconsistent between iOS versions / web vs installed-PWA."
 
-**Future enhancement**: Toggle between `skip10` and `prevnext` modes in settings. Test app has this implemented as a simple `setMode()` toggle.
+**Future enhancement**: Toggle between `skip10` and `prevnext` modes in settings. Test app has this implemented as a simple `setMode()` toggle. 
+**has been completed**
+
 
 ### Known iOS Limitations (NOT fixable by us)
 1. **PiP ("beeld in beeld")**: Does NOT work in standalone PWA mode (WebKit bug 303885). Only works in Safari browser mode. This is an Apple bug.
@@ -103,7 +105,7 @@ User tests on iOS device (Brave browser + Safari) and Windows laptop.
 - Web version: In-browser
 
 ## Open Issues
-1. Tracks may not persist after closing/reopening app (IndexedDB/OPFS possibly cleared by iOS)
+1. Tracks may not persist after closing/reopening app (IndexedDB/OPFS possibly cleared by iOS) *fixed*
 2. Old videos (16+ years) may have missing duration metadata
 3. Audio files sometimes don't save when adding via file picker (intermittent)
 4. **File persistence bug**: Adding files from a second folder works in-app, but force-closing the app loses the second batch. First batch persists. Likely a race condition in `saveTracks` — the `tx.done` promise may not resolve before force-close. Need to call `requestPersistentStorage()` before each save.
@@ -135,10 +137,12 @@ Lock `||` while anchor still means `pause → resume` via `remotePauseOrResume` 
 
 ## Planned Features
 1. **Skip mode toggle**: Switch between ±10s skip buttons and prev/next track buttons on lock screen. Test app has working implementation — simple `setMode()` toggle between `skip10` and `prevnext`. To integrate into main app settings or as a one-button cycle.
+*done*
 2. **Playlist feature**: User mentioned as alternative focus.
 3. **Implement duration-matched handoff**: Integrate the correct handoff approach from ChatGPT Sol's test app into the main media-player.
-4. **something something brotger complaints**: addding a value system that influences the yates algorythm based on values given by the user.
-5. **something something brotger complaints2**: adding a stack feature where the user can add stack on top or below a queue which would play first over the current playlist.
-6. **something something brotger complaints3**: addding a value system that influences the yates algorythm based on values given by the user.
+4. **something something brother complaints**: addding a value system that influences the fisher yates algorythm based on values given by the user.
+5. **something something brother complaints2**: adding a stack feature where the user can add a track to a stack on top or below a queue which would play first over the current playlist.
+6. **something something brother complaints3**: adding a value to each track which is that a certain track plays at a certain volume.
+7. giving the app a better visual makeover with animations, startup and menu.
 
 
