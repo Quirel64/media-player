@@ -46,6 +46,7 @@ export function useAudioEngine() {
   const blobUrlRef = useRef<string | null>(null)
   const anchorUrlRef = useRef('')
   const anchorForDurationRef = useRef(0)
+  const urlCacheRef = useRef<Map<string, string>>(new Map())
 
   const rafRef = useRef(0)
   const frozenPosRef = useRef(0)
@@ -56,6 +57,7 @@ export function useAudioEngine() {
   const commandRunnerRef = useRef<((c: 'play' | 'pause') => void) | null>(null)
   const loadGenRef = useRef(0)
   const prevTrackIdRef = useRef<string | null>(null)
+  const nextGestureRef = useRef(false)
 
   const sourceKindRef = useRef<SourceKind>('track')
   const ownerRef = useRef<'idle' | 'track' | 'anchor'>('idle')
@@ -145,9 +147,10 @@ export function useAudioEngine() {
   }, [setOwner, startVideoFrames, setPlaying])
 
   const play = useCallback(async () => {
-    const track = currentTrack
+    const state = usePlayerStore.getState()
+    const track = state.queue[state.currentTrackIndex] ?? currentTrack
     const media = mediaRef.current
-    if (!track || !media) { addLog('play ignored — no track'); return }
+    if (!track || !media) { addLog(`play ignored — no track (queue ${state.queue.length} idx ${state.currentTrackIndex})`); return }
     if (transitionRef.current) { queuedCommandRef.current = 'play'; addLog('play queued behind swap'); return }
     transitionRef.current = true
     try {
@@ -220,22 +223,22 @@ export function useAudioEngine() {
 
   const nextTrack = useCallback(() => {
     const { getNextTrackIndex } = usePlayerStore.getState()
-    const n = getNextTrackIndex(); if (n !== null) { setPlaying(true); setCurrentTrackIndex(n) }
+    const n = getNextTrackIndex(); if (n !== null) { nextGestureRef.current = true; setPlaying(true); setCurrentTrackIndex(n) }
   }, [setCurrentTrackIndex, setPlaying])
   const prevTrack = useCallback(() => {
     const { getPrevTrackIndex, currentTime } = usePlayerStore.getState()
     if (currentTime > 3 || frozenPosRef.current > 3) { seek(0); return }
-    const p = getPrevTrackIndex(); if (p !== null) { setPlaying(usePlayerStore.getState().isPlaying || ownerRef.current==='track'); setCurrentTrackIndex(p) }
+    const p = getPrevTrackIndex(); if (p !== null) { nextGestureRef.current = true; setPlaying(usePlayerStore.getState().isPlaying || ownerRef.current==='track'); setCurrentTrackIndex(p) }
   }, [seek, setCurrentTrackIndex, setPlaying])
 
-  const goToTrack = useCallback((i: number) => { setPlaying(true); setCurrentTrackIndex(i) }, [setCurrentTrackIndex, setPlaying])
+  const goToTrack = useCallback((i: number) => { nextGestureRef.current = true; setPlaying(true); setCurrentTrackIndex(i) }, [setCurrentTrackIndex, setPlaying])
 
   const handleTrackEnd = useCallback(() => {
     const { getNextTrackIndex, repeatMode } = usePlayerStore.getState()
     addLog(`ended repeat=${repeatMode}`)
     if (repeatMode === 'one') { const m=mediaRef.current; if(m){ m.currentTime=0; frozenPosRef.current=0; setCurrentTime(0); setAudioSessionType(); m.play().catch(e=>addLog(`repeat-one failed: ${e}`)) } return }
     const n = getNextTrackIndex()
-    if (n !== null) { addLog(`auto-next ${n}`); setPlaying(true); setCurrentTrackIndex(n) }
+    if (n !== null) { addLog(`auto-next ${n}`); nextGestureRef.current = true; setPlaying(true); setCurrentTrackIndex(n) }
     else { setPlaying(false); // freeze at end to keep session
       const m=mediaRef.current; if(m){ frozenPosRef.current=m.currentTime; setPlaying(false); if('mediaSession'in navigator) navigator.mediaSession.playbackState='paused'; addLog('end -> frozen keep-alive') } }
   }, [setCurrentTrackIndex, setPlaying, setCurrentTime])
@@ -254,18 +257,23 @@ export function useAudioEngine() {
     if (prevId !== track.id) frozenPosRef.current = 0
 
     stopRaf(); cleanupVideo()
-    if (blobUrlRef.current) { URL.revokeObjectURL(blobUrlRef.current); blobUrlRef.current = null }
+    // Don't revoke cached URL here — cache keeps it for gesture-kept next/prev
+    blobUrlRef.current = null
 
-    const url = await getFileURLFromOPFS(track.fileName)
-    if (gen !== loadGenRef.current) { addLog(`load [${idx+1}] stale gen ${gen} abandoned`); if(url) URL.revokeObjectURL(url); return }
+    // Try cache first to keep gesture for next/prev — OPFS is async and loses PWA gesture
+    let url = urlCacheRef.current.get(track.fileName) ?? null
+    if (!url) {
+      url = await getFileURLFromOPFS(track.fileName)
+      if (url) urlCacheRef.current.set(track.fileName, url)
+    }
+    if (gen !== loadGenRef.current) { addLog(`load [${idx+1}] stale gen ${gen} abandoned`); // don't revoke cached url
+      return }
     if (!url) { showError(`File not found: ${track.fileName}`); return }
     blobUrlRef.current = url
     const el = mediaRef.current; if (!el) return
     setCurrentTime(0); setDuration(0); trackDurationRef.current = 0
     prevTrackIdRef.current = track.id
 
-    // Don't set src here — activateSource will set src + play synchronously inside play()/pause() gesture
-    // Just prepare video surface and metadata
     if (track.mediaType === 'video') attachVideo(url)
     if ('mediaSession' in navigator) {
       const art = getPlayingArtwork()
@@ -275,13 +283,12 @@ export function useAudioEngine() {
     }
     setAudioSessionType()
     const { isPlaying: wasPlaying } = usePlayerStore.getState()
-    addLog(`load [${idx+1}/${q.length}] ${track.name} autoplay=${wasPlaying}`)
-    if (wasPlaying) {
-      // Autoplay next track — need gesture? But loadTrack is called from nextTrack/ended which is inside MediaSession gesture for nexttrack, or ended with no gesture
-      // For ended, we already setPlaying(true) in handleTrackEnd, so this will be true and we can play
+    const shouldAutoplay = wasPlaying || nextGestureRef.current
+    nextGestureRef.current = false
+    addLog(`load [${idx+1}/${q.length}] ${track.name} autoplay=${shouldAutoplay} (wasPlaying=${wasPlaying})`)
+    if (shouldAutoplay) {
       void play()
     } else {
-      // Not playing — just set src idle without playing
       el.src = url; el.load()
     }
   }, [attachVideo, cleanupVideo, setCurrentTime, setDuration, stopRaf])
