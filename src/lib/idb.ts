@@ -50,16 +50,18 @@ async function getDB(): Promise<IDBPDatabase<MediaDB>> {
 }
 
 export async function saveTrack(track: Track): Promise<void> {
+  try { await requestPersistentStorage() } catch { /* ignore */ }
   const db = await getDB()
   await db.put(TRACKS_STORE, track)
 }
 
 export async function saveTracks(tracks: Track[]): Promise<void> {
+  try { await requestPersistentStorage() } catch { /* ignore */ }
   const db = await getDB()
   const tx = db.transaction(TRACKS_STORE, 'readwrite')
-  for (const track of tracks) {
-    await tx.store.put(track)
-  }
+  // Queue all puts without per-put await to keep transaction alive and flush in one commit
+  const puts = tracks.map((track) => tx.store.put(track))
+  await Promise.all(puts)
   await tx.done
 }
 
@@ -89,6 +91,7 @@ export async function clearAllTracks(): Promise<void> {
 }
 
 export async function savePlaylist(playlist: Playlist): Promise<void> {
+  try { await requestPersistentStorage() } catch { /* ignore */ }
   const db = await getDB()
   await db.put(PLAYLISTS_STORE, playlist)
 }

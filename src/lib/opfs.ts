@@ -1,4 +1,4 @@
-import { clearFileBlobs, deleteFileBlob, getAllFileBlobNames, getFileBlob, saveFileBlob } from './idb'
+import { clearFileBlobs, deleteFileBlob, getAllFileBlobNames, getFileBlob, requestPersistentStorage, saveFileBlob } from './idb'
 
 const MEDIA_DIR = 'media-files'
 
@@ -12,6 +12,7 @@ async function getRoot(): Promise<FileSystemDirectoryHandle> {
 }
 
 export async function saveFileToOPFS(fileName: string, file: File): Promise<void> {
+  try { await requestPersistentStorage() } catch { /* ignore */ }
   try {
     const dir = await getRoot()
     const fileHandle = await dir.getFileHandle(fileName, { create: true })

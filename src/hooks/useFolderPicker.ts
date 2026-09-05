@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import type { Track } from '../lib/types'
-import { saveTracks, getAllTracks, savePlaylist, clearAllTracks, deleteTrack, getPlaylist } from '../lib/idb'
+import { saveTracks, getAllTracks, savePlaylist, clearAllTracks, deleteTrack, getPlaylist, requestPersistentStorage } from '../lib/idb'
 import { saveFileToOPFS, clearOPFS, deleteFileFromOPFS } from '../lib/opfs'
 import { generateTrackId } from '../lib/shuffle'
 import { usePlayerStore } from '../stores/playerStore'
@@ -47,6 +47,9 @@ async function processFiles(
 
   if (mediaFiles.length === 0) return null
 
+  // Request persistent storage while still in user-gesture context (pickFolder/pickFiles click)
+  try { await requestPersistentStorage() } catch { /* ignore */ }
+
   const folderName =
     mediaFiles[0].webkitRelativePath?.split('/')[0] || 'Selected Files'
 
@@ -54,35 +57,50 @@ async function processFiles(
   // Map from uniqueFileName back to original File for duration lookup
   const fileMap = new Map<string, File>()
 
-  const tracks: Track[] = await Promise.all(
-    mediaFiles.map(async (file) => {
-      const uniqueFileName = getUniqueFileName(existingNames, file.name)
-      fileMap.set(uniqueFileName, file)
-
-      const track: Track = {
-        id: generateTrackId({
-          name: file.name,
-          size: file.size,
-          lastModified: file.lastModified,
-        }),
-        name: file.name.replace(/\.[^/.]+$/, ''),
-        fileName: uniqueFileName,
+  // Build track objects first without I/O to assign unique names deterministically
+  const tracks: Track[] = mediaFiles.map((file) => {
+    const uniqueFileName = getUniqueFileName(existingNames, file.name)
+    fileMap.set(uniqueFileName, file)
+    return {
+      id: generateTrackId({
+        name: file.name,
         size: file.size,
         lastModified: file.lastModified,
-        duration: 0,
-        artist: extractArtist(file.name),
-        album: extractAlbum(file.name),
-        folderName,
-        mediaType: isVideoFile(file) ? 'video' : 'audio',
-      }
+      }),
+      name: file.name.replace(/\.[^/.]+$/, ''),
+      fileName: uniqueFileName,
+      size: file.size,
+      lastModified: file.lastModified,
+      duration: 0,
+      artist: extractArtist(file.name),
+      album: extractAlbum(file.name),
+      folderName,
+      mediaType: isVideoFile(file) ? 'video' : 'audio',
+    }
+  })
 
-      await saveFileToOPFS(uniqueFileName, file)
+  // Persist file blobs sequentially to avoid parallel OPFS directory-handle contention on iOS
+  for (const track of tracks) {
+    const file = fileMap.get(track.fileName)
+    if (file) await saveFileToOPFS(track.fileName, file)
+  }
 
-      return track
+  // Persist metadata immediately with duration 0 so a force-close during
+  // duration probing (which can take N*5s) does not lose the entire batch.
+  const combinedEarly = [...existingQueue, ...tracks]
+  await saveTracks(combinedEarly)
+  try {
+    const existingPlaylistEarly = await getPlaylist('library')
+    await savePlaylist({
+      id: 'library',
+      name: 'Library',
+      tracks: combinedEarly,
+      createdAt: existingPlaylistEarly?.createdAt ?? Date.now(),
+      updatedAt: Date.now(),
     })
-  )
+  } catch { /* playlist is secondary; tracks store is source of truth */ }
 
-  // Get durations using the original File objects
+  // Get durations using the original File objects (best-effort, does not block initial persistence)
   for (const track of tracks) {
     const file = fileMap.get(track.fileName)
     if (file) {
@@ -116,7 +134,7 @@ async function processFiles(
 
   const combined = [...existingQueue, ...tracks]
 
-  // Save ALL tracks to IndexedDB (not just new ones)
+  // Save updated durations if any changed (second durable write)
   await saveTracks(combined)
 
   // Use a consistent ID so the library playlist gets updated, not duplicated

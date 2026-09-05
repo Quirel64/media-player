@@ -105,7 +105,7 @@ User tests on iOS device (Brave browser + Safari) and Windows laptop.
 - Web version: In-browser
 
 ## Open Issues
-1. Tracks may not persist after closing/reopening app (IndexedDB/OPFS possibly cleared by iOS) *fixed*
+1. Tracks may not persist after closing/reopening app (IndexedDB/OPFS possibly cleared by iOS) 
 2. Old videos (16+ years) may have missing duration metadata
 3. Audio files sometimes don't save when adding via file picker (intermittent)
 4. **File persistence bug**: Adding files from a second folder works in-app, but force-closing the app loses the second batch. First batch persists. Likely a race condition in `saveTracks` — the `tx.done` promise may not resolve before force-close. Need to call `requestPersistentStorage()` before each save.
