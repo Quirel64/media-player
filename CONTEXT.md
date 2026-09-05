@@ -105,11 +105,13 @@ User tests on iOS device (Brave browser + Safari) and Windows laptop.
 - Web version: In-browser
 
 ## Open Issues
-1. Tracks may not persist after closing/reopening app (IndexedDB/OPFS possibly cleared by iOS) 
+1. Tracks may not persist after closing/reopening app (IndexedDB/OPFS possibly cleared by iOS) *fixed*
 2. Old videos (16+ years) may have missing duration metadata
-3. Audio files sometimes don't save when adding via file picker (intermittent)
-4. **File persistence bug**: Adding files from a second folder works in-app, but force-closing the app loses the second batch. First batch persists. Likely a race condition in `saveTracks` — the `tx.done` promise may not resolve before force-close. Need to call `requestPersistentStorage()` before each save.
+3. Audio files sometimes don't save when adding via file picker (intermittent) — same root as 1/4, fixed via same persist hardening
+4. **File persistence bug — FIXED 2026-09-05**: Second folder force-close loss. Root: `tx.done` not flushed before iOS suspend + duration probing delaying first durable write. Fix: early `saveTracks(combinedEarly)` with `duration 0` before probing, gesture-kept `requestPersistentStorage()` (`useFolderPicker.ts:52,178`), verify `getAllTracks()` count + retry, `App.tsx` `visibilitychange`/`pagehide` flush, `idb.ts:58` per-track fallback.
 5. **Session keeping — SOLVED** 2026-08-30: Same-element silent placeholder (Arena) with `HOLD_RATE 1e-7` — gaps `26m` `7.99→7.99`, `28m` `93→93`, `22m` `13.4→13.4` on PWA, no `AbortError`, `5h` `28125KB` placeholder still swaps in `0.5s`. In-app `ended`/`seek 100%` and lock `nexttrack` both `track resumed @0.03s` with one tap.
+6. **Same-name resume — FIXED 2026-09-05**: `generateTrackId` was `${name}-${size}-${lastModified}` (`shuffle.ts:63`) -> colliding IDs for same-name files overwrote `TRACKS_STORE` and `prevTrackIdRef` treated `song.mp3` -> `song (1).mp3` as same track, kept `frozenPos`. Fix: UUID `crypto.randomUUID()` per upload, `fileName` still deduped via `getUniqueFileName`.
+
 
 ## iOS Session Keeping — Complete Research Summary — FINAL (Arena + your tweak)
 

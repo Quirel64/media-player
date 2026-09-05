@@ -63,6 +63,13 @@ export async function saveTracks(tracks: Track[]): Promise<void> {
   const puts = tracks.map((track) => tx.store.put(track))
   await Promise.all(puts)
   await tx.done
+  // Fallback verification: if transaction aborted (iOS suspend), try per-track puts
+  try {
+    const check = await db.getAllKeys(TRACKS_STORE)
+    if (check.length !== tracks.length) {
+      for (const t of tracks) await db.put(TRACKS_STORE, t)
+    }
+  } catch { /* verify is best-effort */ }
 }
 
 export async function getTrack(id: string): Promise<Track | undefined> {

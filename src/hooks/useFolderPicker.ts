@@ -4,6 +4,7 @@ import { saveTracks, getAllTracks, savePlaylist, clearAllTracks, deleteTrack, ge
 import { saveFileToOPFS, clearOPFS, deleteFileFromOPFS } from '../lib/opfs'
 import { generateTrackId } from '../lib/shuffle'
 import { usePlayerStore } from '../stores/playerStore'
+import { addLog } from '../lib/logger'
 
 const MEDIA_EXTENSIONS = /\.(mp3|wav|ogg|flac|m4a|aac|wma|opus|mp4|m4v|webm|avi|mkv|mov)$/i
 const VIDEO_EXTENSIONS = /\.(mp4|m4v|webm|avi|mkv|mov)$/i
@@ -62,11 +63,7 @@ async function processFiles(
     const uniqueFileName = getUniqueFileName(existingNames, file.name)
     fileMap.set(uniqueFileName, file)
     return {
-      id: generateTrackId({
-        name: file.name,
-        size: file.size,
-        lastModified: file.lastModified,
-      }),
+      id: generateTrackId(),
       name: file.name.replace(/\.[^/.]+$/, ''),
       fileName: uniqueFileName,
       size: file.size,
@@ -148,6 +145,22 @@ async function processFiles(
   }
   await savePlaylist(playlist)
 
+  // Verify durability — read back and retry once if count mismatched (handles iOS abort before tx.done)
+  try {
+    const verified = await getAllTracks()
+    if (verified.length !== combined.length) {
+      addLog(`verify failed: expected ${combined.length} got ${verified.length} — retrying save`)
+      await saveTracks(combined)
+      const retry = await getAllTracks()
+      if (retry.length !== combined.length) addLog(`verify retry still mismatched: ${retry.length}/${combined.length}`)
+      else addLog(`verify retry ok: ${retry.length} tracks`)
+    } else {
+      addLog(`verify ok: ${combined.length} tracks persisted`)
+    }
+  } catch (e) {
+    addLog(`verify error: ${e}`)
+  }
+
   setQueue(combined)
   setOriginalOrder(combined)
   setCurrentTrackIndex(existingQueue.length)
@@ -181,6 +194,8 @@ export function useFolderPicker() {
         const files = Array.from(input.files || [])
         cleanup()
         if (files.length === 0) { resolve(null); return }
+        // Fire persist request synchronously in the change gesture before any await
+        try { void requestPersistentStorage() } catch { /* ignore */ }
         const existingQueue = usePlayerStore.getState().queue
         const result = await processFiles(files, existingQueue, setQueue, setOriginalOrder, setCurrentTrackIndex)
         resolve(result)
@@ -208,6 +223,7 @@ export function useFolderPicker() {
         const files = Array.from(input.files || [])
         cleanup()
         if (files.length === 0) { resolve(null); return }
+        try { void requestPersistentStorage() } catch { /* ignore */ }
         const existingQueue = usePlayerStore.getState().queue
         const result = await processFiles(files, existingQueue, setQueue, setOriginalOrder, setCurrentTrackIndex)
         resolve(result)

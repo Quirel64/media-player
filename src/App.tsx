@@ -9,7 +9,7 @@ import { useAudioEngine } from './hooks/useAudioEngine'
 import { useMediaSession } from './hooks/useMediaSession'
 import { useFolderPicker } from './hooks/useFolderPicker'
 import { usePlayerStore } from './stores/playerStore'
-import { requestPersistentStorage, getSetting, saveSetting } from './lib/idb'
+import { requestPersistentStorage, getSetting, saveSetting, saveTracks } from './lib/idb'
 import { ToastContainer } from './components/ui/Toast'
 import { EventLog } from './components/ui/EventLog'
 import type { TabId } from './components/layout/BottomNav'
@@ -60,6 +60,22 @@ export default function App() {
       onSeek: seek,
     })
   }, [play, pause, remotePauseOrResume, prevTrack, nextTrack, seek])
+
+  // Flush queue to IDB on hide/pagehide — best-effort durability for iOS force-close
+  useEffect(() => {
+    const flush = () => {
+      const { queue: q } = usePlayerStore.getState()
+      if (q.length === 0) return
+      void saveTracks(q)
+    }
+    const onVisibility = () => { if (document.visibilityState === 'hidden') flush() }
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('pagehide', flush)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pagehide', flush)
+    }
+  }, [])
 
   const handleSelectTrack = useCallback(
     (index: number) => {

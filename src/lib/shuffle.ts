@@ -60,8 +60,11 @@ export function shufflePlaylist(tracks: Track[], options: ShuffleOptions = {}): 
   return shuffled
 }
 
-export function generateTrackId(track: { name: string; size: number; lastModified: number }): string {
-  return `${track.name}-${track.size}-${track.lastModified}`
+export function generateTrackId(): string {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  } catch { /* fallback */ }
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 export function generatePlaylistId(name: string): string {
