@@ -78,18 +78,21 @@ export function groupTracks(tracks: Track[], opts: { minGroupSize?: number; minP
   const used = new Set<string>()
   const groups: Group[] = []
 
-  // Phase 1: folder groups with >= minGroupSize
+  // Phase 1: folder groups with >= minGroupSize — skip generic/oversized folders (e.g. Downloads with 100%)
+  const GENERIC = new Set(['selected files', 'unknown folder', 'downloads', 'download', 'music', 'videos', 'media'])
   for (const [folder, members] of byFolder) {
-    if (folder === 'Selected Files' || folder === 'Unknown Folder') continue
-    if (members.length >= minGroupSize) {
-      for (const m of members) used.add(m.id)
-      groups.push({
-        id: `folder:${folder}`,
-        name: folder,
-        tracks: members,
-        reason: `folder "${folder}" (${members.length})`,
-      })
-    }
+    const normFolder = folder.toLowerCase().trim()
+    if (GENERIC.has(normFolder)) continue
+    if (members.length < minGroupSize) continue
+    // If one folder holds >60% of library it's not a useful album (e.g. everything in Downloads)
+    if (members.length / tracks.length > 0.6) continue
+    for (const m of members) used.add(m.id)
+    groups.push({
+      id: `folder:${folder}`,
+      name: folder,
+      tracks: members,
+      reason: `folder "${folder}" (${members.length})`,
+    })
   }
 
   // Phase 2: filename common-words / prefix clustering on remaining
@@ -182,10 +185,10 @@ export function describeGroups(r: GroupResult): string {
   const lines: string[] = []
   lines.push(`Groups: ${r.groups.length} | Grouped: ${r.stats.grouped}/${r.stats.total} | Loose: ${r.stats.looseCount}`)
   for (const g of r.groups) {
-    lines.push(`- "${g.name}" (${g.tracks.length}) [${g.reason}] -> ${g.tracks.map((t) => t.name.slice(0, 28)).join(' | ')}`)
+    lines.push(`- "${g.name}" (${g.tracks.length}) [${g.reason}] -> ${g.tracks.map((t) => t.name).join(' | ')}`)
   }
   if (r.loose.length > 0) {
-    lines.push(`Loose (${r.loose.length}): ${r.loose.slice(0, 8).map((t) => t.name.slice(0, 20)).join(' | ')}${r.loose.length > 8 ? ' ...' : ''}`)
+    lines.push(`Loose (${r.loose.length}): ${r.loose.slice(0, 10).map((t) => t.name).join(' | ')}${r.loose.length > 10 ? ' ...' : ''}`)
   }
   return lines.join('\n')
 }
