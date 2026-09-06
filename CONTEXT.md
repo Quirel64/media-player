@@ -99,6 +99,13 @@ Current implementation in `useFolderPicker.ts` handles this correctly.
 - `custom-lock-screen-media-player/` — DeepSeek's test app with mode toggle, event log, lock screen preview
 - `custom-lock-screen-media-player-the-new-one/` — ChatGPT Sol patched test app (**PWA handoff fixes**: timeupdate pinning, 0.0001 playbackRate, anchor pause→resume, hard-release anchor, watchdog retries) → deployed at `https://quirel64.github.io/custom-lock-screen-media-player/`
 
+## Library Ordering & Display (2026-09-06)
+**Previous behavior (bug):** `processFiles` appended new batch via `[...existingQueue, ...tracks]` (`useFolderPicker.ts:87`) so in-session you saw them at the end, but `loadSavedTracks` used `getAllTracks()` (`idb.ts:80`) which returns IDB key order (sorted by `id`). With UUID `id` (`shuffle.ts:63`) that order is random lexicographic -> reload scattered tracks (e.g. `[Vocaloid] Humans Are Cats...` at 30 and 34 in screenshot) and duplicates not bundled.
+
+**Current fix (v1.1.0+):** Each `Track` now has `createdAt: number` (`types.ts:11`, `useFolderPicker.ts:66` `baseTime+idx`). `TRACKS_STORE` has `by-createdAt` index (`idb.ts:4-15`, `DB_VERSION 3`, upgrade `idb.ts:35`). `getAllTracks()` sorts by `createdAt` (`idb.ts:122`), and `loadSavedTracks` prefers `getPlaylist('library').tracks` (`useFolderPicker.ts:236`) which is the exact insertion-order array (`useFolderPicker.ts:138`). Old tracks without `createdAt` are backfilled on first load. Result: refresh preserves upload order (second batch stays at end, duplicates at insertion point, not scattered).
+
+**Library vs Playlist:** Current `Library` tab (`TrackList.tsx:26`) is a flat queue view (like a playlist) — not a grouped library. Queue order = playback order (`playerStore.ts` `currentTrackIndex`, `getNextTrackIndex`). This is correct for now/next/shuffle but confusing for browsing 64 tracks. Makeover plan: keep queue as "Now Playing Queue" and introduce Library views (group by `folderName`/`album`/`artist`, collapsible sections, filter/search, sort toggles: date added (`createdAt`), A-Z, size, duration). Duplicates will show separately (UUID ensures separate) but grouping will make them findable; optional "bundle duplicates" toggle later.
+
 ## Testing Notes
 User tests on iOS device (Brave browser + Safari) and Windows laptop.
 - PWA version: Add to home screen, standalone mode
@@ -111,6 +118,7 @@ User tests on iOS device (Brave browser + Safari) and Windows laptop.
 4. **File persistence bug — FIXED 2026-09-05**: Second folder force-close loss. Root: `tx.done` not flushed before iOS suspend + duration probing delaying first durable write. Fix: early `saveTracks(combinedEarly)` with `duration 0` before probing, gesture-kept `requestPersistentStorage()` (`useFolderPicker.ts:52,178`), verify `getAllTracks()` count + retry, `App.tsx` `visibilitychange`/`pagehide` flush, `idb.ts:58` per-track fallback.
 5. **Session keeping — SOLVED** 2026-08-30: Same-element silent placeholder (Arena) with `HOLD_RATE 1e-7` — gaps `26m` `7.99→7.99`, `28m` `93→93`, `22m` `13.4→13.4` on PWA, no `AbortError`, `5h` `28125KB` placeholder still swaps in `0.5s`. In-app `ended`/`seek 100%` and lock `nexttrack` both `track resumed @0.03s` with one tap.
 6. **Same-name resume — FIXED 2026-09-05**: `generateTrackId` was `${name}-${size}-${lastModified}` (`shuffle.ts:63`) -> colliding IDs for same-name files overwrote `TRACKS_STORE` and `prevTrackIdRef` treated `song.mp3` -> `song (1).mp3` as same track, kept `frozenPos`. Fix: UUID `crypto.randomUUID()` per upload, `fileName` still deduped via `getUniqueFileName`.
+7. **Library reorder on reload — FIXED 2026-09-06**: 64-track screenshot showed duplicates at 30/34 after restart. Root: `getAllTracks()` key-order (UUID random) scattered insertion order. Fix: `Track.createdAt` + `by-createdAt` index + playlist-first load (`useFolderPicker.ts:236`, `idb.ts:122`). Library vs Playlist confusion noted — see `## Library Ordering & Display`.
 
 
 ## iOS Session Keeping — Complete Research Summary — FINAL (Arena + your tweak)

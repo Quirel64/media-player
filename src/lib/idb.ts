@@ -2,7 +2,7 @@ import { openDB, type IDBPDatabase, type DBSchema } from 'idb'
 import type { Track, Playlist } from './types'
 
 const DB_NAME = 'media-player-db'
-const DB_VERSION = 2
+const DB_VERSION = 3
 const TRACKS_STORE = 'tracks'
 const PLAYLISTS_STORE = 'playlists'
 const SETTINGS_STORE = 'settings'
@@ -12,7 +12,7 @@ interface MediaDB extends DBSchema {
   [TRACKS_STORE]: {
     key: string
     value: Track
-    indexes: { 'by-folder': string; 'by-name': string }
+    indexes: { 'by-folder': string; 'by-name': string; 'by-createdAt': number }
   }
   [PLAYLISTS_STORE]: {
     key: string
@@ -33,16 +33,23 @@ let dbInstance: IDBPDatabase<MediaDB> | null = null
 async function getDB(): Promise<IDBPDatabase<MediaDB>> {
   if (dbInstance) return dbInstance
   dbInstance = await openDB<MediaDB>(DB_NAME, DB_VERSION, {
-    upgrade(db, oldVersion) {
+    upgrade(db, oldVersion, _newVersion, transaction) {
       if (oldVersion < 1) {
         const tracksStore = db.createObjectStore(TRACKS_STORE, { keyPath: 'id' })
         tracksStore.createIndex('by-folder', 'folderName')
         tracksStore.createIndex('by-name', 'name')
+        tracksStore.createIndex('by-createdAt', 'createdAt')
         db.createObjectStore(PLAYLISTS_STORE, { keyPath: 'id' })
         db.createObjectStore(SETTINGS_STORE)
       }
       if (oldVersion < 2) {
         db.createObjectStore(FILES_STORE)
+      }
+      if (oldVersion < 3) {
+        const tracksStore = transaction.objectStore(TRACKS_STORE)
+        if (!tracksStore.indexNames.contains('by-createdAt')) {
+          tracksStore.createIndex('by-createdAt', 'createdAt')
+        }
       }
     },
   })
@@ -79,7 +86,9 @@ export async function getTrack(id: string): Promise<Track | undefined> {
 
 export async function getAllTracks(): Promise<Track[]> {
   const db = await getDB()
-  return db.getAll(TRACKS_STORE)
+  const tracks = await db.getAll(TRACKS_STORE)
+  // Insertion-order: sort by createdAt (UUID ids are random, so key order scatters)
+  return tracks.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
 }
 
 export async function getTracksByFolder(folderName: string): Promise<Track[]> {

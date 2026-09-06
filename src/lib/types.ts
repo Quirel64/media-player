@@ -9,6 +9,7 @@ export interface Track {
   album: string
   folderName: string
   mediaType: 'audio' | 'video'
+  createdAt: number
 }
 
 export interface Playlist {

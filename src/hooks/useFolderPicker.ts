@@ -59,7 +59,8 @@ async function processFiles(
   const fileMap = new Map<string, File>()
 
   // Build track objects first without I/O to assign unique names deterministically
-  const tracks: Track[] = mediaFiles.map((file) => {
+  const baseTime = Date.now()
+  const tracks: Track[] = mediaFiles.map((file, idx) => {
     const uniqueFileName = getUniqueFileName(existingNames, file.name)
     fileMap.set(uniqueFileName, file)
     return {
@@ -73,6 +74,7 @@ async function processFiles(
       album: extractAlbum(file.name),
       folderName,
       mediaType: isVideoFile(file) ? 'video' : 'audio',
+      createdAt: baseTime + idx,
     }
   })
 
@@ -234,7 +236,28 @@ export function useFolderPicker() {
   }, [setQueue, setOriginalOrder, setCurrentTrackIndex])
 
   const loadSavedTracks = useCallback(async (): Promise<Track[]> => {
-    const tracks = await getAllTracks()
+    // Prefer playlist 'library' which preserves exact insertion order (append batches).
+    // Fallback to getAllTracks sorted by createdAt (UUID key order would scatter).
+    let tracks: Track[] = []
+    try {
+      const lib = await getPlaylist('library')
+      if (lib && Array.isArray(lib.tracks) && lib.tracks.length > 0) {
+        tracks = lib.tracks
+        // Backfill createdAt for old tracks missing it
+        let needsBackfill = false
+        for (const t of tracks) {
+          if (typeof (t as unknown as { createdAt?: number }).createdAt !== 'number') {
+            ;(t as unknown as { createdAt: number }).createdAt = Date.now()
+            needsBackfill = true
+          }
+        }
+        if (needsBackfill) await saveTracks(tracks)
+      } else {
+        tracks = await getAllTracks()
+      }
+    } catch {
+      tracks = await getAllTracks()
+    }
     if (tracks.length > 0) {
       setQueue(tracks)
       setOriginalOrder(tracks)
