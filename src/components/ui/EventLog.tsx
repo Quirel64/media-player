@@ -11,7 +11,7 @@ export function EventLog() {
 
   const runGroupPreview = () => {
     if (queue.length === 0) { addLog('group preview: queue empty'); return }
-    const res = groupTracks(queue, { minGroupSize: 2, minPrefixLen: 10 })
+    const res = groupTracks(queue, { minGroupSize: 2 })
     addLog(`=== GROUP PREVIEW (${queue.length} tracks) ===`)
     for (const line of describeGroups(res).split('\n')) addLog(line)
     if (res.loose.length > 0) addLog(`Tip: loose tracks stay as single items; folder toggle will keep queue flat`)
