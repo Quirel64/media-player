@@ -16,7 +16,7 @@ export interface GroupResult {
 const STOP = new Set([
   'the', 'a', 'an', 'and', 'or', 'of', 'in', 'on', 'at', 'to', 'for', 'with', 'from', 'by',
   'ost', 'original', 'soundtrack', 'sound', 'track', 'bgm', 'vol', 'volume',
-  'feat', 'ft', 'featuring', 'theme', 'music', 'song', 'version'
+  'feat', 'ft', 'featuring', 'theme', 'music', 'song', 'version', 'you'
 ])
 
 function normalize(s: string): string {
