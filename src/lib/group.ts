@@ -94,28 +94,49 @@ export function groupTracks(tracks: Track[], opts: { minGroupSize?: number } = {
     signatureToTokens.get(sig)!.push(tok)
   }
 
+  const candidatesBySig: { sig: string; toks: string[]; ids: Set<string>; score: number }[] = []
   for (const [sig, toks] of signatureToTokens) {
     const ids = signatureToIds.get(sig)!
     if (ids.size < minGroupSize) continue
-    // Use up to 2 most frequent tokens in this exact signature as name
+    // Score = shared token count (rare tokens weigh same here; IDF handled by STOP filtering)
+    // Multi-token signatures like [hat,time] score 2 > single [mario] score 1
+    const score = toks.length
+    candidatesBySig.push({ sig, toks, ids, score })
+  }
+
+  // Also skip exact duplicates of folder groups
+  const filteredCandidates = candidatesBySig.filter(({ ids }) => {
+    return !groups.some((g) => g.tracks.length === ids.size && g.tracks.every((x) => ids.has(x.id)))
+  })
+
+  // High-score + subset prune: keep high-score groups, drop subsets
+  filteredCandidates.sort((a, b) => b.score - a.score || b.ids.size - a.ids.size)
+
+  const kept: typeof filteredCandidates = []
+  for (const cand of filteredCandidates) {
+    let isSubset = false
+    for (const k of kept) {
+      // Is cand subset of kept?
+      if (cand.ids.size <= k.ids.size && [...cand.ids].every((id) => k.ids.has(id))) {
+        // Keep subset only if it introduces distinct tokens not in superset name
+        if (cand.score <= k.toks.length) { isSubset = true; break }
+      }
+    }
+    if (!isSubset) kept.push(cand)
+  }
+
+  for (const { toks, ids } of kept) {
     const name = toks.slice(0, 2).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
     const memberTracks = tracks.filter((t) => ids.has(t.id))
-    // Skip if this exact group already covered by a folder group with same members
-    if (groups.some((g) => g.tracks.length === memberTracks.length && g.tracks.every((x) => ids.has(x.id)))) continue
     const g: Group = {
       id: `tok:${toks.slice(0, 2).join('-')}`,
       name,
       tracks: memberTracks,
-      reason: `shared [${toks.slice(0, 3).join(', ')}] (${ids.size})`,
+      reason: `shared [${toks.slice(0, 3).join(', ')}] (${ids.size}) score=${toks.length}`,
     }
     groups.push(g)
     for (const tok of toks) tokenToGroup.set(tok, g)
   }
-
-  // Phase 3: subgroups — for each main group, find co-occurring secondary tokens
-  // This keeps overlap: a track with mario+luigi appears in both mario and luigi groups
-  // Subgroups are just the per-token groups above; additionally surface "shared" counts via reason
-  // No extra merging — overlap is intentional per user request
 
   // Compute loose: tracks not in any group
   const groupedIds = new Set<string>()
@@ -123,8 +144,12 @@ export function groupTracks(tracks: Track[], opts: { minGroupSize?: number } = {
 
   const loose = tracks.filter((t) => !groupedIds.has(t.id))
 
-  // Sort groups by size desc for stable Logs
-  groups.sort((a, b) => b.tracks.length - a.tracks.length)
+  // Sort groups by score then size for stable Logs
+  groups.sort((a, b) => {
+    const sa = a.reason.includes('score=') ? parseInt(a.reason.split('score=')[1]) : 0
+    const sb = b.reason.includes('score=') ? parseInt(b.reason.split('score=')[1]) : 0
+    return sb - sa || b.tracks.length - a.tracks.length
+  })
 
   return {
     groups,
