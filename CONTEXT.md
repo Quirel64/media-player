@@ -154,5 +154,6 @@ Lock `||` while anchor still means `pause → resume` via `remotePauseOrResume` 
 5. **something something brother complaints2**: adding a stack feature where the user can add a track to a stack on top or below a queue which would play first over the current playlist.
 6. **something something brother complaints3**: adding a value to each track which is that a certain track plays at a certain volume.
 7. giving the app a better visual makeover with animations, startup and menu.
-
+8. adding fullscreen to the video element and making it stop stuttering and smooth.
+9. making the group play in the groups order instead of the quee. (once playlists are implemented.)
 
