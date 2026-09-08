@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Layout } from './components/layout/Layout'
 import { Sidebar } from './components/layout/Sidebar'
 import { AddView } from './components/layout/AddView'
-import { TrackList } from './components/playlist/TrackList'
+import { LibraryView } from './components/library/LibraryView'
 import { NowPlaying } from './components/player/NowPlaying'
 import { PlayBar } from './components/player/PlayBar'
 import { useAudioEngine } from './hooks/useAudioEngine'
@@ -119,7 +119,7 @@ export default function App() {
         return <AddView onPickFolder={handlePickFolder} onPickFiles={handlePickFiles} />
       case 'library':
         return (
-          <TrackList
+          <LibraryView
             tracks={queue}
             currentTrackIndex={currentTrackIndex}
             onSelectTrack={handleSelectTrack}
