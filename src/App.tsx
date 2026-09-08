@@ -19,6 +19,7 @@ import type { LockScreenMode } from './lib/types'
 export default function App() {
   const [ready, setReady] = useState(false)
   const [activeTab, setActiveTab] = useState<TabId>('library')
+  const [nowCollapsed, setNowCollapsed] = useState(false)
   const { queue, currentTrackIndex } = usePlayerStore()
   const currentTrack = queue[currentTrackIndex] || null
 
@@ -110,7 +111,7 @@ export default function App() {
   }
 
   const renderNowPlaying = () => {
-    return <NowPlaying currentTrack={currentTrack} videoContainerRef={videoContainerRef} />
+    return <NowPlaying currentTrack={currentTrack} videoContainerRef={videoContainerRef} collapsed={nowCollapsed} onToggleCollapsed={() => setNowCollapsed((v) => !v)} />
   }
 
   const renderContent = () => {

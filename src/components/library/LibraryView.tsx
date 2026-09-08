@@ -97,7 +97,7 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
       </div>
 
       {mode === 'queue' ? (
-        <TrackList tracks={tracks} currentTrackIndex={currentTrackIndex} onSelectTrack={onSelectTrack} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} />
+        <TrackList tracks={tracks} currentTrackIndex={currentTrackIndex} onSelectTrack={onSelectTrack} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} hideHeader />
       ) : (
         <div className="flex-1 overflow-y-auto p-3">
           {filteredGroups.length === 0 && filteredLoose.length === 0 ? (
@@ -109,7 +109,7 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
                   key={g.id}
                   whileTap={{ scale: 0.97 }}
                   onClick={() => setActiveGroupId(g.id)}
-                  className="flex flex-col overflow-hidden rounded-xl bg-slate-900 text-left"
+                  className="flex flex-col overflow-hidden rounded-lg bg-slate-900 text-left"
                 >
                   <div className="grid h-28 grid-cols-2 gap-0.5 bg-slate-800 p-0.5">
                     {[0, 1, 2, 3].map((i) => {
@@ -123,9 +123,9 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
                       )
                     })}
                   </div>
-                  <div className="px-2.5 py-2">
-                    <p className="truncate text-sm font-medium text-white">{g.name}</p>
-                    <p className="text-xs text-slate-400">{g.tracks.length} tracks</p>
+                  <div className="px-3 py-2.5">
+                    <p className="truncate pr-1 text-sm font-medium text-white">{g.name}</p>
+                    <p className="pr-1 text-xs text-slate-400">{g.tracks.length} tracks</p>
                   </div>
                 </motion.button>
               ))}
@@ -134,14 +134,14 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
                   key={t.id}
                   whileTap={{ scale: 0.97 }}
                   onClick={() => handleSelectInGroup(t)}
-                  className="flex flex-col overflow-hidden rounded-xl bg-slate-900 text-left"
+                  className="flex flex-col overflow-hidden rounded-lg bg-slate-900 text-left"
                 >
                   <div className="flex h-28 items-center justify-center bg-slate-800">
                     <span className="text-2xl">{t.mediaType === 'video' ? '🎬' : '🎵'}</span>
                   </div>
-                  <div className="px-2.5 py-2">
-                    <p className="truncate text-sm font-medium text-white">{t.name}</p>
-                    <p className="truncate text-xs text-slate-400">{t.duration ? `${Math.floor(t.duration/60)}:${String(Math.floor(t.duration%60)).padStart(2,'0')}` : '--:--'} • loose</p>
+                  <div className="px-3 py-2.5">
+                    <p className="truncate pr-1 text-sm font-medium text-white">{t.name}</p>
+                    <p className="truncate pr-1 text-xs text-slate-400">{t.duration ? `${Math.floor(t.duration/60)}:${String(Math.floor(t.duration%60)).padStart(2,'0')}` : '--:--'} • loose</p>
                   </div>
                 </motion.button>
               ))}

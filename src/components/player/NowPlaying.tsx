@@ -8,19 +8,43 @@ const APP_VERSION = '1.1.0'
 interface NowPlayingProps {
   currentTrack: Track | null
   videoContainerRef: React.RefObject<HTMLDivElement | null>
+  collapsed?: boolean
+  onToggleCollapsed?: () => void
 }
 
-export function NowPlaying({ currentTrack, videoContainerRef }: NowPlayingProps) {
+export function NowPlaying({ currentTrack, videoContainerRef, collapsed, onToggleCollapsed }: NowPlayingProps) {
   const { currentTime, duration } = usePlayerStore()
+
+  const CollapseBtn = onToggleCollapsed ? (
+    <button onClick={onToggleCollapsed} className="rounded-full bg-slate-800 p-1.5 text-slate-400 hover:bg-slate-700 hover:text-white" title={collapsed ? 'Expand player' : 'Collapse player'}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">{collapsed ? <path d="M6 9l6 6 6-6" /> : <path d="M6 15l6-6 6 6" />}</svg>
+    </button>
+  ) : null
 
   if (!currentTrack) {
     return (
-      <div className="flex h-full items-center justify-center p-8">
-        <div className="text-center text-slate-600">
-          <div className="mb-2 text-4xl">🎶</div>
-          <p className="text-sm">Select a track to play</p>
-          <p className="mt-4 text-[10px] text-slate-700">v{APP_VERSION}</p>
+      <div className="flex h-full items-center justify-center p-4">
+        <div className="flex w-full items-center justify-between">
+          <div className="text-center text-slate-600 flex-1">
+            <div className="mb-1 text-2xl">🎶</div>
+            <p className="text-xs">Select a track to play</p>
+          </div>
+          {CollapseBtn}
         </div>
+      </div>
+    )
+  }
+
+  if (collapsed) {
+    // Collapsed: slim bar, no large art/video, just name + toggle, keeps video element mounted but hidden
+    return (
+      <div className="flex items-center gap-3 px-4 py-2">
+        <div ref={videoContainerRef} className="hidden" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-white">{currentTrack.name}</p>
+          <p className="truncate text-xs text-slate-500">{currentTrack.artist} • {formatTime(currentTime)} / {formatTime(duration)}</p>
+        </div>
+        {CollapseBtn}
       </div>
     )
   }
@@ -28,6 +52,7 @@ export function NowPlaying({ currentTrack, videoContainerRef }: NowPlayingProps)
   if (currentTrack.mediaType === 'video') {
     return (
       <div className="flex flex-col gap-4 p-4" style={{ paddingTop: 'calc(1rem + env(safe-area-inset-top, 0px))' }}>
+        <div className="flex justify-end">{CollapseBtn}</div>
         <div
           ref={videoContainerRef}
           className="relative flex w-full items-center justify-center overflow-hidden rounded-xl bg-black"
@@ -60,8 +85,9 @@ export function NowPlaying({ currentTrack, videoContainerRef }: NowPlayingProps)
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.3 }}
-      className="flex flex-col items-center gap-6 p-8"
+      className="flex flex-col items-center gap-6 p-8 relative"
     >
+      <div className="absolute right-4 top-4">{CollapseBtn}</div>
       <motion.div
         className="flex h-48 w-48 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/30 to-accent/30 shadow-2xl"
         animate={{ rotate: currentTime > 0 ? [0, 0, 0] : 0 }}

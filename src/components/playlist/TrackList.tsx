@@ -9,6 +9,7 @@ interface TrackListProps {
   onPickFolder: () => void
   onPickFiles: () => void
   onRemoveTracks?: (tracks: Track[]) => void
+  hideHeader?: boolean
 }
 
 function formatDuration(seconds: number): string {
@@ -23,7 +24,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks }: TrackListProps) {
+export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, hideHeader }: TrackListProps) {
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
@@ -95,55 +96,57 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-slate-800 px-6 py-4">
-        <div>
-          <h2 className="text-lg font-semibold text-white">Library</h2>
-          <p className="text-sm text-slate-400">
-            {selectMode
-              ? `${selectedIds.size} of ${tracks.length} selected`
-              : `${tracks.length} track${tracks.length !== 1 ? 's' : ''}`}
-          </p>
+      {!hideHeader && (
+        <div className="flex items-center justify-between border-b border-slate-800 px-6 py-4">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Library</h2>
+            <p className="text-sm text-slate-400">
+              {selectMode
+                ? `${selectedIds.size} of ${tracks.length} selected`
+                : `${tracks.length} track${tracks.length !== 1 ? 's' : ''}`}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            {selectMode ? (
+              <>
+                <button
+                  onClick={selectedIds.size === tracks.length ? deselectAll : selectAll}
+                  className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-300 transition-colors hover:bg-slate-700"
+                >
+                  {selectedIds.size === tracks.length ? 'Deselect All' : 'Select All'}
+                </button>
+                <button
+                  onClick={exitSelectMode}
+                  className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-300 transition-colors hover:bg-slate-700"
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => setSelectMode(true)}
+                  className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-300 transition-colors hover:bg-slate-700"
+                >
+                  Select
+                </button>
+                <button
+                  onClick={onPickFolder}
+                  className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-300 transition-colors hover:bg-slate-700"
+                >
+                  + Folder
+                </button>
+                <button
+                  onClick={onPickFiles}
+                  className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-300 transition-colors hover:bg-slate-700"
+                >
+                  + Files
+                </button>
+              </>
+            )}
+          </div>
         </div>
-        <div className="flex gap-2">
-          {selectMode ? (
-            <>
-              <button
-                onClick={selectedIds.size === tracks.length ? deselectAll : selectAll}
-                className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-300 transition-colors hover:bg-slate-700"
-              >
-                {selectedIds.size === tracks.length ? 'Deselect All' : 'Select All'}
-              </button>
-              <button
-                onClick={exitSelectMode}
-                className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-300 transition-colors hover:bg-slate-700"
-              >
-                Cancel
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                onClick={() => setSelectMode(true)}
-                className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-300 transition-colors hover:bg-slate-700"
-              >
-                Select
-              </button>
-              <button
-                onClick={onPickFolder}
-                className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-300 transition-colors hover:bg-slate-700"
-              >
-                + Folder
-              </button>
-              <button
-                onClick={onPickFiles}
-                className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-300 transition-colors hover:bg-slate-700"
-              >
-                + Files
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+      )}
 
       <div className="flex-1 overflow-y-auto px-2 py-2">
         <AnimatePresence mode="popLayout">
