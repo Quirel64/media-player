@@ -15,8 +15,8 @@ export interface GroupResult {
 
 const STOP = new Set([
   'the', 'a', 'an', 'and', 'or', 'of', 'in', 'on', 'at', 'to', 'for', 'with', 'from', 'by',
-  'ost', 'original', 'soundtrack', 'sound', 'track', 'bgm', 'vol', 'volume',
-  'feat', 'ft', 'featuring', 'theme', 'music', 'song', 'version', 'you'
+  'original', 'soundtrack', 'sound', 'track', 'bgm', 'vol', 'volume',
+  'feat', 'ft', 'featuring', 'theme', 'music', 'song', 'version', 'you', 'ost',
 ])
 
 function normalize(s: string): string {
@@ -98,8 +98,8 @@ export function groupTracks(tracks: Track[], opts: { minGroupSize?: number } = {
   for (const [sig, toks] of signatureToTokens) {
     const ids = signatureToIds.get(sig)!
     if (ids.size < minGroupSize) continue
-    // Score = shared token count (rare tokens weigh same here; IDF handled by STOP filtering)
-    // Multi-token signatures like [hat,time] score 2 > single [mario] score 1
+    // Cut singles: only 2+ shared tokens make a Library group; singles remain search-only
+    if (toks.length < 2) continue
     const score = toks.length
     candidatesBySig.push({ sig, toks, ids, score })
   }
