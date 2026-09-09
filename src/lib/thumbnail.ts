@@ -10,28 +10,9 @@ export async function getTrackThumbnail(file: File, type: 'audio' | 'video'): Pr
   return getAudioThumbnail(file)
 }
 
-async function getAudioThumbnail(file: File): Promise<string | null> {
-  // Try jsmediatags if dynamically available (not a hard dep yet)
-  try {
-    const mod = await import('jsmediatags' as unknown as string).catch(() => null) as unknown as {
-      read: (f: File, cbs: { onSuccess: (r: { tags: { picture?: { data: number[]; format: string } } }) => void; onError: () => void }) => void
-    } | null
-    if (mod?.read) {
-      const pic = await new Promise<{ data: number[]; format: string } | null>((res) => {
-        try {
-          mod.read(file, {
-            onSuccess: (r) => res(r.tags.picture ?? null),
-            onError: () => res(null),
-          })
-        } catch { res(null) }
-      })
-      if (pic?.data) {
-        const bytes = new Uint8Array(pic.data)
-        const blob = new Blob([bytes], { type: pic.format || 'image/jpeg' })
-        return URL.createObjectURL(blob)
-      }
-    }
-  } catch { /* ignore — no tags */ }
+async function getAudioThumbnail(_file: File): Promise<string | null> {
+  // Audio embedded art via jsmediatags not installed yet — fallback to icon
+  // To enable: npm i jsmediatags and restore dynamic import with @vite-ignore
   return null
 }
 
