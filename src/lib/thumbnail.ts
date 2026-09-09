@@ -16,7 +16,7 @@ async function getAudioThumbnail(_file: File): Promise<string | null> {
   return null
 }
 
-async function getVideoThumbnail(file: File, seekSec = 1.5): Promise<string | null> {
+async function getVideoThumbnail(file: File, seekSec = 3.5): Promise<string | null> {
   return new Promise((resolve) => {
     try {
       const url = URL.createObjectURL(file)
