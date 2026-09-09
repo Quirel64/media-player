@@ -28,7 +28,7 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
     let cancelled = false
     const toLoad: Track[] = []
     for (const g of grouped.groups) for (let i = 0; i < Math.min(4, g.tracks.length); i++) toLoad.push(g.tracks[i])
-    for (let i = 0; i < Math.min(12, grouped.loose.length); i++) toLoad.push(grouped.loose[i])
+    for (let i = 0; i < Math.min(57, grouped.loose.length); i++) toLoad.push(grouped.loose[i])
     const uniq = [...new Map(toLoad.map((t) => [t.fileName, t] as const)).values()]
     const missing = uniq.filter((t) => !thumbs[t.fileName])
     if (missing.length === 0) return
