@@ -16,7 +16,7 @@ async function getAudioThumbnail(_file: File): Promise<string | null> {
   return null
 }
 
-async function getVideoThumbnail(file: File, seekSec = 0.5): Promise<string | null> {
+async function getVideoThumbnail(file: File, seekSec = 1.5): Promise<string | null> {
   return new Promise((resolve) => {
     try {
       const url = URL.createObjectURL(file)
@@ -35,8 +35,7 @@ async function getVideoThumbnail(file: File, seekSec = 0.5): Promise<string | nu
       const timeout = setTimeout(() => {
         cleanup()
         resolve(null)
-        //4000
-      }, 30000)
+      }, 4000)
 
       video.addEventListener('loadedmetadata', () => {
         const t = Math.min(seekSec, Math.max(0, (video.duration || 1) * 0.1))
