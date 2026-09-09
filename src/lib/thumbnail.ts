@@ -35,7 +35,8 @@ async function getVideoThumbnail(file: File, seekSec = 0.5): Promise<string | nu
       const timeout = setTimeout(() => {
         cleanup()
         resolve(null)
-      }, 4000)
+        //4000
+      }, 30000)
 
       video.addEventListener('loadedmetadata', () => {
         const t = Math.min(seekSec, Math.max(0, (video.duration || 1) * 0.1))
