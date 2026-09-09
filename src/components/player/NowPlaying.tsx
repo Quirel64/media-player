@@ -23,28 +23,34 @@ export function NowPlaying({ currentTrack, videoContainerRef, collapsed, onToggl
 
   if (!currentTrack) {
     return (
-      <div className="flex h-full items-center justify-center p-4">
-        <div className="flex w-full items-center justify-between">
-          <div className="text-center text-slate-600 flex-1">
-            <div className="mb-1 text-2xl">🎶</div>
-            <p className="text-xs">Select a track to play</p>
+      <div className="flex h-full flex-col">
+        {/* Keep video container mounted even with no track so ref never swaps */}
+        <div key="video-container" ref={videoContainerRef} className="hidden" />
+        <div className="flex h-full items-center justify-center p-4">
+          <div className="flex w-full items-center justify-between">
+            <div className="text-center text-slate-600 flex-1">
+              <div className="mb-1 text-2xl">🎶</div>
+              <p className="text-xs">Select a track to play</p>
+            </div>
+            {CollapseBtn}
           </div>
-          {CollapseBtn}
         </div>
       </div>
     )
   }
 
   if (collapsed) {
-    // Collapsed: slim bar, no large art/video, just name + toggle, keeps video element mounted but hidden
     return (
-      <div className="flex items-center gap-3 px-4 py-2">
-        <div ref={videoContainerRef} className="hidden" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-white">{currentTrack.name}</p>
-          <p className="truncate text-xs text-slate-500">{currentTrack.artist} • {formatTime(currentTime)} / {formatTime(duration)}</p>
+      <div className="flex flex-col">
+        {/* Keep same key so React reuses the node and <video> stays mounted */}
+        <div key="video-container" ref={videoContainerRef} className="hidden" />
+        <div className="flex items-center gap-3 px-4 py-2">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-white">{currentTrack.name}</p>
+            <p className="truncate text-xs text-slate-500">{currentTrack.artist} • {formatTime(currentTime)} / {formatTime(duration)}</p>
+          </div>
+          {CollapseBtn}
         </div>
-        {CollapseBtn}
       </div>
     )
   }
@@ -54,9 +60,10 @@ export function NowPlaying({ currentTrack, videoContainerRef, collapsed, onToggl
       <div className="flex flex-col gap-4 p-4" style={{ paddingTop: 'calc(1rem + env(safe-area-inset-top, 0px))' }}>
         <div className="flex justify-end">{CollapseBtn}</div>
         <div
+          key="video-container"
           ref={videoContainerRef}
           className="relative flex w-full items-center justify-center overflow-hidden rounded-xl bg-black"
-          style={{ aspectRatio: '16/9', maxHeight: '50vh' }}
+          style={{ aspectRatio: '16/9', maxHeight: '40vh' }}
         >
           {/* Video element gets appended here by useAudioEngine */}
         </div>
@@ -87,6 +94,7 @@ export function NowPlaying({ currentTrack, videoContainerRef, collapsed, onToggl
       transition={{ duration: 0.3 }}
       className="flex flex-col items-center gap-6 p-8 relative"
     >
+      <div key="video-container" ref={videoContainerRef} className="hidden" />
       <div className="absolute right-4 top-4">{CollapseBtn}</div>
       <motion.div
         className="flex h-48 w-48 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/30 to-accent/30 shadow-2xl"
