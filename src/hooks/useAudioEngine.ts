@@ -68,34 +68,22 @@ export function useAudioEngine() {
   const stopRaf = useCallback(() => {
     if (rafRef.current) {
       try { cancelAnimationFrame(rafRef.current) } catch {}
-      try { (videoRef.current as unknown as { cancelVideoFrameCallback?: (h: number) => void })?.cancelVideoFrameCallback?.(rafRef.current) } catch {}
+      try { clearTimeout(rafRef.current) } catch {}
       rafRef.current = 0
     }
   }, [])
   const startVideoFrames = useCallback(() => {
     stopRaf()
-    const media = mediaRef.current, video = videoRef.current
-    if (!media || !video) return
-    const rVFC = (video as unknown as { requestVideoFrameCallback?: (cb: (now: number) => void) => number })?.requestVideoFrameCallback
-    if (rVFC) {
-      const tick = () => {
-        const m = mediaRef.current, v = videoRef.current
-        if (m && v && v.src && sourceKindRef.current === 'track' && ownerRef.current === 'track' && !m.paused) {
-          try { if (Math.abs(v.currentTime - m.currentTime) > 0.08) v.currentTime = m.currentTime } catch { /* metadata not ready */ }
-          rafRef.current = (v as unknown as { requestVideoFrameCallback: (cb: () => void) => number }).requestVideoFrameCallback(tick)
-        }
+    const tick = () => {
+      const media = mediaRef.current, video = videoRef.current, container = videoContainerRef.current
+      const isHidden = !container || container.classList.contains('hidden') || container.offsetParent === null
+      if (media && video && video.src && sourceKindRef.current === 'track' && ownerRef.current === 'track' && !media.paused && !isHidden) {
+        try { if (Math.abs(video.currentTime - media.currentTime) > 0.12) video.currentTime = media.currentTime } catch { /* metadata not ready */ }
       }
-      rafRef.current = rVFC.call(video, tick)
-    } else {
-      const tick = () => {
-        const m = mediaRef.current, v = videoRef.current
-        if (m && v && v.src && sourceKindRef.current === 'track' && ownerRef.current === 'track' && !m.paused) {
-          try { if (Math.abs(v.currentTime - m.currentTime) > 0.08) v.currentTime = m.currentTime } catch { /* metadata not ready */ }
-          rafRef.current = requestAnimationFrame(tick)
-        }
-      }
-      rafRef.current = requestAnimationFrame(tick)
+      // Throttled 100ms (~10fps) — enough for paused seek display, far less CPU than 60fps rAF
+      rafRef.current = window.setTimeout(tick, 100) as unknown as number
     }
+    rafRef.current = window.setTimeout(tick, 100) as unknown as number
   }, [stopRaf])
 
   const attachVideo = useCallback((url: string) => {
