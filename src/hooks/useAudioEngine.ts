@@ -65,17 +65,37 @@ export function useAudioEngine() {
   const { currentTrackIndex, queue, volume, isMuted, setPlaying, setCurrentTime, setDuration, setCurrentTrackIndex } = usePlayerStore()
   const currentTrack = queue[currentTrackIndex]
 
-  const stopRaf = useCallback(() => { if (rafRef.current) cancelAnimationFrame(rafRef.current); rafRef.current = 0 }, [])
+  const stopRaf = useCallback(() => {
+    if (rafRef.current) {
+      try { cancelAnimationFrame(rafRef.current) } catch {}
+      try { (videoRef.current as unknown as { cancelVideoFrameCallback?: (h: number) => void })?.cancelVideoFrameCallback?.(rafRef.current) } catch {}
+      rafRef.current = 0
+    }
+  }, [])
   const startVideoFrames = useCallback(() => {
     stopRaf()
-    const tick = () => {
-      const media = mediaRef.current, video = videoRef.current
-      if (media && video && video.src && sourceKindRef.current === 'track' && ownerRef.current === 'track' && !media.paused) {
-        try { if (Math.abs(video.currentTime - media.currentTime) > 0.08) video.currentTime = media.currentTime } catch { /* metadata not ready */ }
-        rafRef.current = requestAnimationFrame(tick)
+    const media = mediaRef.current, video = videoRef.current
+    if (!media || !video) return
+    const rVFC = (video as unknown as { requestVideoFrameCallback?: (cb: (now: number) => void) => number })?.requestVideoFrameCallback
+    if (rVFC) {
+      const tick = () => {
+        const m = mediaRef.current, v = videoRef.current
+        if (m && v && v.src && sourceKindRef.current === 'track' && ownerRef.current === 'track' && !m.paused) {
+          try { if (Math.abs(v.currentTime - m.currentTime) > 0.08) v.currentTime = m.currentTime } catch { /* metadata not ready */ }
+          rafRef.current = (v as unknown as { requestVideoFrameCallback: (cb: () => void) => number }).requestVideoFrameCallback(tick)
+        }
       }
+      rafRef.current = rVFC.call(video, tick)
+    } else {
+      const tick = () => {
+        const m = mediaRef.current, v = videoRef.current
+        if (m && v && v.src && sourceKindRef.current === 'track' && ownerRef.current === 'track' && !m.paused) {
+          try { if (Math.abs(v.currentTime - m.currentTime) > 0.08) v.currentTime = m.currentTime } catch { /* metadata not ready */ }
+          rafRef.current = requestAnimationFrame(tick)
+        }
+      }
+      rafRef.current = requestAnimationFrame(tick)
     }
-    rafRef.current = requestAnimationFrame(tick)
   }, [stopRaf])
 
   const attachVideo = useCallback((url: string) => {
