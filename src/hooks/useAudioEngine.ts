@@ -159,8 +159,8 @@ export function useAudioEngine() {
     setOwner(kind)
     if (kind === 'track') {
       setPlaying(true); publishPosition(media.duration || trackDurationRef.current, media.currentTime, 1)
-      // If dual-play succeeded, no rAF needed; otherwise fallback seek
-      if (!(isVideoTrack && v && !v.paused)) startVideoFrames()
+      // rAF fallback only if dual-play failed (handled in catch); if no video track, no sync needed
+      if (!isVideoTrack) { /* audio only: no video sync */ }
     } else {
       setPlaying(false); publishPosition(trackDurationRef.current || media.duration, frozenPosRef.current, media.playbackRate || HOLD_RATE)
     }
@@ -192,7 +192,7 @@ export function useAudioEngine() {
         setOwner('track'); setPlaying(true)
         if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
         publishPosition(media.duration, media.currentTime, 1)
-        if (!(isVideoResume && vResume && !vResume.paused)) startVideoFrames()
+        // rAF fallback only on vPlay failure (handled in catch)
         addLog(`track resumed on permanent element @ ${media.currentTime.toFixed(2)}s${isVideoResume && vResume && !vResume.paused ? ' +video' : ''}`)
       } else {
         // Need src swap — ensure blob URL for OPFS track
@@ -373,7 +373,12 @@ export function useAudioEngine() {
       addLog(`visibility -> ${document.visibilityState}`)
       if (document.visibilityState==='hidden') { stopRaf(); videoRef.current?.pause(); return }
       setAudioSessionType()
-      const m=mediaRef.current; if(ownerRef.current==='track' && m && !m.paused) startVideoFrames()
+      const m=mediaRef.current; const v=videoRef.current
+      const isVideo = usePlayerStore.getState().queue[usePlayerStore.getState().currentTrackIndex]?.mediaType === 'video'
+      if (ownerRef.current==='track' && m && !m.paused) {
+        if (isVideo && v && v.src && v.paused) { v.muted = true; v.play().catch(() => startVideoFrames()); }
+        else startVideoFrames()
+      }
     }
     const onPageShow = (e: PageTransitionEvent) => { setAudioSessionType(); addLog(`pageshow${(e as unknown as { persisted?: boolean }).persisted?' (bfcache)':''}`) }
     document.addEventListener('visibilitychange', onVis); window.addEventListener('pageshow', onPageShow as EventListener)
