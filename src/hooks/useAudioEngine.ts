@@ -339,13 +339,25 @@ export function useAudioEngine() {
     }
     const onPlaying = () => {
       const k = sourceKindRef.current
-      setOwner(k); if (k==='track') { setPlaying(true); startVideoFrames() } else setPlaying(false)
+      setOwner(k); if (k==='track') {
+        setPlaying(true)
+        // Dual-play: sync video once on playing, no rAF loop
+        const vPlay = videoRef.current
+        const isV = usePlayerStore.getState().queue[usePlayerStore.getState().currentTrackIndex]?.mediaType === 'video'
+        if (isV && vPlay && vPlay.src) { try { if (Math.abs(vPlay.currentTime - media.currentTime) > 0.2) vPlay.currentTime = media.currentTime } catch {} }
+      } else setPlaying(false)
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
       addLog(`native playing (${k}, same element)`)
     }
     const onPause = () => { if (transitionRef.current) return; if (sourceKindRef.current==='track' && ownerRef.current==='track') setPlaying(false); addLog(`native pause (${sourceKindRef.current})`) }
     const onTimeUpdate = () => {
-      if (sourceKindRef.current==='track') { frozenPosRef.current = media.currentTime; setCurrentTime(media.currentTime); publishPosition(media.duration, media.currentTime, 1); return }
+      if (sourceKindRef.current==='track') {
+        frozenPosRef.current = media.currentTime; setCurrentTime(media.currentTime); publishPosition(media.duration, media.currentTime, 1)
+        // Drift correction for dual-play (~4Hz via timeupdate, not 60fps rAF)
+        const v = videoRef.current
+        const isV = usePlayerStore.getState().queue[usePlayerStore.getState().currentTrackIndex]?.mediaType === 'video'
+        if (isV && v && v.src && !v.paused && Math.abs(v.currentTime - media.currentTime) > 0.3) { try { v.currentTime = media.currentTime } catch {} }
+        return }
       // Best effort: frozen track pos is authoritative even if anchor bar drifts
       const frozen = frozenPosRef.current
       if (media.currentTime - frozen >= 0.35) { try { media.currentTime = Math.min(frozen, Math.max(0, media.duration - 0.35)) } catch {} }
