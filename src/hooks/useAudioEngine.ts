@@ -73,7 +73,7 @@ export function useAudioEngine() {
       const media = mediaRef.current, video = videoRef.current, container = videoContainerRef.current
       const isHidden = !container || container.classList.contains('hidden') || (container as HTMLElement).offsetParent === null
       if (media && video && video.src && sourceKindRef.current === 'track' && ownerRef.current === 'track' && !media.paused && !isHidden) {
-        if (now - lastSeek > 10) {
+        if (now - lastSeek > 1) {
           try { if (Math.abs(video.currentTime - media.currentTime) > 0.08) video.currentTime = media.currentTime } catch { /* metadata not ready */ }
           lastSeek = now
         }
