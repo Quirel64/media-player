@@ -1,5 +1,4 @@
 import { useRef, useCallback } from 'react'
-import { motion } from 'framer-motion'
 import { usePlayerStore } from '../../stores/playerStore'
 import { formatTime } from '../../lib/format'
 import type { Track } from '../../lib/types'
@@ -124,10 +123,9 @@ export function PlayBar({ currentTrack, onTogglePlay, onNext, onPrev, onSeek }: 
             </svg>
           </button>
 
-          <motion.button
-            whileTap={{ scale: 0.9 }}
+          <button
             onClick={onTogglePlay}
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-white transition-transform hover:scale-105"
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-white active:scale-95"
             style={{ color: '#0a0e1a' }}
           >
             {isPlaying ? (
@@ -139,7 +137,7 @@ export function PlayBar({ currentTrack, onTogglePlay, onNext, onPrev, onSeek }: 
                 <path d="M8 5v14l11-7z" />
               </svg>
             )}
-          </motion.button>
+          </button>
 
           <button
             onClick={onNext}
@@ -203,7 +201,7 @@ export function PlayBar({ currentTrack, onTogglePlay, onNext, onPrev, onSeek }: 
             onTouchEnd={handleTouchEnd}
             className="group relative h-1.5 flex-1 cursor-pointer rounded-full bg-slate-700 touch-none"
           >
-            <motion.div
+            <div
               className="absolute left-0 top-0 h-full rounded-full bg-primary"
               style={{ width: duration > 0 ? `${(currentTime / duration) * 100}%` : '0%' }}
             />
