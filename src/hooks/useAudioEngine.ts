@@ -153,7 +153,7 @@ export function useAudioEngine() {
     if (isVideoTrack && v && kind === 'track') { v.muted = true; try { videoPlay = v.play() } catch { /* ignore */ } }
     else if (v && kind === 'anchor') { try { v.pause() } catch {} }
     await playPromise
-    if (videoPlay) await videoPlay.catch(() => { /* fallback to seek mode */ if (kind === 'track') startVideoFrames() })
+    if (videoPlay) await videoPlay.catch(() => { /* test without fallback — keep frozen frame to see if dual-play needed */ addLog('video.play fallback disabled for test') })
     if (token !== transitionTokenRef.current) return
     setPosWhenReady()
     setOwner(kind)
@@ -188,7 +188,7 @@ export function useAudioEngine() {
         let vPlay: Promise<void> | null = null
         if (isVideoResume && vResume) { vResume.muted = true; try { vPlay = vResume.play() } catch {} }
         await directPlay
-        if (vPlay) await vPlay.catch(() => { if (isVideoResume) startVideoFrames() })
+        if (vPlay) await vPlay.catch(() => { addLog('video resume fallback disabled for test') })
         setOwner('track'); setPlaying(true)
         if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
         publishPosition(media.duration, media.currentTime, 1)
@@ -376,8 +376,8 @@ export function useAudioEngine() {
       const m=mediaRef.current; const v=videoRef.current
       const isVideo = usePlayerStore.getState().queue[usePlayerStore.getState().currentTrackIndex]?.mediaType === 'video'
       if (ownerRef.current==='track' && m && !m.paused) {
-        if (isVideo && v && v.src && v.paused) { v.muted = true; v.play().catch(() => startVideoFrames()); }
-        else startVideoFrames()
+        if (isVideo && v && v.src && v.paused) { v.muted = true; v.play().catch(() => addLog('visible video fallback disabled')) }
+        else if (!isVideo) startVideoFrames()
       }
     }
     const onPageShow = (e: PageTransitionEvent) => { setAudioSessionType(); addLog(`pageshow${(e as unknown as { persisted?: boolean }).persisted?' (bfcache)':''}`) }
