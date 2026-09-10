@@ -5,6 +5,7 @@ import { showError } from '../components/ui/Toast'
 import { addLog } from '../lib/logger'
 import { createSilentWavUrl, describeSilentWav } from '../lib/silentAudio'
 import { getPlayingArtwork } from '../lib/artwork'
+import { VideoSyncController } from '../lib/videoSync'
 
 /*
   FINAL — Same-element source swap (Arena idea + your 0.0000001 tweak).
@@ -48,7 +49,7 @@ export function useAudioEngine() {
   const anchorForDurationRef = useRef(0)
   const urlCacheRef = useRef<Map<string, string>>(new Map())
 
-  const rafRef = useRef(0)
+  const videoSyncRef = useRef<VideoSyncController | null>(null)
   const frozenPosRef = useRef(0)
   const trackDurationRef = useRef(0)
   const transitionRef = useRef(false)
@@ -65,30 +66,26 @@ export function useAudioEngine() {
   const { currentTrackIndex, queue, volume, isMuted, setPlaying, setCurrentTime, setDuration, setCurrentTrackIndex } = usePlayerStore()
   const currentTrack = queue[currentTrackIndex]
 
-  const stopRaf = useCallback(() => { if (rafRef.current) { try { cancelAnimationFrame(rafRef.current) } catch {}; rafRef.current = 0 } }, [])
-  const startVideoFrames = useCallback(() => {
-    stopRaf()
-    let lastSeek = 0
-    const tick = (now: number) => {
-      const media = mediaRef.current, video = videoRef.current, container = videoContainerRef.current
-      const isHidden = !container || container.classList.contains('hidden') || (container as HTMLElement).offsetParent === null
-      if (media && video && video.src && sourceKindRef.current === 'track' && ownerRef.current === 'track' && !media.paused && !isHidden) {
-        if (now - lastSeek > 0.5) {
-          try { if (Math.abs(video.currentTime - media.currentTime) > 0.08) video.currentTime = media.currentTime } catch { /* metadata not ready */ }
-          lastSeek = now
-        }
-      }
-      rafRef.current = requestAnimationFrame(tick)
+  const getSync = useCallback(() => {
+    if (!videoSyncRef.current) {
+      videoSyncRef.current = new VideoSyncController({
+        getAudio: () => mediaRef.current,
+        getVideo: () => videoRef.current,
+        isActive: () => sourceKindRef.current === 'track' && ownerRef.current === 'track' && !!mediaRef.current && !mediaRef.current.paused && document.visibilityState === 'visible',
+        log: (m) => addLog(m),
+      })
     }
-    rafRef.current = requestAnimationFrame(tick)
-  }, [stopRaf])
+    return videoSyncRef.current
+  }, [])
+  const stopRaf = useCallback(() => { videoSyncRef.current?.stop() }, [])
+  const startVideoFrames = useCallback(() => { getSync().start() }, [getSync])
 
   const attachVideo = useCallback((url: string) => {
     let v = videoRef.current
     if (!v) {
       v = document.createElement('video')
       v.muted = true; (v as unknown as { defaultMuted: boolean }).defaultMuted = true
-      v.playsInline = true; v.setAttribute('webkit-playsinline','true'); v.setAttribute('x-webkit-airplay','deny'); v.preload='metadata'; v.controls=false
+      v.playsInline = true; v.setAttribute('webkit-playsinline','true'); v.setAttribute('x-webkit-airplay','deny'); v.preload='auto'; v.controls=false
       // Hint iOS not to treat as remote media session
       try { (v as unknown as { disableRemotePlayback: boolean }).disableRemotePlayback = true } catch {}
       v.style.width='100%'; v.style.height='100%'; v.style.objectFit='contain'; v.style.background='#000'
@@ -137,7 +134,6 @@ export function useAudioEngine() {
       const safeMax = Number.isFinite(srcDur) ? Math.max(0, srcDur - 0.35) : position
       const safePos = Math.min(Math.max(0, position), safeMax)
       try { media.currentTime = safePos } catch { /* canplay retry */ }
-      if (isVideoTrack && v && kind === 'track') { try { v.currentTime = safePos } catch {} }
       media.defaultPlaybackRate = rate; media.playbackRate = rate
       if (v) { v.defaultPlaybackRate = 1; v.playbackRate = 1 }
     }
@@ -153,14 +149,13 @@ export function useAudioEngine() {
     if (isVideoTrack && v && kind === 'track') { v.muted = true; try { videoPlay = v.play() } catch { /* ignore */ } }
     else if (v && kind === 'anchor') { try { v.pause() } catch {} }
     await playPromise
-    if (videoPlay) await videoPlay.catch(() => { /* test without fallback — keep frozen frame to see if dual-play needed */ addLog('video.play fallback disabled for test') })
+    if (videoPlay) await videoPlay.catch(() => { addLog('video.play failed, nudge will handle') })
     if (token !== transitionTokenRef.current) return
     setPosWhenReady()
     setOwner(kind)
     if (kind === 'track') {
       setPlaying(true); publishPosition(media.duration || trackDurationRef.current, media.currentTime, 1)
-      // rAF fallback only if dual-play failed (handled in catch); if no video track, no sync needed
-      if (!isVideoTrack) { /* audio only: no video sync */ }
+      if (isVideoTrack && v && v.src) { getSync().hardSync('activate'); getSync().start() }
     } else {
       setPlaying(false); publishPosition(trackDurationRef.current || media.duration, frozenPosRef.current, media.playbackRate || HOLD_RATE)
     }
@@ -183,16 +178,16 @@ export function useAudioEngine() {
       const vResume = videoRef.current
       if (sourceKindRef.current === 'track' && currentBlobIsTrack) {
         setAudioSessionType()
-        if (Number.isFinite(resumePos)) { try { media.currentTime = resumePos } catch {}; if (isVideoResume && vResume) try { vResume.currentTime = resumePos } catch {} }
+        if (Number.isFinite(resumePos)) try { media.currentTime = resumePos } catch {}
         const directPlay = media.play()
         let vPlay: Promise<void> | null = null
         if (isVideoResume && vResume) { vResume.muted = true; try { vPlay = vResume.play() } catch {} }
         await directPlay
-        if (vPlay) await vPlay.catch(() => { addLog('video resume fallback disabled for test') })
+        if (vPlay) await vPlay.catch(() => addLog('video resume failed'))
+        if (isVideoResume && vResume && vResume.src) { getSync().hardSync('resume'); getSync().start() }
         setOwner('track'); setPlaying(true)
         if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
         publishPosition(media.duration, media.currentTime, 1)
-        // rAF fallback only on vPlay failure (handled in catch)
         addLog(`track resumed on permanent element @ ${media.currentTime.toFixed(2)}s${isVideoResume && vResume && !vResume.paused ? ' +video' : ''}`)
       } else {
         // Need src swap — ensure blob URL for OPFS track
@@ -339,25 +334,13 @@ export function useAudioEngine() {
     }
     const onPlaying = () => {
       const k = sourceKindRef.current
-      setOwner(k); if (k==='track') {
-        setPlaying(true)
-        // Dual-play: sync video once on playing, no rAF loop
-        const vPlay = videoRef.current
-        const isV = usePlayerStore.getState().queue[usePlayerStore.getState().currentTrackIndex]?.mediaType === 'video'
-        if (isV && vPlay && vPlay.src) { try { if (Math.abs(vPlay.currentTime - media.currentTime) > 0.2) vPlay.currentTime = media.currentTime } catch {} }
-      } else setPlaying(false)
+      setOwner(k); if (k==='track') setPlaying(true); else setPlaying(false)
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
       addLog(`native playing (${k}, same element)`)
     }
     const onPause = () => { if (transitionRef.current) return; if (sourceKindRef.current==='track' && ownerRef.current==='track') setPlaying(false); addLog(`native pause (${sourceKindRef.current})`) }
     const onTimeUpdate = () => {
-      if (sourceKindRef.current==='track') {
-        frozenPosRef.current = media.currentTime; setCurrentTime(media.currentTime); publishPosition(media.duration, media.currentTime, 1)
-        // Drift correction for dual-play (~4Hz via timeupdate, not 60fps rAF)
-        const v = videoRef.current
-        const isV = usePlayerStore.getState().queue[usePlayerStore.getState().currentTrackIndex]?.mediaType === 'video'
-        if (isV && v && v.src && !v.paused && Math.abs(v.currentTime - media.currentTime) > 0.3) { try { v.currentTime = media.currentTime } catch {} }
-        return }
+      if (sourceKindRef.current==='track') { frozenPosRef.current = media.currentTime; setCurrentTime(media.currentTime); publishPosition(media.duration, media.currentTime, 1); return }
       // Best effort: frozen track pos is authoritative even if anchor bar drifts
       const frozen = frozenPosRef.current
       if (media.currentTime - frozen >= 0.35) { try { media.currentTime = Math.min(frozen, Math.max(0, media.duration - 0.35)) } catch {} }
