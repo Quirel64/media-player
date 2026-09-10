@@ -87,13 +87,17 @@ export function useAudioEngine() {
     let v = videoRef.current
     if (!v) {
       v = document.createElement('video')
-      v.muted = true; v.playsInline = true; v.setAttribute('webkit-playsinline','true'); v.preload='metadata'; v.controls=false
+      v.muted = true; (v as unknown as { defaultMuted: boolean }).defaultMuted = true
+      v.playsInline = true; v.setAttribute('webkit-playsinline','true'); v.setAttribute('x-webkit-airplay','deny'); v.preload='metadata'; v.controls=false
+      // Hint iOS not to treat as remote media session
+      try { (v as unknown as { disableRemotePlayback: boolean }).disableRemotePlayback = true } catch {}
       v.style.width='100%'; v.style.height='100%'; v.style.objectFit='contain'; v.style.background='#000'
       videoRef.current = v
     }
     const c = videoContainerRef.current
     if (c && v.parentNode !== c) { c.innerHTML=''; c.appendChild(v) }
     if (v.src !== url) { v.src = url; v.load() }
+    // Keep paused until dual-play; rAF fallback was seek-only, dual-play will call v.play() muted
     v.pause()
   }, [])
   const detachVideo = useCallback(() => { const v=videoRef.current; if(!v) return; v.pause(); v.removeAttribute('src'); v.load() }, [])
@@ -125,30 +129,43 @@ export function useAudioEngine() {
     setOwner('idle')
     setAudioSessionType()
     const rate = kind === 'anchor' ? HOLD_RATE : 1
+    const isVideoTrack = usePlayerStore.getState().queue[usePlayerStore.getState().currentTrackIndex]?.mediaType === 'video'
+    const v = videoRef.current
     const setPosWhenReady = () => {
       if (token !== transitionTokenRef.current) return
       const srcDur = media.duration
       const safeMax = Number.isFinite(srcDur) ? Math.max(0, srcDur - 0.35) : position
       const safePos = Math.min(Math.max(0, position), safeMax)
       try { media.currentTime = safePos } catch { /* canplay retry */ }
+      if (isVideoTrack && v && kind === 'track') { try { v.currentTime = safePos } catch {} }
       media.defaultPlaybackRate = rate; media.playbackRate = rate
+      if (v) { v.defaultPlaybackRate = 1; v.playbackRate = 1 }
     }
     media.addEventListener('loadedmetadata', setPosWhenReady, { once: true })
     media.addEventListener('canplay', setPosWhenReady, { once: true })
     media.autoplay = true; media.defaultPlaybackRate = rate; media.playbackRate = rate
     media.src = url; media.load()
+    // Video src already set via attachVideo; ensure position
+    if (isVideoTrack && v && kind === 'track' && v.src !== url) { v.src = url; v.load(); try { v.currentTime = position } catch {} }
     const playPromise = media.play()
+    // Dual-play: muted video plays alongside audio (native 30fps, no seek stutter). Keep muted so iOS keeps audio session.
+    let videoPlay: Promise<void> | null = null
+    if (isVideoTrack && v && kind === 'track') { v.muted = true; try { videoPlay = v.play() } catch { /* ignore */ } }
+    else if (v && kind === 'anchor') { try { v.pause() } catch {} }
     await playPromise
+    if (videoPlay) await videoPlay.catch(() => { /* fallback to seek mode */ if (kind === 'track') startVideoFrames() })
     if (token !== transitionTokenRef.current) return
     setPosWhenReady()
     setOwner(kind)
     if (kind === 'track') {
-      setPlaying(true); publishPosition(media.duration || trackDurationRef.current, media.currentTime, 1); startVideoFrames()
+      setPlaying(true); publishPosition(media.duration || trackDurationRef.current, media.currentTime, 1)
+      // If dual-play succeeded, no rAF needed; otherwise fallback seek
+      if (!(isVideoTrack && v && !v.paused)) startVideoFrames()
     } else {
       setPlaying(false); publishPosition(trackDurationRef.current || media.duration, frozenPosRef.current, media.playbackRate || HOLD_RATE)
     }
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
-    addLog(`${kind} source active on permanent element @ ${media.currentTime.toFixed(2)}s`)
+    addLog(`${kind} source active on permanent element @ ${media.currentTime.toFixed(2)}s${isVideoTrack && kind==='track' ? (v && !v.paused ? ' +video playing' : ' +video seek') : ''}`)
   }, [setOwner, startVideoFrames, setPlaying])
 
   const play = useCallback(async () => {
@@ -162,15 +179,21 @@ export function useAudioEngine() {
       const resumePos = frozenPosRef.current
       // Same track, same src — direct resume keeps gesture (no source swap)
       const currentBlobIsTrack = blobUrlRef.current && media.src === blobUrlRef.current
+      const isVideoResume = track.mediaType === 'video'
+      const vResume = videoRef.current
       if (sourceKindRef.current === 'track' && currentBlobIsTrack) {
         setAudioSessionType()
-        if (Number.isFinite(resumePos)) try { media.currentTime = resumePos } catch {}
+        if (Number.isFinite(resumePos)) { try { media.currentTime = resumePos } catch {}; if (isVideoResume && vResume) try { vResume.currentTime = resumePos } catch {} }
         const directPlay = media.play()
+        let vPlay: Promise<void> | null = null
+        if (isVideoResume && vResume) { vResume.muted = true; try { vPlay = vResume.play() } catch {} }
         await directPlay
+        if (vPlay) await vPlay.catch(() => { if (isVideoResume) startVideoFrames() })
         setOwner('track'); setPlaying(true)
         if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
-        publishPosition(media.duration, media.currentTime, 1); startVideoFrames()
-        addLog(`track resumed on permanent element @ ${media.currentTime.toFixed(2)}s`)
+        publishPosition(media.duration, media.currentTime, 1)
+        if (!(isVideoResume && vResume && !vResume.paused)) startVideoFrames()
+        addLog(`track resumed on permanent element @ ${media.currentTime.toFixed(2)}s${isVideoResume && vResume && !vResume.paused ? ' +video' : ''}`)
       } else {
         // Need src swap — ensure blob URL for OPFS track
         let url = blobUrlRef.current
@@ -198,6 +221,7 @@ export function useAudioEngine() {
     try {
       const pos = media.currentTime
       frozenPosRef.current = pos; setCurrentTime(pos); setPlaying(false); stopRaf()
+      const vPause = videoRef.current; if (vPause) try { vPause.pause() } catch {}
       ensureAnchor(trackDurationRef.current || media.duration || 2)
       await activateSource('anchor', anchorUrlRef.current, pos)
       addLog(`track → placeholder swap @ ${pos.toFixed(2)}s`)
