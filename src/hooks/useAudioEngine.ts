@@ -73,6 +73,7 @@ export function useAudioEngine() {
         getVideo: () => videoRef.current,
         isActive: () => sourceKindRef.current === 'track' && ownerRef.current === 'track' && !!mediaRef.current && !mediaRef.current.paused && document.visibilityState === 'visible',
         log: (m) => addLog(m),
+        onStats: (s) => { if (s.lastAction !== 'locked' && s.lastAction !== 'idle') addLog(`vsync ${s.lastAction} drift ${s.drift.toFixed(2)} rate ${s.rate.toFixed(3)}`) },
       })
     }
     return videoSyncRef.current
@@ -341,9 +342,9 @@ export function useAudioEngine() {
     const onPause = () => { if (transitionRef.current) return; if (sourceKindRef.current==='track' && ownerRef.current==='track') setPlaying(false); addLog(`native pause (${sourceKindRef.current})`) }
     const onTimeUpdate = () => {
       if (sourceKindRef.current==='track') { frozenPosRef.current = media.currentTime; setCurrentTime(media.currentTime); publishPosition(media.duration, media.currentTime, 1); return }
-      // Best effort: frozen track pos is authoritative even if anchor bar drifts
+      // Best effort: frozen track pos is authoritative even if anchor bar drifts — threshold 0.35 avoids PC constant rewind loop
       const frozen = frozenPosRef.current
-      if (media.currentTime - frozen >= 0) { try { media.currentTime = Math.min(frozen, Math.max(0, media.duration - 0.35)) } catch {} }
+      if (media.currentTime - frozen >= 0.35) { try { media.currentTime = Math.min(frozen, Math.max(0, media.duration - 0.35)) } catch {} }
       publishPosition(trackDurationRef.current || media.duration, frozen, media.playbackRate || HOLD_RATE)
     }
     const onEnded = () => {
