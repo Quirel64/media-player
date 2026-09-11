@@ -343,7 +343,7 @@ export function useAudioEngine() {
       if (sourceKindRef.current==='track') { frozenPosRef.current = media.currentTime; setCurrentTime(media.currentTime); publishPosition(media.duration, media.currentTime, 1); return }
       // Best effort: frozen track pos is authoritative even if anchor bar drifts
       const frozen = frozenPosRef.current
-      if (media.currentTime - frozen >= 0.35) { try { media.currentTime = Math.min(frozen, Math.max(0, media.duration - 0.35)) } catch {} }
+      if (media.currentTime - frozen >= 0) { try { media.currentTime = Math.min(frozen, Math.max(0, media.duration - 0.35)) } catch {} }
       publishPosition(trackDurationRef.current || media.duration, frozen, media.playbackRate || HOLD_RATE)
     }
     const onEnded = () => {
