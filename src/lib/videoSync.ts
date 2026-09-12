@@ -44,7 +44,7 @@ export interface VideoSyncOptions {
   intervalMs?: number;
 }
 
-const DEAD_BAND = 0.08;
+const DEAD_BAND = 0.15;
 const HARD_THRESHOLD = 2.0;
 const GAIN = 0.6; // faster lock: 0.3s drift ≈ 18% → clamped to 25%
 const RATE_MIN = 0.75;
@@ -56,7 +56,7 @@ export class VideoSyncController {
   raf = 0;
   lastEval = 0;
   cooldownUntil = 0;
-  seekLead = 0.12; // adaptive: seconds of decode latency to lead by
+  seekLead = 0.25; // adaptive: higher lead to centre -0.30 drift, was 0.12
   pendingSeekTarget: number | null = null;
   pendingSeekAt = 0;
   stats: VideoSyncStats = {
@@ -65,7 +65,7 @@ export class VideoSyncController {
     seeks: 0,
     nudges: 0,
     lastAction: "idle",
-    seekLead: 0.12,
+    seekLead: 0.25,
   };
   boundSeeked = () => this.onSeeked();
   attachedVideo: HTMLVideoElement | null = null;

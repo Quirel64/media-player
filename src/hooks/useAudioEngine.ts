@@ -152,7 +152,7 @@ export function useAudioEngine() {
     }
     media.autoplay = true; setRate(media, rate)
     media.src = url; media.load()
-    if (kind === 'track') { try { media.currentTime = position } catch {} }
+    if (kind === 'track' && Math.abs((media.currentTime || 0) - position) > 0.08) try { media.currentTime = position } catch {}
     // Video hardSync handles its own seek, no direct v.currentTime here
     const playPromise = media.play()
     // Dual-play: muted video plays alongside audio (native 30fps). Keep muted so iOS keeps audio session.
@@ -189,7 +189,7 @@ export function useAudioEngine() {
       const vResume = videoRef.current
       if (sourceKindRef.current === 'track' && currentBlobIsTrack) {
         setAudioSessionType()
-        if (Number.isFinite(resumePos)) try { media.currentTime = resumePos } catch {}
+        if (Number.isFinite(resumePos) && Math.abs((media.currentTime || 0) - resumePos) > 0.08) try { media.currentTime = resumePos } catch {}
         const directPlay = media.play()
         let vPlay: Promise<void> | null = null
         if (isVideoResume && vResume) { vResume.muted = true; try { vPlay = vResume.play() } catch {} }
