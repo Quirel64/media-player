@@ -167,10 +167,11 @@ export function useAudioEngine() {
     if (kind === 'track') {
       setPlaying(true); publishPosition(media.duration || trackDurationRef.current, media.currentTime, 1)
       if (isVideoTrack && v && v.src) { getSync().hardSync('activate'); getSync().start() }
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
     } else {
-      setPlaying(false); publishPosition(trackDurationRef.current || media.duration, frozenPosRef.current, media.playbackRate || HOLD_RATE)
+      setPlaying(false); publishPosition(trackDurationRef.current || media.duration, frozenPosRef.current, HOLD_RATE)
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
     }
-    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
     addLog(`${kind} source active on permanent element @ ${media.currentTime.toFixed(2)}s${isVideoTrack && kind==='track' ? (v && !v.paused ? ' +video playing' : ' +video seek') : ''}`)
   }, [setOwner, startVideoFrames, setPlaying])
 
