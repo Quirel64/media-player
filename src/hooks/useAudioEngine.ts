@@ -145,21 +145,24 @@ export function useAudioEngine() {
       setRate(media, rate)
       if (v) setRate(v, 1)
     }
-    media.addEventListener('loadedmetadata', setPosWhenReady, { once: true })
-    media.addEventListener('canplay', setPosWhenReady, { once: true })
+    // Audio: keep only single seek before play (play:182) + anchor listeners. No double seek for track.
+    if (kind === 'anchor') {
+      media.addEventListener('loadedmetadata', setPosWhenReady, { once: true })
+      media.addEventListener('canplay', setPosWhenReady, { once: true })
+    }
     media.autoplay = true; setRate(media, rate)
     media.src = url; media.load()
-    // Video src already set via attachVideo; ensure position
-    if (isVideoTrack && v && kind === 'track' && v.src !== url) { v.src = url; v.load(); try { v.currentTime = position } catch {} }
+    if (kind === 'track') { try { media.currentTime = position } catch {} }
+    // Video hardSync handles its own seek, no direct v.currentTime here
     const playPromise = media.play()
-    // Dual-play: muted video plays alongside audio (native 30fps, no seek stutter). Keep muted so iOS keeps audio session.
+    // Dual-play: muted video plays alongside audio (native 30fps). Keep muted so iOS keeps audio session.
     let videoPlay: Promise<void> | null = null
     if (isVideoTrack && v && kind === 'track') { v.muted = true; try { videoPlay = v.play() } catch { /* ignore */ } }
     else if (v && kind === 'anchor') { try { v.pause() } catch {} }
     await playPromise
     if (videoPlay) await videoPlay.catch(() => { addLog('video.play failed, nudge will handle') })
     if (token !== transitionTokenRef.current) return
-    setPosWhenReady()
+    if (kind === 'anchor') setPosWhenReady()
     setOwner(kind)
     if (kind === 'track') {
       setPlaying(true); publishPosition(media.duration || trackDurationRef.current, media.currentTime, 1)
