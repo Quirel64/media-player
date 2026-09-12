@@ -22,6 +22,13 @@ import { VideoSyncController } from '../lib/videoSync'
 */
 
 const HOLD_RATE = 0.0000001
+const FALLBACK_HOLD_RATE = 0.0625
+
+function setRate(el: HTMLMediaElement, rate: number) {
+  try { el.defaultPlaybackRate = rate; el.playbackRate = rate } catch {
+    try { el.defaultPlaybackRate = FALLBACK_HOLD_RATE; el.playbackRate = FALLBACK_HOLD_RATE } catch { /* ignore */ }
+  }
+}
 
 function setAudioSessionType() {
   const nav = navigator as unknown as { audioSession?: { type: string } }
@@ -135,12 +142,12 @@ export function useAudioEngine() {
       const safeMax = Number.isFinite(srcDur) ? Math.max(0, srcDur - 0.35) : position
       const safePos = Math.min(Math.max(0, position), safeMax)
       try { media.currentTime = safePos } catch { /* canplay retry */ }
-      media.defaultPlaybackRate = rate; media.playbackRate = rate
-      if (v) { v.defaultPlaybackRate = 1; v.playbackRate = 1 }
+      setRate(media, rate)
+      if (v) setRate(v, 1)
     }
     media.addEventListener('loadedmetadata', setPosWhenReady, { once: true })
     media.addEventListener('canplay', setPosWhenReady, { once: true })
-    media.autoplay = true; media.defaultPlaybackRate = rate; media.playbackRate = rate
+    media.autoplay = true; setRate(media, rate)
     media.src = url; media.load()
     // Video src already set via attachVideo; ensure position
     if (isVideoTrack && v && kind === 'track' && v.src !== url) { v.src = url; v.load(); try { v.currentTime = position } catch {} }

@@ -45,10 +45,10 @@ export interface VideoSyncOptions {
 }
 
 const DEAD_BAND = 0.08;
-const HARD_THRESHOLD = 1.2;
-const GAIN = 0.35; // rate = 1 - drift*GAIN → 0.3s drift ≈ 10% → clamped to 8%
-const RATE_MIN = 0.92;
-const RATE_MAX = 1.08;
+const HARD_THRESHOLD = 2.0;
+const GAIN = 0.6; // faster lock: 0.3s drift ≈ 18% → clamped to 25%
+const RATE_MIN = 0.75;
+const RATE_MAX = 1.25;
 const SEEK_COOLDOWN_MS = 900;
 const LEGACY_THRESHOLD = 0.3;
 
