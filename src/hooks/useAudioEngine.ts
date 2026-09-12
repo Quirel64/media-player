@@ -351,7 +351,7 @@ export function useAudioEngine() {
     }
     const onPause = () => { if (transitionRef.current) return; if (sourceKindRef.current==='track' && ownerRef.current==='track') setPlaying(false); addLog(`native pause (${sourceKindRef.current})`) }
     const onTimeUpdate = () => {
-      if (sourceKindRef.current==='track') { frozenPosRef.current = media.currentTime; setCurrentTime(media.currentTime); publishPosition(media.duration, media.currentTime, 1); return }
+      if (sourceKindRef.current==='track') { if (!transitionRef.current) frozenPosRef.current = media.currentTime; setCurrentTime(media.currentTime); publishPosition(media.duration, media.currentTime, 1); return }
       // Best effort: frozen track pos is authoritative even if anchor bar drifts — threshold 0.35 avoids PC constant rewind loop
       const frozen = frozenPosRef.current
       if (media.currentTime - frozen >= 0.35) { try { media.currentTime = Math.min(frozen, Math.max(0, media.duration - 0.35)) } catch {} }
