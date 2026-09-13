@@ -153,6 +153,8 @@ export function useAudioEngine() {
     media.autoplay = true; setRate(media, rate)
     media.src = url; media.load()
     if (kind === 'track' && Math.abs((media.currentTime || 0) - position) > 0.15) try { media.currentTime = position } catch {}
+    // Sync lock UI before await to keep PWA gesture
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = kind === 'track' ? 'playing' : 'paused'
     // Video hardSync handles its own seek, no direct v.currentTime here
     const playPromise = media.play()
     // Dual-play: muted video plays alongside audio (native 30fps). Keep muted so iOS keeps audio session.
@@ -191,6 +193,7 @@ export function useAudioEngine() {
       if (sourceKindRef.current === 'track' && currentBlobIsTrack) {
         setAudioSessionType()
         if (Number.isFinite(resumePos) && Math.abs((media.currentTime || 0) - resumePos) > 0.15) try { media.currentTime = resumePos } catch {}
+        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
         const directPlay = media.play()
         let vPlay: Promise<void> | null = null
         if (isVideoResume && vResume) { vResume.muted = true; try { vPlay = vResume.play() } catch {} }
