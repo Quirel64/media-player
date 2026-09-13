@@ -110,6 +110,7 @@ Current implementation in `useFolderPicker.ts` handles this correctly.
 User tests on iOS device (Brave browser + Safari) and Windows laptop.
 - PWA version: Add to home screen, standalone mode
 - Web version: In-browser
+- Last verified 2026-09-10: Windows HOLD_RATE fallback + video nudge 0.15 dead band working
 
 ## Open Issues
 1. Tracks may not persist after closing/reopening app (IndexedDB/OPFS possibly cleared by iOS) *fixed*
