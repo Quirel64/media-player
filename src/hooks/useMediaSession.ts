@@ -41,11 +41,7 @@ export function useMediaSession() {
     }
 
     safe('play', () => { addLog('MediaSession play (center ▶️)'); playRef.current?.() })
-    safe('pause', () => {
-      addLog('MediaSession pause (center ||)')
-      if (remotePauseOrResumeRef.current) remotePauseOrResumeRef.current()
-      else pauseRef.current?.()
-    })
+    safe('pause', () => { addLog('MediaSession pause (center ||)'); pauseRef.current?.() })
     safe('seekto', (d) => { if (d.seekTime != null) seekRef.current?.(d.seekTime) })
 
     if (lockScreenMode === 'skip10') {
