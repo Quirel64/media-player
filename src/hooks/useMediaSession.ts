@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { usePlayerStore } from '../stores/playerStore'
 import { getPlayingArtwork } from '../lib/artwork'
+import { addLog } from '../lib/logger'
 
 /*
   Lock screen bridge — single-element freeze (no anchor).
@@ -39,8 +40,9 @@ export function useMediaSession() {
       try { navigator.mediaSession.setActionHandler(action, handler) } catch { /* ignore */ }
     }
 
-    safe('play', () => playRef.current?.())
+    safe('play', () => { addLog('MediaSession play (center ▶️)'); playRef.current?.() })
     safe('pause', () => {
+      addLog('MediaSession pause (center ||)')
       if (remotePauseOrResumeRef.current) remotePauseOrResumeRef.current()
       else pauseRef.current?.()
     })

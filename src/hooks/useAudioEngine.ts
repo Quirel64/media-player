@@ -346,8 +346,8 @@ export function useAudioEngine() {
     }
     const onPlaying = () => {
       const k = sourceKindRef.current
-      setOwner(k); if (k==='track') setPlaying(true); else setPlaying(false)
-      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
+      if (k==='track') { setOwner(k); setPlaying(true); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing' }
+      else { setOwner(k); setPlaying(false); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused' }
       addLog(`native playing (${k}, same element)`)
     }
     const onPause = () => { if (transitionRef.current) return; if (sourceKindRef.current==='track' && ownerRef.current==='track') setPlaying(false); addLog(`native pause (${sourceKindRef.current})`) }
