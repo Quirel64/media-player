@@ -152,7 +152,7 @@ export function useAudioEngine() {
     }
     media.autoplay = true; setRate(media, rate)
     media.src = url; media.load()
-    if (kind === 'track' && Math.abs((media.currentTime || 0) - position) > 0.08) try { media.currentTime = position } catch {}
+    if (kind === 'track' && Math.abs((media.currentTime || 0) - position) > 0.15) try { media.currentTime = position } catch {}
     // Video hardSync handles its own seek, no direct v.currentTime here
     const playPromise = media.play()
     // Dual-play: muted video plays alongside audio (native 30fps). Keep muted so iOS keeps audio session.
@@ -190,7 +190,7 @@ export function useAudioEngine() {
       const vResume = videoRef.current
       if (sourceKindRef.current === 'track' && currentBlobIsTrack) {
         setAudioSessionType()
-        if (Number.isFinite(resumePos) && Math.abs((media.currentTime || 0) - resumePos) > 0.08) try { media.currentTime = resumePos } catch {}
+        if (Number.isFinite(resumePos) && Math.abs((media.currentTime || 0) - resumePos) > 0.15) try { media.currentTime = resumePos } catch {}
         const directPlay = media.play()
         let vPlay: Promise<void> | null = null
         if (isVideoResume && vResume) { vResume.muted = true; try { vPlay = vResume.play() } catch {} }
@@ -288,11 +288,8 @@ export function useAudioEngine() {
     const prevId = prevTrackIdRef.current
     if (prevId && prevId !== track.id) addLog(`track change ${prevId.slice(0,4)} -> ${track.id.slice(0,4)}: will reset pos to 0`)
 
-    // If frozen placeholder active, we'll swap to track — no need to keep 0.001
+    // If frozen placeholder active, we'll swap to track — no need to keep HOLD_RATE
     transitionRef.current = false; queuedCommandRef.current = null
-    // Don't reset frozenPos here — pause() saved it; next play will use it if same track, or 0 if new track via seek logic
-    // For new track, reset to 0
-    if (prevId !== track.id) frozenPosRef.current = 0
 
     stopRaf(); cleanupVideo()
     // Don't revoke cached URL here — cache keeps it for gesture-kept next/prev
