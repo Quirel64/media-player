@@ -280,6 +280,8 @@ export function useAudioEngine() {
   }, [setCurrentTrackIndex, setPlaying, setCurrentTime])
 
   const loadTrack = useCallback(async (idx: number) => {
+    const { queue: qq } = usePlayerStore.getState()
+    const t0 = qq[idx]; if (t0 && prevTrackIdRef.current && prevTrackIdRef.current !== t0.id) frozenPosRef.current = 0
     const gen = ++loadGenRef.current
     const { queue: q } = usePlayerStore.getState()
     const track = q[idx]; if (!track) return
