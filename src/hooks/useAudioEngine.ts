@@ -168,7 +168,7 @@ export function useAudioEngine() {
     setOwner(kind)
     if (kind === 'track') {
       setPlaying(true); publishPosition(media.duration || trackDurationRef.current, media.currentTime, 1)
-      if (isVideoTrack && v && v.src) { getSync().hardSync('activate'); getSync().start() }
+      // Baseline 1: videoSync disabled — video stays paused, no hardSync/nudge
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
     } else {
       setPlaying(false); publishPosition(trackDurationRef.current || media.duration, frozenPosRef.current, HOLD_RATE)
@@ -199,11 +199,11 @@ export function useAudioEngine() {
         if (isVideoResume && vResume) { vResume.muted = true; try { vPlay = vResume.play() } catch {} }
         await directPlay
         if (vPlay) await vPlay.catch(() => addLog('video resume failed'))
-        if (isVideoResume && vResume && vResume.src) { getSync().hardSync('resume'); getSync().start() }
+        // Baseline 1: no video hardSync
         setOwner('track'); setPlaying(true)
         if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
         publishPosition(media.duration, media.currentTime, 1)
-        addLog(`track resumed on permanent element @ ${media.currentTime.toFixed(2)}s${isVideoResume && vResume && !vResume.paused ? ' +video' : ''}`)
+        addLog(`track resumed on permanent element @ ${media.currentTime.toFixed(2)}s`)
       } else {
         // Need src swap — ensure blob URL for OPFS track
         let url = blobUrlRef.current
