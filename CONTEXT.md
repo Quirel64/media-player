@@ -107,10 +107,19 @@ Current implementation in `useFolderPicker.ts` handles this correctly.
 **Library vs Playlist:** Current `Library` tab (`TrackList.tsx:26`) is a flat queue view (like a playlist) — not a grouped library. Queue order = playback order (`playerStore.ts` `currentTrackIndex`, `getNextTrackIndex`). This is correct for now/next/shuffle but confusing for browsing 64 tracks. Makeover plan: keep queue as "Now Playing Queue" and introduce Library views (group by `folderName`/`album`/`artist`, collapsible sections, filter/search, sort toggles: date added (`createdAt`), A-Z, size, duration). Duplicates will show separately (UUID ensures separate) but grouping will make them findable; optional "bundle duplicates" toggle later.
 
 ## Testing Notes
-User tests on iOS device (Brave browser + Safari) and Windows laptop.
+User tests on iOS device (iOS 26.2, Brave + Safari) and Windows laptop.
 - PWA version: Add to home screen, standalone mode
 - Web version: In-browser
 - Last verified 2026-09-10: Windows HOLD_RATE fallback + video nudge 0.15 dead band working
+- Repo: https://github.com/Quirel64/media-player
+
+## Current Baseline — 2026-09-14 (video disabled for isolation)
+**Goal**: Fix lock-screen paused icon + video pause desync one-by-one, without VideoSync stutter masking.
+
+- **VideoSync disabled** (`src/lib/videoSync.ts:55` `VideoSyncController` exists but not started). `useAudioEngine.ts:171` `Baseline 1: videoSync disabled — video stays paused, no hardSync/nudge` so audio/video drift not auto-corrected. Dual-play muted video (`activateSource` `isVideoTrack && v.play()`) is still attempted but without rate nudging — stutter fix is on backburner.
+- **Active bug — iOS 26.2 lock screen paused icon** (`src/hooks/useAudioEngine.ts:49`, `src/hooks/useMediaSession.ts:13`): Pause in-app (`||` → `>` anchor active) → lock shows `||` instead of `>` (should be `>` while anchor holds session at `HOLD_RATE`). Tap `||` (lock) → flips to `>` but audio starts *playing* with frozen seek bar (`HOLD_RATE` published) and in-app shows `||` (inverted). Tap `>` again → audio keeps playing, bar unfreezes (`playbackRate=1`), icon flips to `||` (3 taps to toggle paused). Control Center (in-app) does NOT reproduce — only lock screen.
+- **Active bug — video keeps playing while audio paused after 2nd lock pause**: 1× lock pause→resume→pause correctly pauses video, but 2× cycle (play → pause → resume → pause via lock) leaves video playing when returning to app while audio is paused (silent anchor). Happens only after the icon bug forces extra tap; control-center pause always syncs.
+- **Pending**: Re-enable smooth fullscreen video without stutter once lock-icon + video-pause sync fixed.
 
 ## Open Issues
 1. Tracks may not persist after closing/reopening app (IndexedDB/OPFS possibly cleared by iOS) *fixed*
@@ -140,11 +149,15 @@ User tests on iOS device (Brave browser + Safari) and Windows laptop.
 
 ### The flow:
 ```
-PLAYING: audio.src = track blob, playbackRate=1, setPositionState(duration, currentTime,1), video rAF copies time
-PAUSE (tap ||): frozenPos = currentTime, ensureAnchor(duration) → activateSource('anchor', silentUrl, frozenPos) → media.src=silent, load, play() sync → owner=anchor, playbackState=playing, lock shows ▶️ (paused) but audio technically playing silent
-RESUME (tap ▶️ while anchor): activateSource('track', trackUrl, frozenPos) → media.src=track, load, play() sync → owner=track, video resumes
+PLAYING: audio.src = track blob, playbackRate=1, setPositionState(duration, currentTime,1), video muted playing alongside if video
+PAUSE (tap || in-app or || on lock while playing): frozenPos = currentTime, ensureAnchor(duration) → activateSource('anchor', silentUrl, frozenPos) → media.src=silent, load, play() sync → owner=anchor, playbackState=paused, lock shows ▶️ (paused) but audio technically playing silent at HOLD_RATE
+RESUME (tap ▶️ while anchor OR either lock button while inverted): activateSource('track', trackUrl, frozenPos) → media.src=track, load, play() sync → owner=track, playbackState=playing, video resumes, bar rate=1
 ```
-Lock `||` while anchor still means `pause → resume` via `remotePauseOrResume` `src/hooks/useMediaSession.ts:35`.
+Lock `play` and `pause` both route via `remotePauseOrResume` `src/hooks/useMediaSession.ts:35` / `src/hooks/useAudioEngine.ts:276` (resilient to iOS 26.2 inverted icon where `||` shows while anchor).
+
+## Fix 2026-09-14 — iOS 26.2 lock icon + frozen bar + video-keep-playing (your test)
+**Root**: `activateSource` only set `playbackState` after `await play()` and `onPlaying` could race; `publishPosition` with `HOLD_RATE` lagged, so after in-app pause lock showed `||` (playing) instead of `>` while anchor, and after lock `||`→`>` audio resumed but bar froze (HOLD_RATE published while track playing) and in-app/ lock icons were opposite (`||` vs `>`). Second lock cycle left `video` playing because `owner`/`sourceKind` still `track` while anchor silent, visibility restore then replayed video.
+**Fix**: `activateSource` now syncs `playbackState` + `publishPosition` *before* `await play()` and again after + 120ms double-publish for iOS lag; `onPlaying`/`onTimeUpdate` enforce correct `playbackState`/`rate` + keep video paused while anchor and playing while track; `visibilitychange` explicitly pauses video for anchor and publishes correct state; `useMediaSession.ts:42` both `play`/`pause` handlers now call `remotePauseOrResume` (toggle based on actual `anchor` vs `track`) so inverted icon still toggles correctly. Build verified `388kB`.
 
 ## Planned Features
 1. **Skip mode toggle**: Switch between ±10s skip buttons and prev/next track buttons on lock screen. Test app has working implementation — simple `setMode()` toggle between `skip10` and `prevnext`. To integrate into main app settings or as a one-button cycle.

@@ -136,6 +136,13 @@ export function useAudioEngine() {
     const rate = kind === 'anchor' ? HOLD_RATE : 1
     const isVideoTrack = usePlayerStore.getState().queue[usePlayerStore.getState().currentTrackIndex]?.mediaType === 'video'
     const v = videoRef.current
+    // Ensure video is in correct paused/playing state immediately (fix: video kept playing after 2nd lock pause)
+    if (isVideoTrack && v) {
+      if (kind === 'anchor') { try { v.pause() } catch {} }
+      else { v.muted = true }
+    } else if (v && kind === 'anchor') {
+      try { v.pause() } catch {}
+    }
     const setPosWhenReady = () => {
       if (token !== transitionTokenRef.current) return
       const srcDur = media.duration
@@ -153,28 +160,53 @@ export function useAudioEngine() {
     media.autoplay = true; setRate(media, rate)
     media.src = url; media.load()
     if (kind === 'track' && Math.abs((media.currentTime || 0) - position) > 0.15) try { media.currentTime = position } catch {}
-    // Sync lock UI before await to keep PWA gesture
+    // Sync lock UI before await to keep PWA gesture — must match final state (fix iOS 26.2 inverted icon)
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = kind === 'track' ? 'playing' : 'paused'
-    // Video hardSync handles its own seek, no direct v.currentTime here
+    if (kind === 'anchor') {
+      // Publish frozen bar immediately so lock seek doesn't show playing
+      publishPosition(trackDurationRef.current || media.duration || position, frozenPosRef.current, HOLD_RATE)
+    } else {
+      publishPosition(trackDurationRef.current || media.duration || position, position, 1)
+    }
     const playPromise = media.play()
     // Dual-play: muted video plays alongside audio (native 30fps). Keep muted so iOS keeps audio session.
     let videoPlay: Promise<void> | null = null
     if (isVideoTrack && v && kind === 'track') { v.muted = true; try { videoPlay = v.play() } catch { /* ignore */ } }
     else if (v && kind === 'anchor') { try { v.pause() } catch {} }
-    await playPromise
-    if (videoPlay) await videoPlay.catch(() => { addLog('video.play failed, nudge will handle') })
-    if (token !== transitionTokenRef.current) return
+    try {
+      await playPromise
+    } catch (e) {
+      // iOS PWA may reject if not in gesture — log and re-throw for retry in caller
+      addLog(`${kind} play() rejected: ${e}`)
+      throw e
+    }
+    if (videoPlay) await videoPlay.catch(() => { addLog('video.play failed') })
+    if (token !== transitionTokenRef.current) {
+      // Stale: still ensure lock shows correct final kind for the newer token
+      return
+    }
     if (kind === 'anchor') setPosWhenReady()
     setOwner(kind)
     if (kind === 'track') {
       setPlaying(true); publishPosition(media.duration || trackDurationRef.current, media.currentTime, 1)
-      // Baseline 1: videoSync disabled — video stays paused, no hardSync/nudge
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
+      // Ensure video reflects track state even after token race
+      if (isVideoTrack && v && v.paused) { try { v.muted = true; await v.play() } catch { /* ignore */ } }
     } else {
       setPlaying(false); publishPosition(trackDurationRef.current || media.duration, frozenPosRef.current, HOLD_RATE)
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
+      if (v) try { v.pause() } catch {}
     }
-    addLog(`${kind} source active on permanent element @ ${media.currentTime.toFixed(2)}s${isVideoTrack && kind==='track' ? (v && !v.paused ? ' +video playing' : ' +video seek') : ''}`)
+    // Double-publish 100ms later to fix iOS 26.2 where lock icon lags behind setPositionState
+    setTimeout(() => {
+      if (token !== transitionTokenRef.current) return
+      if (sourceKindRef.current === kind) {
+        if (kind === 'track') publishPosition(media.duration || trackDurationRef.current, media.currentTime, 1)
+        else publishPosition(trackDurationRef.current || media.duration, frozenPosRef.current, HOLD_RATE)
+        try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = kind === 'track' ? 'playing' : 'paused' } catch {}
+      }
+    }, 120)
+    addLog(`${kind} source active on permanent element @ ${media.currentTime.toFixed(2)}s${isVideoTrack && kind==='track' ? (v && !v.paused ? ' +video playing' : ' +video paused') : ''}`)
   }, [setOwner, startVideoFrames, setPlaying])
 
   const play = useCallback(async () => {
@@ -348,17 +380,35 @@ export function useAudioEngine() {
     }
     const onPlaying = () => {
       const k = sourceKindRef.current
-      if (k==='track') { setOwner(k); setPlaying(true); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing' }
-      else { setOwner(k); setPlaying(false); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused' }
+      if (k==='track') {
+        setOwner(k); setPlaying(true); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
+        publishPosition(media.duration || trackDurationRef.current, media.currentTime, 1)
+        // Ensure video reflects playing track (fix: video stuck paused after lock resume)
+        const v = videoRef.current
+        const isVideoTrack = usePlayerStore.getState().queue[usePlayerStore.getState().currentTrackIndex]?.mediaType === 'video'
+        if (isVideoTrack && v && v.src && v.paused) { v.muted = true; v.play().catch(() => {}) }
+      } else {
+        setOwner(k); setPlaying(false); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
+        publishPosition(trackDurationRef.current || media.duration, frozenPosRef.current, HOLD_RATE)
+        // Anchor must keep video paused (fix: video kept playing after 2nd lock pause)
+        const v = videoRef.current; if (v && !v.paused) try { v.pause() } catch {}
+      }
       addLog(`native playing (${k}, same element)`)
     }
-    const onPause = () => { if (transitionRef.current) return; if (sourceKindRef.current==='track' && ownerRef.current==='track') setPlaying(false); addLog(`native pause (${sourceKindRef.current})`) }
+    const onPause = () => {
+      if (transitionRef.current) { addLog(`native pause ignored during transition (${sourceKindRef.current})`); return }
+      // Only treat pause as real pause when track was playing; anchor pause is expected to be playing silent
+      if (sourceKindRef.current==='track' && ownerRef.current==='track') { setPlaying(false); try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused' } catch {} }
+      addLog(`native pause (${sourceKindRef.current})`)
+    }
     const onTimeUpdate = () => {
-      if (sourceKindRef.current==='track') { if (!transitionRef.current) frozenPosRef.current = media.currentTime; setCurrentTime(media.currentTime); publishPosition(media.duration, media.currentTime, 1); return }
+      if (sourceKindRef.current==='track') { if (!transitionRef.current) frozenPosRef.current = media.currentTime; setCurrentTime(media.currentTime); publishPosition(media.duration || trackDurationRef.current, media.currentTime, 1); return }
       // Best effort: frozen track pos is authoritative even if anchor bar drifts — threshold 0.35 avoids PC constant rewind loop
       const frozen = frozenPosRef.current
       if (media.currentTime - frozen >= 0.35) { try { media.currentTime = Math.min(frozen, Math.max(0, media.duration - 0.35)) } catch {} }
       publishPosition(trackDurationRef.current || media.duration, frozen, media.playbackRate || HOLD_RATE)
+      // Keep video paused while anchor (guard against iOS resuming video on visibility)
+      const v = videoRef.current; if (v && !v.paused) try { v.pause() } catch {}
     }
     const onEnded = () => {
       if (sourceKindRef.current==='anchor') { const safe=Math.max(0, Math.min(frozenPosRef.current, media.duration-0.35)); media.currentTime=safe; media.play().catch(e=>addLog(`placeholder restart failed: ${e}`)); return }
@@ -379,14 +429,33 @@ export function useAudioEngine() {
 
   useEffect(() => {
     const onVis = () => {
-      addLog(`visibility -> ${document.visibilityState}`)
-      if (document.visibilityState==='hidden') { stopRaf(); videoRef.current?.pause(); return }
+      addLog(`visibility -> ${document.visibilityState} owner=${ownerRef.current} kind=${sourceKindRef.current}`)
+      if (document.visibilityState==='hidden') {
+        stopRaf();
+        // Keep video in sync with anchor state even when hidden
+        const vHidden = videoRef.current
+        if (vHidden) try { vHidden.pause() } catch {}
+        // Ensure lock shows correct icon even when hidden
+        try {
+          if ('mediaSession' in navigator) navigator.mediaSession.playbackState = sourceKindRef.current === 'track' ? 'playing' : 'paused'
+        } catch {}
+        return
+      }
       setAudioSessionType()
       const m=mediaRef.current; const v=videoRef.current
       const isVideo = usePlayerStore.getState().queue[usePlayerStore.getState().currentTrackIndex]?.mediaType === 'video'
+      // Anchor must stay paused (fix 2nd lock pause video drift)
+      if (sourceKindRef.current === 'anchor' || ownerRef.current === 'anchor') {
+        if (v && !v.paused) try { v.pause() } catch {}
+        publishPosition(trackDurationRef.current || (m?.duration ?? 0), frozenPosRef.current, HOLD_RATE)
+        try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused' } catch {}
+        return
+      }
       if (ownerRef.current==='track' && m && !m.paused) {
         if (isVideo && v && v.src && v.paused) { v.muted = true; v.play().catch(() => addLog('visible video fallback disabled')) }
         else if (!isVideo) startVideoFrames()
+        publishPosition(m.duration || trackDurationRef.current, m.currentTime, 1)
+        try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing' } catch {}
       }
     }
     const onPageShow = (e: PageTransitionEvent) => { setAudioSessionType(); addLog(`pageshow${(e as unknown as { persisted?: boolean }).persisted?' (bfcache)':''}`) }

@@ -34,14 +34,26 @@ export function useMediaSession() {
   }, [currentTrack, currentTrack?.id])
 
   // Button handlers — re-register when mode toggles
+  // Both center buttons route through remote toggle when available (resilient to inverted icon on iOS 26.2 lock screen)
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
     const safe = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
       try { navigator.mediaSession.setActionHandler(action, handler) } catch { /* ignore */ }
     }
 
-    safe('play', () => { addLog('MediaSession play (center ▶️)'); playRef.current?.() })
-    safe('pause', () => { addLog('MediaSession pause (center ||)'); pauseRef.current?.() })
+    const handlePlay = () => {
+      addLog('MediaSession play (center ▶️)')
+      // Prefer engine-aware toggle (checks anchor vs track) so inverted icon still resumes correctly
+      if (remotePauseOrResumeRef.current) remotePauseOrResumeRef.current()
+      else playRef.current?.()
+    }
+    const handlePause = () => {
+      addLog('MediaSession pause (center ||)')
+      if (remotePauseOrResumeRef.current) remotePauseOrResumeRef.current()
+      else pauseRef.current?.()
+    }
+    safe('play', handlePlay)
+    safe('pause', handlePause)
     safe('seekto', (d) => { if (d.seekTime != null) seekRef.current?.(d.seekTime) })
 
     if (lockScreenMode === 'skip10') {
