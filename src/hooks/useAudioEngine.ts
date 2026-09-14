@@ -482,10 +482,24 @@ export function useAudioEngine() {
         // Keep video in sync with anchor state even when hidden
         const vHidden = videoRef.current
         if (vHidden) try { vHidden.pause() } catch {}
-        // Ensure lock shows correct icon even when hidden
+        // Ensure lock shows correct icon even when hidden — iOS 26.2 needs re-publish after visibility change
+        // Visible-created anchor (in-app pause) was inverted, so force refresh
+        const kindHidden = sourceKindRef.current as 'track'|'anchor'
+        const durHidden = kindHidden === 'anchor' ? (trackDurationRef.current || 0) : (mediaRef.current?.duration || trackDurationRef.current || 0)
+        const posHidden = kindHidden === 'anchor' ? frozenPosRef.current : (mediaRef.current?.currentTime || 0)
+        const rateHidden = kindHidden === 'anchor' ? HOLD_RATE : 1
         try {
-          if ('mediaSession' in navigator) navigator.mediaSession.playbackState = getLockPlaybackState(sourceKindRef.current as 'track'|'anchor')
+          publishPosition(durHidden, posHidden, rateHidden)
+          if ('mediaSession' in navigator) navigator.mediaSession.playbackState = getLockPlaybackState(kindHidden)
         } catch {}
+        addLog(`hidden refresh ${getLockPlaybackState(kindHidden)} pos=${posHidden.toFixed(2)} rate=${rateHidden}`)
+        setTimeout(() => {
+          try {
+            publishPosition(durHidden, frozenPosRef.current, rateHidden)
+            if ('mediaSession' in navigator) navigator.mediaSession.playbackState = getLockPlaybackState(kindHidden)
+          } catch {}
+          addLog(`hidden re-publish ${getLockPlaybackState(kindHidden)}`)
+        }, 150)
         return
       }
       setAudioSessionType()
