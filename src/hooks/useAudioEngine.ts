@@ -161,12 +161,16 @@ export function useAudioEngine() {
     media.src = url; media.load()
     if (kind === 'track' && Math.abs((media.currentTime || 0) - position) > 0.15) try { media.currentTime = position } catch {}
     // Sync lock UI before await to keep PWA gesture — must match final state (fix iOS 26.2 inverted icon)
-    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = kind === 'track' ? 'playing' : 'paused'
+    // For iOS 26.2, also publish position BEFORE state so bar and icon stay in sync
+    const preDuration = trackDurationRef.current || media.duration || position
     if (kind === 'anchor') {
-      // Publish frozen bar immediately so lock seek doesn't show playing
-      publishPosition(trackDurationRef.current || media.duration || position, frozenPosRef.current, HOLD_RATE)
+      publishPosition(preDuration, frozenPosRef.current, HOLD_RATE)
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
+      addLog(`pre-publish anchor paused dur=${preDuration.toFixed(1)} pos=${frozenPosRef.current.toFixed(2)} rate=${HOLD_RATE}`)
     } else {
-      publishPosition(trackDurationRef.current || media.duration || position, position, 1)
+      publishPosition(preDuration, position, 1)
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
+      addLog(`pre-publish track playing dur=${preDuration.toFixed(1)} pos=${position.toFixed(2)} rate=1`)
     }
     const playPromise = media.play()
     // Dual-play: muted video plays alongside audio (native 30fps). Keep muted so iOS keeps audio session.
@@ -183,30 +187,55 @@ export function useAudioEngine() {
     if (videoPlay) await videoPlay.catch(() => { addLog('video.play failed') })
     if (token !== transitionTokenRef.current) {
       // Stale: still ensure lock shows correct final kind for the newer token
+      addLog(`activateSource ${kind} stale token ${token} abandoned`)
       return
     }
     if (kind === 'anchor') setPosWhenReady()
     setOwner(kind)
     if (kind === 'track') {
-      setPlaying(true); publishPosition(media.duration || trackDurationRef.current, media.currentTime, 1)
+      // Ensure video is seeked to same position as audio (fix: video gets ahead after lock resume)
+      if (isVideoTrack && v) {
+        try { if (Math.abs(v.currentTime - media.currentTime) > 0.15) v.currentTime = media.currentTime } catch {}
+      }
+      setPlaying(true);
+      const postDur = media.duration || trackDurationRef.current
+      publishPosition(postDur, media.currentTime, 1)
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
+      addLog(`post-publish track playing dur=${postDur.toFixed(1)} pos=${media.currentTime.toFixed(2)} rate=1 state=playing`)
       // Ensure video reflects track state even after token race
       if (isVideoTrack && v && v.paused) { try { v.muted = true; await v.play() } catch { /* ignore */ } }
     } else {
-      setPlaying(false); publishPosition(trackDurationRef.current || media.duration, frozenPosRef.current, HOLD_RATE)
+      setPlaying(false);
+      const postDur = trackDurationRef.current || media.duration
+      publishPosition(postDur, frozenPosRef.current, HOLD_RATE)
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
-      if (v) try { v.pause() } catch {}
+      addLog(`post-publish anchor paused dur=${postDur.toFixed(1)} pos=${frozenPosRef.current.toFixed(2)} rate=${HOLD_RATE} state=paused`)
+      if (v) try { v.pause(); v.currentTime = frozenPosRef.current } catch {}
     }
-    // Double-publish 100ms later to fix iOS 26.2 where lock icon lags behind setPositionState
+    // Double-publish 120ms later to fix iOS 26.2 where lock icon lags behind setPositionState — now with correct order (publish then state)
     setTimeout(() => {
       if (token !== transitionTokenRef.current) return
       if (sourceKindRef.current === kind) {
-        if (kind === 'track') publishPosition(media.duration || trackDurationRef.current, media.currentTime, 1)
-        else publishPosition(trackDurationRef.current || media.duration, frozenPosRef.current, HOLD_RATE)
-        try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = kind === 'track' ? 'playing' : 'paused' } catch {}
+        if (kind === 'track') {
+          const d = media.duration || trackDurationRef.current; publishPosition(d, media.currentTime, 1)
+          try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing' } catch {}
+          addLog(`re-publish track playing pos=${media.currentTime.toFixed(2)}`)
+        } else {
+          const d = trackDurationRef.current || media.duration; publishPosition(d, frozenPosRef.current, HOLD_RATE)
+          try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused' } catch {}
+          addLog(`re-publish anchor paused pos=${frozenPosRef.current.toFixed(2)}`)
+        }
       }
     }, 120)
-    addLog(`${kind} source active on permanent element @ ${media.currentTime.toFixed(2)}s${isVideoTrack && kind==='track' ? (v && !v.paused ? ' +video playing' : ' +video paused') : ''}`)
+    // Extra 500ms correction for iOS 26.2 that sometimes inverts first in-app pause
+    setTimeout(() => {
+      if (token !== transitionTokenRef.current) return
+      if (sourceKindRef.current === kind) {
+        try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = kind === 'track' ? 'playing' : 'paused' } catch {}
+        addLog(`500ms correct playbackState ${kind === 'track' ? 'playing' : 'paused'}`)
+      }
+    }, 500)
+    addLog(`${kind} source active on permanent element @ ${media.currentTime.toFixed(2)}s${isVideoTrack && kind==='track' ? (v && !v.paused ? ' +video playing' : ' +video paused') : ''} owner=${kind}`)
   }, [setOwner, startVideoFrames, setPlaying])
 
   const play = useCallback(async () => {
@@ -225,7 +254,14 @@ export function useAudioEngine() {
       if (sourceKindRef.current === 'track' && currentBlobIsTrack) {
         setAudioSessionType()
         if (Number.isFinite(resumePos) && Math.abs((media.currentTime || 0) - resumePos) > 0.15) try { media.currentTime = resumePos } catch {}
+        // Ensure video seeked to resumePos before play (fix ahead after lock resume)
+        if (isVideoResume && vResume && vResume.src) {
+          try { if (Math.abs(vResume.currentTime - resumePos) > 0.15) vResume.currentTime = resumePos } catch {}
+        }
+        // Publish before state for iOS sync
+        publishPosition(media.duration || trackDurationRef.current, resumePos, 1)
         if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
+        addLog(`direct resume pre-publish playing pos=${resumePos.toFixed(2)}`)
         const directPlay = media.play()
         let vPlay: Promise<void> | null = null
         if (isVideoResume && vResume) { vResume.muted = true; try { vPlay = vResume.play() } catch {} }
@@ -233,9 +269,14 @@ export function useAudioEngine() {
         if (vPlay) await vPlay.catch(() => addLog('video resume failed'))
         // Baseline 1: no video hardSync
         setOwner('track'); setPlaying(true)
+        publishPosition(media.duration || trackDurationRef.current, media.currentTime, 1)
         if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
-        publishPosition(media.duration, media.currentTime, 1)
-        addLog(`track resumed on permanent element @ ${media.currentTime.toFixed(2)}s`)
+        addLog(`track resumed on permanent element @ ${media.currentTime.toFixed(2)}s rate=1 state=playing direct`)
+        // Corrective re-publish for iOS 26.2
+        setTimeout(() => {
+          publishPosition(media.duration || trackDurationRef.current, media.currentTime, 1)
+          try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing' } catch {}
+        }, 120)
       } else {
         // Need src swap — ensure blob URL for OPFS track
         let url = blobUrlRef.current
