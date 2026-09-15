@@ -21,10 +21,10 @@ import { VideoSyncController } from '../lib/videoSync'
   Logs: track resumed @ X / track → placeholder @ X / anchor source active @ X
 */
 
-const HOLD_RATE = 0.0000001
+const HOLD_RATE = 0
 const FALLBACK_HOLD_RATE = 0.0625
-// TEST 2026-09-14: try inverted playbackState for iOS 26.2 (anchor=playing, track=paused) to see if lock flips
-const INVERT_LOCK_ICON_TEST = true
+// TEST 2026-09-14: try HOLD_RATE 0 for iOS 26.2 — anchor truly frozen, see if lock shows > correctly
+const INVERT_LOCK_ICON_TEST = false
 
 function setRate(el: HTMLMediaElement, rate: number) {
   try { el.defaultPlaybackRate = rate; el.playbackRate = rate } catch {
