@@ -327,14 +327,13 @@ export function useAudioEngine() {
       const pos = media.currentTime
       frozenPosRef.current = pos; setCurrentTime(pos); setPlaying(false); stopRaf()
       const vPause = videoRef.current; if (vPause) try { vPause.pause(); vPause.currentTime = pos } catch {}
+      // Actually pause the audio now so user hears pause immediately; defer silent anchor to hidden to keep lock alive
+      try { media.pause(); addLog(`pause deferred media.pause @ ${pos.toFixed(2)}s`) } catch {}
       pendingAnchorPosRef.current = pos
       ensureAnchor(trackDurationRef.current || media.duration || 2)
-      // Keep media as track but appear paused in app; lock will still show || until hidden, then we swap
-      // Publish paused state optimistically but expect hidden to do real swap
       publishPosition(trackDurationRef.current || media.duration, pos, HOLD_RATE)
       try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused' } catch {}
       addLog(`pause deferred (visible) @ ${pos.toFixed(2)}s — will swap to anchor on hidden`)
-      // Nudge hidden handler to fire even if already hidden? ensure
       return
     }
     transitionRef.current = true
