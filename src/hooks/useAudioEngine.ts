@@ -487,25 +487,37 @@ export function useAudioEngine() {
         if (kindHidden === 'anchor') {
           const dur = trackDurationRef.current || 0
           const pos = frozenPosRef.current
+          const mediaHidden = mediaRef.current
           try {
-            // First, ensure bar frozen
             publishPosition(dur, pos, HOLD_RATE)
             if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
           } catch {}
           addLog(`hidden anchor refresh paused pos=${pos.toFixed(2)}`)
-          // Flip trick: set to playing then back to paused 80ms later to force iOS to redraw > icon
+          // iOS 26.2 ignores playbackState flip while visible-created, so also toggle the media element itself
+          // Briefly pause the silent anchor then resume at HOLD_RATE — forces lock to re-evaluate as paused
           setTimeout(() => {
             try {
-              if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
-              publishPosition(dur, pos, 1)
+              if (mediaHidden && !mediaHidden.paused) { mediaHidden.pause(); addLog(`hidden anchor media pause for lock redraw`) }
             } catch {}
-            addLog(`hidden anchor flip to playing`)
-            setTimeout(() => {
+            setTimeout(async () => {
               try {
-                publishPosition(dur, pos, HOLD_RATE)
-                if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
-              } catch {}
-              addLog(`hidden anchor flip back to paused`)
+                if (mediaHidden && mediaHidden.paused) {
+                  // Resume silent anchor at HOLD_RATE to keep session but show >
+                  if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
+                  publishPosition(dur, pos, HOLD_RATE)
+                  setRate(mediaHidden, HOLD_RATE)
+                  await mediaHidden.play()
+                  addLog(`hidden anchor media resume HOLD_RATE for lock >`)
+                }
+              } catch (e) { addLog(`hidden anchor media resume failed ${e}`) }
+              // Final correction 80ms later
+              setTimeout(() => {
+                try {
+                  publishPosition(dur, pos, HOLD_RATE)
+                  if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
+                } catch {}
+                addLog(`hidden anchor final paused`)
+              }, 80)
             }, 80)
           }, 80)
         } else {
