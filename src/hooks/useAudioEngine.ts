@@ -21,9 +21,9 @@ import { VideoSyncController } from '../lib/videoSync'
   Logs: track resumed @ X / track → placeholder @ X / anchor source active @ X
 */
 
-const HOLD_RATE = 0
+const HOLD_RATE = 0.0000001
 const FALLBACK_HOLD_RATE = 0.0625
-// TEST 2026-09-14: try HOLD_RATE 0 for iOS 26.2 — anchor truly frozen, see if lock shows > correctly
+// HOLD_RATE 1e-7 keeps bar frozen (~4 months/sec) while anchor holds session; 0 made bar drift to end (see 13:44 logs)
 const INVERT_LOCK_ICON_TEST = false
 
 function setRate(el: HTMLMediaElement, rate: number) {
@@ -479,27 +479,44 @@ export function useAudioEngine() {
       addLog(`visibility -> ${document.visibilityState} owner=${ownerRef.current} kind=${sourceKindRef.current} lock=${getLockPlaybackState(sourceKindRef.current as 'track'|'anchor')}`)
       if (document.visibilityState==='hidden') {
         stopRaf();
-        // Keep video in sync with anchor state even when hidden
         const vHidden = videoRef.current
         if (vHidden) try { vHidden.pause() } catch {}
-        // Ensure lock shows correct icon even when hidden — iOS 26.2 needs re-publish after visibility change
-        // Visible-created anchor (in-app pause) was inverted, so force refresh
         const kindHidden = sourceKindRef.current as 'track'|'anchor'
-        const durHidden = kindHidden === 'anchor' ? (trackDurationRef.current || 0) : (mediaRef.current?.duration || trackDurationRef.current || 0)
-        const posHidden = kindHidden === 'anchor' ? frozenPosRef.current : (mediaRef.current?.currentTime || 0)
-        const rateHidden = kindHidden === 'anchor' ? HOLD_RATE : 1
-        try {
-          publishPosition(durHidden, posHidden, rateHidden)
-          if ('mediaSession' in navigator) navigator.mediaSession.playbackState = getLockPlaybackState(kindHidden)
-        } catch {}
-        addLog(`hidden refresh ${getLockPlaybackState(kindHidden)} pos=${posHidden.toFixed(2)} rate=${rateHidden}`)
-        setTimeout(() => {
+        // Fix for visible-created anchor (in-app pause) showing || instead of > on iOS 26.2:
+        // When hidden while anchor, iOS has stale playing state. Force a toggle: briefly set opposite then correct.
+        if (kindHidden === 'anchor') {
+          const dur = trackDurationRef.current || 0
+          const pos = frozenPosRef.current
           try {
-            publishPosition(durHidden, frozenPosRef.current, rateHidden)
-            if ('mediaSession' in navigator) navigator.mediaSession.playbackState = getLockPlaybackState(kindHidden)
+            // First, ensure bar frozen
+            publishPosition(dur, pos, HOLD_RATE)
+            if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
           } catch {}
-          addLog(`hidden re-publish ${getLockPlaybackState(kindHidden)}`)
-        }, 150)
+          addLog(`hidden anchor refresh paused pos=${pos.toFixed(2)}`)
+          // Flip trick: set to playing then back to paused 80ms later to force iOS to redraw > icon
+          setTimeout(() => {
+            try {
+              if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
+              publishPosition(dur, pos, 1)
+            } catch {}
+            addLog(`hidden anchor flip to playing`)
+            setTimeout(() => {
+              try {
+                publishPosition(dur, pos, HOLD_RATE)
+                if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
+              } catch {}
+              addLog(`hidden anchor flip back to paused`)
+            }, 80)
+          }, 80)
+        } else {
+          const dur = mediaRef.current?.duration || trackDurationRef.current || 0
+          const pos = mediaRef.current?.currentTime || 0
+          try {
+            publishPosition(dur, pos, 1)
+            if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
+          } catch {}
+          addLog(`hidden track refresh playing pos=${pos.toFixed(2)}`)
+        }
         return
       }
       setAudioSessionType()
