@@ -110,16 +110,16 @@ Current implementation in `useFolderPicker.ts` handles this correctly.
 User tests on iOS device (iOS 26.2, Brave + Safari) and Windows laptop.
 - PWA version: Add to home screen, standalone mode
 - Web version: In-browser
-- Last verified 2026-09-10: Windows HOLD_RATE fallback + video nudge 0.15 dead band working
+- Last verified 2026-09-15: Video app-switcher seek sync works, `HOLD_RATE 1e-7` bar frozen, lock `visible` anchor inverted `||` but 1-press toggle via `remotePauseOrResume`, `hidden` anchor correct `>`, control center/Windows always `||` (parked). Session survives 30s+ only with `HOLD_RATE` silent anchor.
 - Repo: https://github.com/Quirel64/media-player
 
-## Current Baseline — 2026-09-14 (video disabled for isolation)
-**Goal**: Fix lock-screen paused icon + video pause desync one-by-one, without VideoSync stutter masking.
+## Current Baseline — 2026-09-15 (lock screen parked, video fixed)
+**Goal**: Keep PWA functional on iOS 26.2 — video in sync, audio no stutter, lock usable with 1 press even if icon inverted.
 
-- **VideoSync disabled** (`src/lib/videoSync.ts:55` `VideoSyncController` exists but not started). `useAudioEngine.ts:171` `Baseline 1: videoSync disabled — video stays paused, no hardSync/nudge` so audio/video drift not auto-corrected. Dual-play muted video (`activateSource` `isVideoTrack && v.play()`) is still attempted but without rate nudging — stutter fix is on backburner.
-- **Active bug — iOS 26.2 lock screen paused icon** (`src/hooks/useAudioEngine.ts:49`, `src/hooks/useMediaSession.ts:13`): Pause in-app (`||` → `>` anchor active) → lock shows `||` instead of `>` (should be `>` while anchor holds session at `HOLD_RATE`). Tap `||` (lock) → flips to `>` but audio starts *playing* with frozen seek bar (`HOLD_RATE` published) and in-app shows `||` (inverted). Tap `>` again → audio keeps playing, bar unfreezes (`playbackRate=1`), icon flips to `||` (3 taps to toggle paused). Control Center (in-app) does NOT reproduce — only lock screen.
-- **Active bug — video keeps playing while audio paused after 2nd lock pause**: 1× lock pause→resume→pause correctly pauses video, but 2× cycle (play → pause → resume → pause via lock) leaves video playing when returning to app while audio is paused (silent anchor). Happens only after the icon bug forces extra tap; control-center pause always syncs.
-- **Pending**: Re-enable smooth fullscreen video without stutter once lock-icon + video-pause sync fixed.
+- **Video**: Fixed app-switcher drift. `onVis hidden` pauses video, `visible` seeks `v.currentTime = audio.currentTime` if drift >0.15 then `v.play()` (`src/hooks/useAudioEngine.ts:582`). `activateSource` now seeks video to `frozenPos`/`media.currentTime` on track resume. Baseline `videoSync` nudge still disabled — dual-play muted video is enough, no stutter. Tested: swipe to app switcher while track playing → audio ahead, return → `visible video seek to audio` re-syncs.
+- **Audio stutter**: Fixed — `activateSource`/`play` no longer `hardSync`/`nudge` video while track; video stays paused/seek-farmed or muted playing without rate nudging. No seek storm.
+- **Lock screen — known inversion (parked)**: `pause in-app (visible) → anchor` publishes `paused + HOLD_RATE` correctly (`src/hooks/useAudioEngine.ts:129` `pre/post-publish anchor paused`) but iOS 26.2 PWA **visible-created anchor shows `||` (playing) instead of `>`**. `hidden`-created anchor (pause via lock while `hidden`) shows `>` correctly. Logs prove: `11:42:36 hidden anchor refresh paused` is `>` for 1s then flips to `||` via iOS itself; `HOLD_RATE=0` makes bar run to end and kills session after 30s (`speelt niets af`), `1e-7` keeps bar frozen but still `||`. Control Center + Windows PWA **always show `||`** regardless of `paused`/`playing` — separate MediaSession view, not fixable with one `playbackState`. Resilient toggle `src/hooks/useMediaSession.ts:42` + `remotePauseOrResume` (`src/hooks/useAudioEngine.ts:276` `anchor→play else pause`) makes **1 press always toggles** even when icon inverted, so functional. `HOLD_RATE=1e-7` required to keep session alive past 30s — `truly paused (rate 0)` kills session (`14:57:14` `owner=idle` after 30s, `speelt niets af`).
+- **Pending**: Re-enable smooth fullscreen + `videoSync` nudge once lock icon is revisited; lock `>` perfect would need `visible`→`hidden` deferred anchor swap (tested `806f395` but keeps audio playing audibly after in-app pause until lock, so reverted).
 
 ## Open Issues
 1. Tracks may not persist after closing/reopening app (IndexedDB/OPFS possibly cleared by iOS) *fixed*
@@ -155,19 +155,21 @@ RESUME (tap ▶️ while anchor OR either lock button while inverted): activateS
 ```
 Lock `play` and `pause` both route via `remotePauseOrResume` `src/hooks/useMediaSession.ts:35` / `src/hooks/useAudioEngine.ts:276` (resilient to iOS 26.2 inverted icon where `||` shows while anchor).
 
-## Fix 2026-09-14 — iOS 26.2 lock icon + frozen bar + video-keep-playing (your test)
-**Root**: `activateSource` only set `playbackState` after `await play()` and `onPlaying` could race; `publishPosition` with `HOLD_RATE` lagged, so after in-app pause lock showed `||` (playing) instead of `>` while anchor, and after lock `||`→`>` audio resumed but bar froze (HOLD_RATE published while track playing) and in-app/ lock icons were opposite (`||` vs `>`). Second lock cycle left `video` playing because `owner`/`sourceKind` still `track` while anchor silent, visibility restore then replayed video.
-**Fix**: `activateSource` now syncs `playbackState` + `publishPosition` *before* `await play()` and again after + 120ms double-publish for iOS lag; `onPlaying`/`onTimeUpdate` enforce correct `playbackState`/`rate` + keep video paused while anchor and playing while track; `visibilitychange` explicitly pauses video for anchor and publishes correct state; `useMediaSession.ts:42` both `play`/`pause` handlers now call `remotePauseOrResume` (toggle based on actual `anchor` vs `track`) so inverted icon still toggles correctly. Build verified `388kB`.
+## Fix 2026-09-14/15 — iOS 26.2 lock icon + frozen bar + video-keep-playing + app-switcher drift
+**Root 1 — bar/video**: `activateSource` set `playbackState` after `await` and `onPlaying` raced; `video` not seeked on resume, so app-switcher `hidden` pause left `audio` ahead of `video`.
+**Root 2 — lock `visible` inversion**: `visible`-created `anchor` (in-app pause) publishes `paused + HOLD_RATE` correctly but iOS 26.2 PWA shows `||` instead of `>` until ~1s later flips; `hidden`-created `anchor` (pause via lock while hidden) shows `>` correctly. `HOLD_RATE 0` makes bar run to end and kills session after 30s (`14:56:20` `truly paused` → `speelt niets af`), `1e-7` keeps it but still `||` when visible.
+**Fix**: `activateSource` + `play` now `publishPosition` before `playbackState` + `post` + `re` + `500ms` publishes; `onPlaying`/`onTimeUpdate`/`visibility` enforce `paused/HOLD_RATE` vs `playing/1` + `v.pause()`/`v.currentTime=frozenPos` while anchor, `v.currentTime=audio.currentTime` + `v.play()` while track; app-switcher `visible` does `drift>0.15` seek; `useMediaSession.ts:42` both center buttons → `remotePauseOrResume` so 1 press toggles even when inverted. `806f395` deferred `pendingAnchor` tested but kept audio playing audibly after in-app pause, so reverted to immediate swap. Parked control center/Windows `||` always. Builds `390-392kB`.
 
 ## Planned Features
 1. **Skip mode toggle**: Switch between ±10s skip buttons and prev/next track buttons on lock screen. Test app has working implementation — simple `setMode()` toggle between `skip10` and `prevnext`. To integrate into main app settings or as a one-button cycle.
 *done*
-2. **Playlist feature**: User mentioned as alternative focus.
-3. **Implement duration-matched handoff**: Integrate the correct handoff approach from ChatGPT Sol's test app into the main media-player.
-4. **something something brother complaints**: addding a value system that influences the fisher yates algorythm based on values given by the user.
-5. **something something brother complaints2**: adding a stack feature where the user can add a track to a stack on top or below a queue which would play first over the current playlist.
+2. **Playlist feature**: should probably come first before moving onto weights and per track volume.
+3. **something something brother complaints**: addding a value system that influences the fisher yates algorythm based on values given by the user.
+4. **something something brother complaints2**: adding a stack feature where the user can add a track to a stack on top or below a queue which would play first over the current playlist preferably inside of a playlist so you can isolate each stack.
+5. adding a manual grouping feature where users can sort their ow tracks in cases where auto grouping misses some tracks.
 6. **something something brother complaints3**: adding a value to each track which is that a certain track plays at a certain volume.
 7. giving the app a better visual makeover with animations, startup and menu.
 8. adding fullscreen to the video element and making it stop stuttering and smooth.
 9. making the group play in the groups order instead of the quee. (once playlists are implemented.)
+10. allowing users to modify the order of the queue in a playlist or in the library queue mode.
 
