@@ -486,31 +486,18 @@ export function useAudioEngine() {
           const dur = trackDurationRef.current || 0
           const pos = frozenPosRef.current
           const mediaHidden = mediaRef.current
+          // Try truly paused anchor on hidden (no HOLD_RATE play) — iOS 26.2 may now keep session without silent play
           try {
-            publishPosition(dur, pos, HOLD_RATE)
+            if (mediaHidden && !mediaHidden.paused) {
+              mediaHidden.pause()
+              addLog(`hidden anchor truly paused (no HOLD_RATE) pos=${pos.toFixed(2)}`)
+            }
+            publishPosition(dur, pos, 0)
             if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
           } catch {}
-          addLog(`hidden anchor refresh paused pos=${pos.toFixed(2)}`)
+          addLog(`hidden anchor refresh paused (truly paused) pos=${pos.toFixed(2)}`)
           if (vHidden && vHidden.src) try { vHidden.currentTime = pos } catch {}
-          // iOS 26.2 visible-created anchor stays || — try real media toggle to force > (next build will be this)
-          setTimeout(() => {
-            try {
-              if (mediaHidden && !mediaHidden.paused) {
-                mediaHidden.pause()
-                addLog(`hidden anchor media pause for toggle`)
-                setTimeout(async () => {
-                  try {
-                    setRate(mediaHidden, HOLD_RATE)
-                    try { mediaHidden.currentTime = pos } catch {}
-                    await mediaHidden.play()
-                    publishPosition(dur, pos, HOLD_RATE)
-                    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
-                    addLog(`hidden anchor media resume HOLD_RATE toggle to >`)
-                  } catch (e) { addLog(`hidden toggle resume failed ${e}`) }
-                }, 100)
-              }
-            } catch {}
-          }, 100)
+          // Fallback: if lock still flips to || after 1s, hidden resume to HOLD_RATE will be retried on next hidden
         } else {
           const dur = mediaRef.current?.duration || trackDurationRef.current || 0
           const pos = mediaRef.current?.currentTime || 0
