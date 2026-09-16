@@ -75,6 +75,7 @@ export function useAudioEngine() {
 
   const sourceKindRef = useRef<SourceKind>('track')
   const ownerRef = useRef<'idle' | 'track' | 'anchor'>('idle')
+  const pendingAnchorPosRef = useRef<number | null>(null)
 
   const { currentTrackIndex, queue, volume, isMuted, setPlaying, setCurrentTime, setDuration, setCurrentTrackIndex } = usePlayerStore()
   const currentTrack = queue[currentTrackIndex]
@@ -249,6 +250,18 @@ export function useAudioEngine() {
     const track = state.queue[state.currentTrackIndex] ?? currentTrack
     const media = mediaRef.current
     if (!track || !media) { addLog(`play ignored — no track (queue ${state.queue.length} idx ${state.currentTrackIndex})`); return }
+    if (pendingAnchorPosRef.current !== null) {
+      const pend = pendingAnchorPosRef.current
+      pendingAnchorPosRef.current = null
+      addLog(`play cancels deferred anchor @ ${pend.toFixed(2)} -> resume track`)
+      setPlaying(true)
+      publishPosition(media.duration || trackDurationRef.current, media.currentTime, 1)
+      try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing' } catch {}
+      // Resume track audio that was paused for deferred
+      try { await media.play() } catch (e) { addLog(`cancel deferred play failed ${e}`) }
+      const vResume = videoRef.current; if (vResume && vResume.src) { try { vResume.currentTime = frozenPosRef.current } catch {}; vResume.muted = true; vResume.play().catch(() => {}) }
+      return
+    }
     if (transitionRef.current) { queuedCommandRef.current = 'play'; addLog('play queued behind swap'); return }
     transitionRef.current = true
     try {
@@ -304,8 +317,21 @@ export function useAudioEngine() {
   const pause = useCallback(async () => {
     const media = mediaRef.current
     if (!media) return
-    if (sourceKindRef.current === 'anchor') { addLog('pause while placeholder → resume'); void play(); return }
+    if (sourceKindRef.current === 'anchor' || pendingAnchorPosRef.current !== null) { addLog('pause while placeholder/pending → resume'); pendingAnchorPosRef.current = null; void play(); return }
     if (transitionRef.current) { queuedCommandRef.current = 'pause'; addLog('pause queued'); return }
+    // Defer visible anchor to hidden: visible anchor shows || inverted, hidden shows > correctly + keeps session with HOLD_RATE
+    if (document.visibilityState === 'visible' && sourceKindRef.current === 'track') {
+      const pos = media.currentTime
+      frozenPosRef.current = pos; setCurrentTime(pos); setPlaying(false); stopRaf()
+      const vPause = videoRef.current; if (vPause) try { vPause.pause(); vPause.currentTime = pos } catch {}
+      try { media.pause(); addLog(`pause deferred media.pause @ ${pos.toFixed(2)}s`) } catch {}
+      pendingAnchorPosRef.current = pos
+      ensureAnchor(trackDurationRef.current || media.duration || 2)
+      publishPosition(trackDurationRef.current || media.duration, pos, HOLD_RATE)
+      try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused' } catch {}
+      addLog(`pause deferred (visible) @ ${pos.toFixed(2)}s — will swap to anchor on hidden`)
+      return
+    }
     transitionRef.current = true
     try {
       const pos = media.currentTime
@@ -476,28 +502,43 @@ export function useAudioEngine() {
 
   useEffect(() => {
     const onVis = () => {
-      addLog(`visibility -> ${document.visibilityState} owner=${ownerRef.current} kind=${sourceKindRef.current} lock=${getLockPlaybackState(sourceKindRef.current as 'track'|'anchor')}`)
+      addLog(`visibility -> ${document.visibilityState} owner=${ownerRef.current} kind=${sourceKindRef.current} pending=${pendingAnchorPosRef.current} lock=${getLockPlaybackState(sourceKindRef.current as 'track'|'anchor')}`)
       if (document.visibilityState==='hidden') {
         stopRaf();
+        // Pending in-app pause: do real anchor swap while hidden (hidden-created anchor shows > correctly)
+        if (pendingAnchorPosRef.current !== null) {
+          const pos = pendingAnchorPosRef.current
+          pendingAnchorPosRef.current = null
+          addLog(`hidden deferred anchor swap @ ${pos.toFixed(2)}`)
+          const vPend = videoRef.current; if (vPend) try { vPend.pause(); vPend.currentTime = pos } catch {}
+          void (async () => {
+            transitionRef.current = true
+            try {
+              ensureAnchor(trackDurationRef.current || mediaRef.current?.duration || 2)
+              await activateSource('anchor', anchorUrlRef.current, pos)
+              addLog(`deferred track → placeholder swap @ ${pos.toFixed(2)}s (hidden)`)
+            } catch (e) { setOwner('idle'); addLog(`deferred swap failed: ${e}`) }
+            finally { transitionRef.current = false; flushQueued() }
+          })()
+          return
+        }
         const vHidden = videoRef.current
         if (vHidden) try { vHidden.pause() } catch {}
         const kindHidden = sourceKindRef.current as 'track'|'anchor'
         if (kindHidden === 'anchor') {
           const dur = trackDurationRef.current || 0
           const pos = frozenPosRef.current
-          const mediaHidden = mediaRef.current
-          // Try truly paused anchor on hidden (no HOLD_RATE play) — iOS 26.2 may now keep session without silent play
           try {
-            if (mediaHidden && !mediaHidden.paused) {
-              mediaHidden.pause()
-              addLog(`hidden anchor truly paused (no HOLD_RATE) pos=${pos.toFixed(2)}`)
-            }
-            publishPosition(dur, pos, 0)
+            publishPosition(dur, pos, HOLD_RATE)
             if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
           } catch {}
-          addLog(`hidden anchor refresh paused (truly paused) pos=${pos.toFixed(2)}`)
+          addLog(`hidden anchor refresh paused pos=${pos.toFixed(2)} HOLD_RATE`)
           if (vHidden && vHidden.src) try { vHidden.currentTime = pos } catch {}
-          // Fallback: if lock still flips to || after 1s, hidden resume to HOLD_RATE will be retried on next hidden
+          // Keep silent anchor playing at HOLD_RATE to keep session (truly paused kills after 30s)
+          const mediaHidden = mediaRef.current
+          if (mediaHidden && mediaHidden.paused) {
+            try { setRate(mediaHidden, HOLD_RATE); mediaHidden.play().then(() => addLog(`hidden anchor resume HOLD_RATE`)).catch(() => {}) } catch {}
+          }
         } else {
           const dur = mediaRef.current?.duration || trackDurationRef.current || 0
           const pos = mediaRef.current?.currentTime || 0
@@ -514,6 +555,15 @@ export function useAudioEngine() {
       setAudioSessionType()
       const m=mediaRef.current; const v=videoRef.current
       const isVideo = usePlayerStore.getState().queue[usePlayerStore.getState().currentTrackIndex]?.mediaType === 'video'
+      if (pendingAnchorPosRef.current !== null) {
+        addLog(`visible cancel deferred anchor, stay track @ ${m?.currentTime.toFixed(2)}`)
+        pendingAnchorPosRef.current = null
+        setPlaying(true)
+        publishPosition(m?.duration || trackDurationRef.current || 0, m?.currentTime || 0, 1)
+        try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing' } catch {}
+        if (isVideo && v && v.src) { try { v.currentTime = m?.currentTime || 0 } catch {}; v.muted = true; v.play().catch(() => {}) }
+        return
+      }
       // Anchor must stay paused (fix 2nd lock pause video drift)
       if (sourceKindRef.current === 'anchor' || ownerRef.current === 'anchor') {
         if (v && !v.paused) try { v.pause() } catch {}
