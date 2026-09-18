@@ -10,6 +10,8 @@ interface TrackListProps {
   onPickFiles: () => void
   onRemoveTracks?: (tracks: Track[]) => void
   hideHeader?: boolean
+  externalSelectMode?: boolean
+  onExternalSelectModeChange?: (v: boolean) => void
 }
 
 function formatDuration(seconds: number): string {
@@ -24,8 +26,14 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
-  const [selectMode, setSelectMode] = useState(false)
+export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
+  const [internalSelectMode, setInternalSelectMode] = useState(false)
+  const selectMode = externalSelectMode !== undefined ? externalSelectMode : internalSelectMode
+  const setSelectMode = (v: boolean | ((prev: boolean) => boolean)) => {
+    const next = typeof v === 'function' ? (v as (prev: boolean) => boolean)(selectMode) : v
+    if (onExternalSelectModeChange) onExternalSelectModeChange(next)
+    else setInternalSelectMode(next)
+  }
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   const toggleSelect = (trackId: string) => {

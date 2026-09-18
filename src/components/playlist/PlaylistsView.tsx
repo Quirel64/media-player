@@ -117,7 +117,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onPlayPlaylist, onD
             <motion.button key={p.id} whileTap={{ scale: 0.97 }} onClick={() => setActiveId(p.id)} className="flex flex-col overflow-hidden rounded-lg bg-slate-900 text-left">
               <div className="flex h-28 items-center justify-center bg-slate-800 text-2xl">📋</div>
               <div className="px-3 py-2.5">
-                <p className="truncate text-sm font-medium text-white">{p.name}</p>
+                <p className="truncate text-sm font-medium text-white">{p.name?.trim() ? p.name : 'Untitled'}</p>
                 <p className="text-xs text-slate-400">{p.items.length} tracks</p>
               </div>
             </motion.button>

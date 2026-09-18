@@ -20,6 +20,7 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
   const [mode, setMode] = useState<'groups' | 'queue'>('groups')
   const [search, setSearch] = useState('')
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
+  const [queueSelectMode, setQueueSelectMode] = useState(false)
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
 
   const grouped = useMemo(() => groupTracks(tracks, { minGroupSize: 2 }), [tracks])
@@ -103,15 +104,20 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
   return (
     <div className="flex h-full flex-col">
       {/* Header: title + toggle */}
-      <div className="border-b border-slate-800 px-4 py-3">
+      <div className="flex-shrink-0 border-b border-slate-800 px-4 py-3">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-semibold text-white">Library</h2>
             <p className="text-xs text-slate-400">{tracks.length} tracks • {grouped.groups.length} groups • {grouped.loose.length} loose</p>
           </div>
-          <div className="flex items-center gap-1 rounded-full bg-slate-800 p-1">
-            <button onClick={() => setMode('groups')} className={`rounded-full px-3 py-1 text-xs font-medium ${mode === 'groups' ? 'bg-primary text-white' : 'text-slate-400'}`}>Groups</button>
-            <button onClick={() => setMode('queue')} className={`rounded-full px-3 py-1 text-xs font-medium ${mode === 'queue' ? 'bg-primary text-white' : 'text-slate-400'}`}>Queue</button>
+          <div className="flex items-center gap-2">
+            {mode === 'queue' && (
+              <button onClick={() => setQueueSelectMode(v => !v)} className={`rounded-lg px-3 py-1.5 text-xs font-medium ${queueSelectMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}>{queueSelectMode ? 'Done' : 'Select'}</button>
+            )}
+            <div className="flex items-center gap-1 rounded-full bg-slate-800 p-1">
+              <button onClick={() => setMode('groups')} className={`rounded-full px-3 py-1 text-xs font-medium ${mode === 'groups' ? 'bg-primary text-white' : 'text-slate-400'}`}>Groups</button>
+              <button onClick={() => setMode('queue')} className={`rounded-full px-3 py-1 text-xs font-medium ${mode === 'queue' ? 'bg-primary text-white' : 'text-slate-400'}`}>Queue</button>
+            </div>
           </div>
         </div>
         {mode === 'groups' && (
@@ -121,10 +127,18 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
             <button onClick={onPickFiles} className="rounded-lg bg-slate-800 px-3 py-2 text-xs text-slate-300">+ Files</button>
           </div>
         )}
+        {mode === 'queue' && (
+          <div className="mt-3 flex gap-2">
+            <button onClick={onPickFolder} className="rounded-lg bg-slate-800 px-3 py-2 text-xs text-slate-300">+ Folder</button>
+            <button onClick={onPickFiles} className="rounded-lg bg-slate-800 px-3 py-2 text-xs text-slate-300">+ Files</button>
+          </div>
+        )}
       </div>
 
       {mode === 'queue' ? (
-        <TrackList tracks={tracks} currentTrackIndex={currentTrackIndex} onSelectTrack={onSelectTrack} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} hideHeader />
+        <div className="flex-1 overflow-hidden">
+          <TrackList tracks={tracks} currentTrackIndex={currentTrackIndex} onSelectTrack={onSelectTrack} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} hideHeader externalSelectMode={queueSelectMode} onExternalSelectModeChange={setQueueSelectMode} />
+        </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-3">
           {filteredGroups.length === 0 && filteredLoose.length === 0 ? (
