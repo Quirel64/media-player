@@ -94,6 +94,7 @@ async function processFiles(
       id: 'library',
       name: 'Library',
       tracks: combinedEarly,
+      items: combinedEarly.map((t, idx) => ({ id: crypto.randomUUID(), trackId: t.id, order: idx, addedAt: Date.now() + idx })),
       createdAt: existingPlaylistEarly?.createdAt ?? Date.now(),
       updatedAt: Date.now(),
     })
@@ -142,10 +143,11 @@ async function processFiles(
     id: 'library',
     name: 'Library',
     tracks: combined,
+    items: combined.map((t, idx) => ({ id: crypto.randomUUID(), trackId: t.id, order: idx, addedAt: Date.now() + idx })),
     createdAt: existingPlaylist?.createdAt ?? Date.now(),
     updatedAt: Date.now(),
   }
-  await savePlaylist(playlist)
+  await savePlaylist(playlist as unknown as import('../lib/types').Playlist)
 
   // Verify durability — read back and retry once if count mismatched (handles iOS abort before tx.done)
   try {

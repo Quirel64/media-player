@@ -2,7 +2,7 @@ import { openDB, type IDBPDatabase, type DBSchema } from 'idb'
 import type { Track, Playlist } from './types'
 
 const DB_NAME = 'media-player-db'
-const DB_VERSION = 3
+const DB_VERSION = 4
 const TRACKS_STORE = 'tracks'
 const PLAYLISTS_STORE = 'playlists'
 const SETTINGS_STORE = 'settings'
@@ -50,6 +50,27 @@ async function getDB(): Promise<IDBPDatabase<MediaDB>> {
         if (!tracksStore.indexNames.contains('by-createdAt')) {
           tracksStore.createIndex('by-createdAt', 'createdAt')
         }
+      }
+      if (oldVersion < 4) {
+        // Migrate legacy playlists (tracks: Track[]) to items: PlaylistItem[] for duplicate support
+        const playlistsStore = transaction.objectStore(PLAYLISTS_STORE)
+        void playlistsStore.getAll().then((playlists) => {
+          for (const pl of playlists as unknown as { id: string; tracks?: import('./types').Track[]; items?: import('./types').PlaylistItem[]; name: string; createdAt: number; updatedAt: number }[]) {
+            if ((!pl.items || pl.items.length === 0) && pl.tracks && pl.tracks.length > 0) {
+              const items = pl.tracks.map((t, idx) => ({
+                id: crypto.randomUUID(),
+                trackId: t.id,
+                order: idx,
+                addedAt: Date.now() + idx,
+              }))
+              const migrated = { ...pl, items, tracks: pl.tracks } as unknown as import('./types').Playlist
+              playlistsStore.put(migrated)
+            } else if (!pl.items) {
+              const migrated = { ...pl, items: [] as import('./types').PlaylistItem[], tracks: pl.tracks ?? [] } as unknown as import('./types').Playlist
+              playlistsStore.put(migrated)
+            }
+          }
+        })
       }
     },
   })
@@ -106,20 +127,61 @@ export async function clearAllTracks(): Promise<void> {
   await db.clear(TRACKS_STORE)
 }
 
+function normalizePlaylist(pl: Playlist): Playlist {
+  // Ensure items exists; migrate legacy tracks if needed
+  if (!pl.items) (pl as unknown as { items: import('./types').PlaylistItem[] }).items = []
+  if ((pl.items.length === 0) && pl.tracks && pl.tracks.length > 0) {
+    pl.items = pl.tracks.map((t, idx) => ({
+      id: crypto.randomUUID(),
+      trackId: t.id,
+      order: idx,
+      addedAt: Date.now() + idx,
+    }))
+  }
+  // Ensure order is sequential and items sorted by order
+  pl.items.sort((a, b) => a.order - b.order)
+  pl.items.forEach((it, idx) => { it.order = idx })
+  return pl
+}
+
 export async function savePlaylist(playlist: Playlist): Promise<void> {
   try { await requestPersistentStorage() } catch { /* ignore */ }
+  // Keep legacy tracks for backwards compat (library still uses tracks until reordering feature)
+  // For new playlists, tracks is kept in sync from items for easy debugging
+  if (playlist.items && playlist.items.length > 0) {
+    // Optionally sync tracks from items if we have all tracks in DB — caller should handle
+  } else if (!playlist.items) {
+    playlist.items = []
+  }
   const db = await getDB()
   await db.put(PLAYLISTS_STORE, playlist)
 }
 
 export async function getPlaylist(id: string): Promise<Playlist | undefined> {
   const db = await getDB()
-  return db.get(PLAYLISTS_STORE, id)
+  const pl = await db.get(PLAYLISTS_STORE, id) as Playlist | undefined
+  if (!pl) return undefined
+  return normalizePlaylist(pl)
 }
 
 export async function getAllPlaylists(): Promise<Playlist[]> {
   const db = await getDB()
-  return db.getAll(PLAYLISTS_STORE)
+  const pls = await db.getAll(PLAYLISTS_STORE) as Playlist[]
+  return pls.map(normalizePlaylist)
+}
+
+export function createPlaylistItem(trackId: string, order: number): import('./types').PlaylistItem {
+  return { id: crypto.randomUUID(), trackId, order, addedAt: Date.now() }
+}
+
+export async function resolvePlaylistTracks(playlist: Playlist, allTracks: Map<string, import('./types').Track>): Promise<import('./types').Track[]> {
+  const normalized = normalizePlaylist(playlist)
+  const resolved: import('./types').Track[] = []
+  for (const item of normalized.items) {
+    const t = allTracks.get(item.trackId)
+    if (t) resolved.push(t)
+  }
+  return resolved
 }
 
 export async function deletePlaylist(id: string): Promise<void> {

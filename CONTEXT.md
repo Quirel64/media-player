@@ -163,13 +163,14 @@ Lock `play` and `pause` both route via `remotePauseOrResume` `src/hooks/useMedia
 ## Planned Features
 1. **Skip mode toggle**: Switch between ±10s skip buttons and prev/next track buttons on lock screen. Test app has working implementation — simple `setMode()` toggle between `skip10` and `prevnext`. To integrate into main app settings or as a one-button cycle.
 *done*
-2. **Playlist feature**: should probably come first before moving onto weights and per track volume.
-3. **something something brother complaints**: addding a value system that influences the fisher yates algorythm based on values given by the user.
-4. **something something brother complaints2**: adding a stack feature where the user can add a track to a stack on top or below a queue which would play first over the current playlist preferably inside of a playlist so you can isolate each stack.
+2. **Playlist feature**: should probably come first before moving onto weights and per track volume as currently that is a empty tab.
+   *base done 2026-09-15*: `PlaylistItem {id, trackId, order, addedAt}` dupes allowed, `Playlist {items}` is ordered refs, `TRACKS_STORE` single source, `OPFS` once, `DB_VERSION 4` migrates legacy `tracks[]` → `items[]` (`src/lib/types.ts:15`, `src/lib/idb.ts:4`). `usePlaylists.ts` create/add/play, `PlaylistsView` `src/components/playlist/PlaylistsView.tsx` + `AddToPlaylistSheet`, `Library` Select → Add to playlist (clears + jumps to Playlists) and Playlists `+ Create` / `Play` per `items` order. Library stays `createdAt` for now.
+3. **low prio brother complaints**: addding a value system that influences the fisher yates algorythm based on values given by the user so that a certain track has a higher or lower chance of appearing when using the shuffle.
+4. **low prio complaints2**: adding a stack feature where the user can add a track to a stack on top or below a queue which would play first over the current playlist preferably inside of a playlist so you can isolate each stack.
 5. adding a manual grouping feature where users can sort their ow tracks in cases where auto grouping misses some tracks.
-6. **something something brother complaints3**: adding a value to each track which is that a certain track plays at a certain volume.
+6. **low prio brother complaints3**: being able to set a sound value to each track which is that a certain track plays at a certain volume.
 7. giving the app a better visual makeover with animations, startup and menu.
-8. adding fullscreen to the video element and making it stop stuttering and smooth.
+8. adding fullscreen mode to the video which would work for when you tilt the phone horizonatally for example or just a button tha t gives fullscreen.
 9. making the group play in the groups order instead of the quee. (once playlists are implemented.)
 10. allowing users to modify the order of the queue in a playlist or in the library queue mode.
 

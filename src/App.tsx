@@ -12,6 +12,9 @@ import { usePlayerStore } from './stores/playerStore'
 import { requestPersistentStorage, getSetting, saveSetting, saveTracks } from './lib/idb'
 import { ToastContainer } from './components/ui/Toast'
 import { EventLog } from './components/ui/EventLog'
+import { PlaylistsView } from './components/playlist/PlaylistsView'
+import { AddToPlaylistSheet } from './components/playlist/AddToPlaylistSheet'
+import { usePlaylists } from './hooks/usePlaylists'
 import type { TabId } from './components/layout/BottomNav'
 import type { Track } from './lib/types'
 import type { LockScreenMode } from './lib/types'
@@ -20,10 +23,12 @@ export default function App() {
   const [ready, setReady] = useState(false)
   const [activeTab, setActiveTab] = useState<TabId>('library')
   const [nowCollapsed, setNowCollapsed] = useState(false)
+  const [pendingAddTracks, setPendingAddTracks] = useState<Track[] | null>(null)
   const { queue, currentTrackIndex } = usePlayerStore()
   const currentTrack = queue[currentTrackIndex] || null
 
   const { pickFolder, pickFiles, loadSavedTracks, clearAll, removeTracks } = useFolderPicker()
+  const { playlists, createPlaylist, addTracksToPlaylist, deletePlaylist, playPlaylist } = usePlaylists()
   const { play, pause, remotePauseOrResume, togglePlay, nextTrack, prevTrack, seek, goToTrack, videoContainerRef } = useAudioEngine()
   const { setHandlers } = useMediaSession()
 
@@ -99,6 +104,17 @@ export default function App() {
     await removeTracks(tracks)
   }, [removeTracks])
 
+  const handleAddToPlaylist = useCallback((tracks: Track[]) => {
+    if (tracks.length === 0) return
+    setPendingAddTracks(tracks)
+  }, [])
+
+  const handleCloseSheet = useCallback(() => setPendingAddTracks(null), [])
+  const handleAfterAdd = useCallback(() => {
+    setPendingAddTracks(null)
+    setActiveTab('playlists')
+  }, [])
+
   if (!ready) {
     return (
       <div className="flex h-full items-center justify-center bg-slate-950">
@@ -127,16 +143,18 @@ export default function App() {
             onPickFolder={handlePickFolder}
             onPickFiles={handlePickFiles}
             onRemoveTracks={handleRemoveTracks}
+            onAddToPlaylist={handleAddToPlaylist}
           />
         )
       case 'playlists':
         return (
-          <div className="flex h-full items-center justify-center p-8">
-            <div className="text-center text-slate-500">
-              <div className="mb-2 text-4xl">📋</div>
-              <p className="text-sm">Playlists coming soon</p>
-            </div>
-          </div>
+          <PlaylistsView
+            playlists={playlists}
+            onCreatePlaylist={async (name, tracks) => { await createPlaylist(name, tracks ?? []) }}
+            onPlayPlaylist={playPlaylist}
+            onDeletePlaylist={deletePlaylist}
+            onAddToPlaylist={handleAddToPlaylist}
+          />
         )
       case 'logs':
         return (
@@ -180,6 +198,17 @@ export default function App() {
       }
     />
     <ToastContainer />
+    {pendingAddTracks && (
+      <AddToPlaylistSheet
+        open={!!pendingAddTracks}
+        tracks={pendingAddTracks}
+        playlists={playlists}
+        onClose={handleCloseSheet}
+        onAdd={addTracksToPlaylist}
+        onCreate={async (name, tracks) => { await createPlaylist(name, tracks) }}
+        onAfterAdd={handleAfterAdd}
+      />
+    )}
     </>
   )
 }

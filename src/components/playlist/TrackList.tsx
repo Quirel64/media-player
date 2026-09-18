@@ -24,7 +24,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, hideHeader }: TrackListProps) {
+export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
@@ -232,6 +232,17 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
             className="flex-shrink-0 border-t border-slate-800 bg-slate-900 px-4 py-3"
           >
             <div className="flex items-center justify-center gap-3">
+              {onAddToPlaylist && (
+                <button
+                  onClick={() => {
+                    const selected = tracks.filter((t) => selectedIds.has(t.id))
+                    onAddToPlaylist(selected)
+                  }}
+                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-light active:scale-[0.98]"
+                >
+                  Add to playlist ({selectedIds.size})
+                </button>
+              )}
               <button
                 onClick={deleteSelected}
                 className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-500 active:scale-[0.98]"

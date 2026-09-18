@@ -13,9 +13,10 @@ interface Props {
   onPickFolder: () => void
   onPickFiles: () => void
   onRemoveTracks?: (tracks: Track[]) => void
+  onAddToPlaylist?: (tracks: Track[]) => void
 }
 
-export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks }: Props) {
+export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist }: Props) {
   const [mode, setMode] = useState<'groups' | 'queue'>('groups')
   const [search, setSearch] = useState('')
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
@@ -65,7 +66,7 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
   }
 
   if (tracks.length === 0) {
-    return <TrackList tracks={tracks} currentTrackIndex={currentTrackIndex} onSelectTrack={onSelectTrack} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} />
+    return <TrackList tracks={tracks} currentTrackIndex={currentTrackIndex} onSelectTrack={onSelectTrack} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} />
   }
 
   // Group detail view
@@ -123,7 +124,7 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
       </div>
 
       {mode === 'queue' ? (
-        <TrackList tracks={tracks} currentTrackIndex={currentTrackIndex} onSelectTrack={onSelectTrack} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} hideHeader />
+        <TrackList tracks={tracks} currentTrackIndex={currentTrackIndex} onSelectTrack={onSelectTrack} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} hideHeader />
       ) : (
         <div className="flex-1 overflow-y-auto p-3">
           {filteredGroups.length === 0 && filteredLoose.length === 0 ? (
