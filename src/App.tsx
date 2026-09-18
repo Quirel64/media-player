@@ -9,7 +9,7 @@ import { useAudioEngine } from './hooks/useAudioEngine'
 import { useMediaSession } from './hooks/useMediaSession'
 import { useFolderPicker } from './hooks/useFolderPicker'
 import { usePlayerStore } from './stores/playerStore'
-import { requestPersistentStorage, getSetting, saveSetting, saveTracks } from './lib/idb'
+import { requestPersistentStorage, getSetting, saveSetting, saveTracks, getAllTracks, getAllPlaylists, savePlaylist } from './lib/idb'
 import { ToastContainer } from './components/ui/Toast'
 import { EventLog } from './components/ui/EventLog'
 import { PlaylistsView } from './components/playlist/PlaylistsView'
@@ -24,11 +24,12 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>('library')
   const [nowCollapsed, setNowCollapsed] = useState(false)
   const [pendingAddTracks, setPendingAddTracks] = useState<Track[] | null>(null)
+  const [libraryTracks, setLibraryTracks] = useState<Track[]>([])
   const { queue, currentTrackIndex } = usePlayerStore()
   const currentTrack = queue[currentTrackIndex] || null
 
   const { pickFolder, pickFiles, loadSavedTracks, clearAll, removeTracks } = useFolderPicker()
-  const { playlists, createPlaylist, addTracksToPlaylist, deletePlaylist, playPlaylist } = usePlaylists()
+  const { playlists, createPlaylist, addTracksToPlaylist, deletePlaylist, playPlaylist, refresh: refreshPlaylists } = usePlaylists()
   const { play, pause, remotePauseOrResume, togglePlay, nextTrack, prevTrack, seek, goToTrack, videoContainerRef } = useAudioEngine()
   const { setHandlers } = useMediaSession()
 
@@ -40,6 +41,7 @@ export default function App() {
         usePlayerStore.getState().setLockScreenMode(savedMode)
       }
       const tracks = await loadSavedTracks()
+      setLibraryTracks(tracks)
       if (tracks.length > 0) {
         setActiveTab('library')
       } else {
@@ -49,6 +51,16 @@ export default function App() {
     }
     init()
   }, [])
+
+  // Keep libraryTracks in sync when queue is library (not playlist)
+  useEffect(() => {
+    const sync = async () => {
+      const all = await getAllTracks()
+      setLibraryTracks(all)
+    }
+    // Sync after any queue change that might be library
+    void sync()
+  }, [queue.length])
 
   // Persist lock screen mode
   const lockScreenMode = usePlayerStore((s) => s.lockScreenMode)
@@ -85,24 +97,60 @@ export default function App() {
 
   const handleSelectTrack = useCallback(
     (index: number) => {
-      goToTrack(index)
+      // If queue is not libraryTracks (e.g., playlist), switch queue to library
+      const isLibraryQueue = queue.length === libraryTracks.length && queue.every((t, i) => t.id === libraryTracks[i]?.id)
+      if (!isLibraryQueue && libraryTracks.length > 0) {
+        const { setQueue, setOriginalOrder, setCurrentTrackIndex: setIdx, setPlaying } = usePlayerStore.getState()
+        setQueue(libraryTracks)
+        setOriginalOrder(libraryTracks)
+        setIdx(index)
+        setPlaying(true)
+      } else {
+        goToTrack(index)
+      }
     },
-    [goToTrack]
+    [goToTrack, queue, libraryTracks]
   )
 
   const handlePickFolder = useCallback(async () => {
     const tracks = await pickFolder()
-    if (tracks) setActiveTab('library')
+    if (tracks) {
+      const all = await getAllTracks()
+      setLibraryTracks(all)
+      setActiveTab('library')
+    }
   }, [pickFolder])
 
   const handlePickFiles = useCallback(async () => {
     const tracks = await pickFiles()
-    if (tracks) setActiveTab('library')
+    if (tracks) {
+      const all = await getAllTracks()
+      setLibraryTracks(all)
+      setActiveTab('library')
+    }
   }, [pickFiles])
 
   const handleRemoveTracks = useCallback(async (tracks: Track[]) => {
     await removeTracks(tracks)
-  }, [removeTracks])
+    const all = await getAllTracks()
+    setLibraryTracks(all)
+    // Cleanup playlists: remove items referencing deleted trackIds
+    const allPlaylists = await getAllPlaylists()
+    let changed = false
+    for (const pl of allPlaylists) {
+      if (pl.id === 'library') continue
+      const before = pl.items.length
+      const deletedIds = new Set(tracks.map(t => t.id))
+      pl.items = pl.items.filter(it => !deletedIds.has(it.trackId))
+      if (pl.items.length !== before) {
+        pl.items.forEach((it, idx) => { it.order = idx })
+        pl.updatedAt = Date.now()
+        await savePlaylist(pl)
+        changed = true
+      }
+    }
+    if (changed) await refreshPlaylists()
+  }, [removeTracks, refreshPlaylists])
 
   const handleAddToPlaylist = useCallback((tracks: Track[]) => {
     if (tracks.length === 0) return
@@ -130,6 +178,12 @@ export default function App() {
     return <NowPlaying currentTrack={currentTrack} videoContainerRef={videoContainerRef} collapsed={nowCollapsed} onToggleCollapsed={() => setNowCollapsed((v) => !v)} />
   }
 
+  const libraryCurrentIdx = (() => {
+    const cur = queue[currentTrackIndex]
+    if (!cur) return -1
+    return libraryTracks.findIndex(t => t.id === cur.id)
+  })()
+
   const renderContent = () => {
     switch (activeTab) {
       case 'add':
@@ -137,8 +191,8 @@ export default function App() {
       case 'library':
         return (
           <LibraryView
-            tracks={queue}
-            currentTrackIndex={currentTrackIndex}
+            tracks={libraryTracks}
+            currentTrackIndex={libraryCurrentIdx}
             onSelectTrack={handleSelectTrack}
             onPickFolder={handlePickFolder}
             onPickFiles={handlePickFiles}
@@ -153,7 +207,17 @@ export default function App() {
             onCreatePlaylist={async (name, tracks) => { await createPlaylist(name, tracks ?? []) }}
             onPlayPlaylist={playPlaylist}
             onDeletePlaylist={deletePlaylist}
-            onAddToPlaylist={handleAddToPlaylist}
+            onRemoveFromPlaylist={async (pid, itemIds) => {
+              const { getPlaylist: gp, savePlaylist: sp } = await import('./lib/idb')
+              const pl = await gp(pid)
+              if (!pl) return
+              const s = new Set(itemIds)
+              pl.items = pl.items.filter(it => !s.has(it.id))
+              pl.items.forEach((it, idx) => { it.order = idx })
+              pl.updatedAt = Date.now()
+              await sp(pl)
+              await refreshPlaylists()
+            }}
           />
         )
       case 'logs':
