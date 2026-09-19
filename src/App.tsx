@@ -97,12 +97,13 @@ export default function App() {
 
   const handleSelectTrack = useCallback(
     (index: number) => {
-      // If queue is not libraryTracks (e.g., playlist), switch queue to library
-      const isLibraryQueue = queue.length === libraryTracks.length && queue.every((t, i) => t.id === libraryTracks[i]?.id)
+      // If queue is not libraryTracks (e.g., playlist), switch queue to library with instanceIds
+      const isLibraryQueue = queue.length === libraryTracks.length && queue.every((t, i) => (t.instanceId ?? t.id) === (libraryTracks[i]?.instanceId ?? libraryTracks[i]?.id))
       if (!isLibraryQueue && libraryTracks.length > 0) {
         const { setQueue, setOriginalOrder, setCurrentTrackIndex: setIdx, setPlaying } = usePlayerStore.getState()
-        setQueue(libraryTracks)
-        setOriginalOrder(libraryTracks)
+        const withInstance = libraryTracks.map(t => ({ ...t, instanceId: t.instanceId ?? t.id }))
+        setQueue(withInstance)
+        setOriginalOrder(withInstance)
         setIdx(index)
         setPlaying(true)
       } else {

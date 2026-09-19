@@ -1,5 +1,6 @@
 import { useRef, useEffect, useCallback } from 'react'
 import { usePlayerStore } from '../stores/playerStore'
+import type { Track } from '../lib/types'
 import { getFileURLFromOPFS } from '../lib/opfs'
 import { showError } from '../components/ui/Toast'
 import { addLog } from '../lib/logger'
@@ -389,7 +390,7 @@ export function useAudioEngine() {
 
   const loadTrack = useCallback(async (idx: number) => {
     const { queue: qq } = usePlayerStore.getState()
-    const t0 = qq[idx]; if (t0 && prevTrackIdRef.current && (prevTrackIdRef.current !== t0.id || nextGestureRef.current)) frozenPosRef.current = 0
+    const t0 = qq[idx]; const t0Instance = (t0 as Track & { instanceId?: string })?.instanceId ?? t0?.id; const prevInstance = prevTrackIdRef.current; if (t0 && prevInstance && (prevInstance !== t0Instance || nextGestureRef.current)) frozenPosRef.current = 0
     const gen = ++loadGenRef.current
     const { queue: q } = usePlayerStore.getState()
     const track = q[idx]; if (!track) return
@@ -414,11 +415,12 @@ export function useAudioEngine() {
     if (!url) { showError(`File not found: ${track.fileName}`); return }
     blobUrlRef.current = url
     const el = mediaRef.current; if (!el) return
-    // Only reset time/duration if new track is different — same track restart keeps duration for seek bar
-    const isSameTrackRestart = prevTrackIdRef.current === track.id && nextGestureRef.current
+    // Only reset time/duration if new instance is different — same instance restart keeps duration for seek bar
+    const instanceId = (track as Track & { instanceId?: string }).instanceId ?? track.id
+    const isSameTrackRestart = prevTrackIdRef.current === instanceId && nextGestureRef.current
     if (!isSameTrackRestart) { setCurrentTime(0); setDuration(0); trackDurationRef.current = 0 }
-    else { setCurrentTime(0); /* keep trackDurationRef for same track restart */ }
-    prevTrackIdRef.current = track.id
+    else { setCurrentTime(0); /* keep trackDurationRef for same instance restart */ }
+    prevTrackIdRef.current = instanceId
 
     if (track.mediaType === 'video') attachVideo(url)
     if ('mediaSession' in navigator) {

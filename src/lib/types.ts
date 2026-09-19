@@ -10,6 +10,7 @@ export interface Track {
   folderName: string
   mediaType: 'audio' | 'video'
   createdAt: number
+  instanceId?: string // per-queue occurrence id (playlist dupes: same Track.id but different instanceId)
 }
 
 export interface PlaylistItem {

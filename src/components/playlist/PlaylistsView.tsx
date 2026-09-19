@@ -44,13 +44,13 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onPlayPlaylist, onD
     return () => { cancelled = true }
   }, [active])
 
-  // Thumbnails for list view (first 4 per playlist)
+  // Thumbnails for active detail and grid
   useEffect(() => {
     let cancelled = false
     const toLoad: { fileName: string, track: Track }[] = []
-    // Load thumbs for active playlist's first 4
+    // Load thumbs for active playlist detail (all tracks in Tracks view, first 4 for Queue)
     if (active && activeTracks.length > 0) {
-      const items = activeTracks.slice(0, 4)
+      const items = viewMode === 'tracks' ? activeTracks : activeTracks.slice(0, 4)
       items.forEach(t => { if (!thumbs[t.fileName]) toLoad.push({ fileName: t.fileName, track: t }) })
       if (toLoad.length === 0) return
       ;(async () => {
@@ -66,7 +66,34 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onPlayPlaylist, onD
       })()
     }
     return () => { cancelled = true }
-  }, [active, activeTracks, thumbs])
+  }, [active, activeTracks, viewMode, thumbs])
+
+  // Grid thumbnails for playlist overview (first 4 per playlist)
+  useEffect(() => {
+    if (active) return
+    let cancelled = false
+    ;(async () => {
+      const all = await getAllTracks()
+      const map = new Map(all.map(t => [t.id, t] as const))
+      const toLoad: Track[] = []
+      for (const pl of playlists) {
+        for (let i = 0; i < Math.min(4, pl.items.length); i++) {
+          const t = map.get(pl.items[i].trackId)
+          if (t && !thumbs[t.fileName] && !toLoad.find(x => x.fileName === t.fileName)) toLoad.push(t)
+        }
+      }
+      for (const t of toLoad) {
+        if (cancelled) break
+        try {
+          const file = await getFileFromOPFS(t.fileName)
+          if (!file || cancelled) continue
+          const url = await getTrackThumbnail(file, t.mediaType)
+          if (url && !cancelled) setThumbs(prev => prev[t.fileName] ? prev : { ...prev, [t.fileName]: url })
+        } catch {}
+      }
+    })()
+    return () => { cancelled = true }
+  }, [playlists, active, thumbs])
 
   const handleCreate = async () => {
     const name = newName.trim()
@@ -219,8 +246,6 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onPlayPlaylist, onD
                 <div className="grid h-28 grid-cols-2 gap-0.5 bg-slate-800 p-0.5">
                   {/* Show 2x2 thumbs or placeholder */}
                   {(() => {
-                    // For grid we need thumb for first 4 items — try to find from activeTracks if active is this p, else generic
-                    // Simplify: show generic for now, will load via thumbs state for active
                     return [0,1,2,3].map(i => {
                       if (p.items.length === 0) return <div key={i} className="bg-slate-700 flex items-center justify-center text-slate-500 text-xs">—</div>
                       if (i === 3 && p.items.length > 4) return <div key={i} className="flex items-center justify-center bg-slate-700 text-sm font-semibold text-slate-300">+{p.items.length - 3}</div>

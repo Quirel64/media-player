@@ -89,7 +89,7 @@ export function usePlaylists() {
     const resolved: Track[] = []
     for (const item of pl.items) {
       const t = trackMap.get(item.trackId)
-      if (t) resolved.push(t)
+      if (t) resolved.push({ ...t, instanceId: item.id })
     }
     if (resolved.length === 0) { showError('No tracks found for playlist'); return }
     const { setQueue, setOriginalOrder, setCurrentTrackIndex, setPlaying } = usePlayerStore.getState()
