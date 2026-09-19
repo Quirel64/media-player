@@ -12,9 +12,10 @@ interface Props {
   onPlayPlaylist: (id: string, startIdx?: number) => void
   onDeletePlaylist: (id: string) => void
   onRemoveFromPlaylist?: (playlistId: string, itemIds: string[]) => Promise<void>
+  currentTrackId?: string | null
 }
 
-export function PlaylistsView({ playlists, onCreatePlaylist, onPlayPlaylist, onDeletePlaylist, onRemoveFromPlaylist }: Props) {
+export function PlaylistsView({ playlists, onCreatePlaylist, onPlayPlaylist, onDeletePlaylist, onRemoveFromPlaylist, currentTrackId }: Props) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [activeTracks, setActiveTracks] = useState<Track[]>([])
   const [showCreate, setShowCreate] = useState(false)
@@ -128,8 +129,9 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onPlayPlaylist, onD
               {activeTracks.map((t, idx) => {
                 const itemId = active.items[idx]?.id ?? t.id
                 const isSelected = selectedItemIds.has(itemId)
+                const isPlaying = !editMode && currentTrackId === t.id
                 return (
-                  <div key={`${itemId}-${idx}`} onClick={() => editMode ? toggleSelect(itemId) : onPlayPlaylist(active.id, idx)} className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 ${editMode && isSelected ? 'bg-primary/20' : 'hover:bg-slate-800/50 text-slate-300'}`}>
+                  <div key={`${itemId}-${idx}`} onClick={() => editMode ? toggleSelect(itemId) : onPlayPlaylist(active.id, idx)} className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 ${editMode && isSelected ? 'bg-primary/20' : isPlaying ? 'bg-primary/20 text-primary-light' : 'hover:bg-slate-800/50 text-slate-300'}`}>
                     <div className="flex w-8 items-center justify-center">
                       {editMode ? (
                         <div className={`h-5 w-5 rounded border-2 ${isSelected ? 'border-primary bg-primary' : 'border-slate-600'}`}>{isSelected && <svg viewBox="0 0 16 16" className="h-full w-full text-white" fill="currentColor"><path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z" /></svg>}</div>
@@ -142,6 +144,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onPlayPlaylist, onD
                       <p className="truncate text-sm">{t.name}</p>
                       <p className="truncate text-xs text-slate-500">{t.artist !== 'Unknown Artist' ? t.artist : t.folderName}</p>
                     </div>
+                    {isPlaying && <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />}
                   </div>
                 )
               })}

@@ -389,7 +389,7 @@ export function useAudioEngine() {
 
   const loadTrack = useCallback(async (idx: number) => {
     const { queue: qq } = usePlayerStore.getState()
-    const t0 = qq[idx]; if (t0 && prevTrackIdRef.current && prevTrackIdRef.current !== t0.id) frozenPosRef.current = 0
+    const t0 = qq[idx]; if (t0 && prevTrackIdRef.current && (prevTrackIdRef.current !== t0.id || nextGestureRef.current)) frozenPosRef.current = 0
     const gen = ++loadGenRef.current
     const { queue: q } = usePlayerStore.getState()
     const track = q[idx]; if (!track) return
@@ -414,7 +414,10 @@ export function useAudioEngine() {
     if (!url) { showError(`File not found: ${track.fileName}`); return }
     blobUrlRef.current = url
     const el = mediaRef.current; if (!el) return
-    setCurrentTime(0); setDuration(0); trackDurationRef.current = 0
+    // Only reset time/duration if new track is different — same track restart keeps duration for seek bar
+    const isSameTrackRestart = prevTrackIdRef.current === track.id && nextGestureRef.current
+    if (!isSameTrackRestart) { setCurrentTime(0); setDuration(0); trackDurationRef.current = 0 }
+    else { setCurrentTime(0); /* keep trackDurationRef for same track restart */ }
     prevTrackIdRef.current = track.id
 
     if (track.mediaType === 'video') attachVideo(url)

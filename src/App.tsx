@@ -206,18 +206,55 @@ export default function App() {
             playlists={playlists}
             onCreatePlaylist={async (name, tracks) => { await createPlaylist(name, tracks ?? []) }}
             onPlayPlaylist={playPlaylist}
-            onDeletePlaylist={deletePlaylist}
+            onDeletePlaylist={async (id) => {
+              // If currently playing this playlist, clear queue
+              const pl = playlists.find(p => p.id === id)
+              const wasPlaying = pl ? queue.length > 0 && queue.length === pl.items.length && queue.every(t => pl.items.some(it => it.trackId === t.id)) : false
+              await deletePlaylist(id)
+              if (wasPlaying) {
+                const { setQueue, setOriginalOrder, setCurrentTrackIndex } = usePlayerStore.getState()
+                setQueue([])
+                setOriginalOrder([])
+                setCurrentTrackIndex(0)
+              }
+            }}
             onRemoveFromPlaylist={async (pid, itemIds) => {
-              const { getPlaylist: gp, savePlaylist: sp } = await import('./lib/idb')
+              const { getPlaylist: gp, savePlaylist: sp, getAllTracks: gat } = await import('./lib/idb')
               const pl = await gp(pid)
               if (!pl) return
+              const beforeIds = new Set(pl.items.map(it => it.trackId))
+              const wasPlayingThisPlaylist = queue.length > 0 && queue.every(t => beforeIds.has(t.id)) && queue.length === pl.items.length
               const s = new Set(itemIds)
               pl.items = pl.items.filter(it => !s.has(it.id))
               pl.items.forEach((it, idx) => { it.order = idx })
               pl.updatedAt = Date.now()
               await sp(pl)
               await refreshPlaylists()
+              // If currently playing this playlist, update queue to new order and save
+              if (wasPlayingThisPlaylist) {
+                const allTracks = await gat()
+                const map = new Map(allTracks.map(t => [t.id, t] as const))
+                const resolved: Track[] = []
+                for (const it of pl.items) {
+                  const t = map.get(it.trackId)
+                  if (t) resolved.push(t)
+                }
+                const { setQueue, setOriginalOrder, setCurrentTrackIndex, currentTrackIndex: curIdx } = usePlayerStore.getState()
+                if (resolved.length === 0) {
+                  setQueue([])
+                  setOriginalOrder([])
+                  setCurrentTrackIndex(0)
+                } else {
+                  // Keep current index if still valid, else clamp
+                  const newIdx = Math.min(curIdx, resolved.length - 1)
+                  setQueue(resolved)
+                  setOriginalOrder(resolved)
+                  setCurrentTrackIndex(newIdx >= 0 ? newIdx : 0)
+                  void saveTracks(resolved)
+                }
+              }
             }}
+            currentTrackId={currentTrack?.id ?? null}
           />
         )
       case 'logs':
@@ -240,10 +277,10 @@ export default function App() {
     <Layout
       activeTab={activeTab}
       onTabChange={setActiveTab}
-      trackCount={queue.length}
+      trackCount={libraryTracks.length}
       sidebar={
         <Sidebar
-          trackCount={queue.length}
+          trackCount={libraryTracks.length}
           onPickFolder={handlePickFolder}
           onPickFiles={handlePickFiles}
           onClearAll={clearAll}
