@@ -31,6 +31,11 @@ export default function App() {
   const { pickFolder, pickFiles, loadSavedTracks, clearAll, removeTracks } = useFolderPicker()
   const { playlists, createPlaylist, addTracksToPlaylist, deletePlaylist, playPlaylist, refresh: refreshPlaylists } = usePlaylists()
   const { play, pause, remotePauseOrResume, togglePlay, nextTrack, prevTrack, seek, goToTrack, markNextGesture, videoContainerRef } = useAudioEngine()
+  const forcePlayPlaylist = useCallback(async (playlistId: string, startItemIndex = 0) => {
+    await playPlaylist(playlistId, startItemIndex)
+    // goToTrack forces loadTrack even for same index (fresh reload for dups)
+    goToTrack(startItemIndex)
+  }, [playPlaylist, goToTrack])
   const { setHandlers } = useMediaSession()
 
   useEffect(() => {
@@ -251,7 +256,7 @@ export default function App() {
           <PlaylistsView
             playlists={playlists}
             onCreatePlaylist={async (name, tracks) => { await createPlaylist(name, tracks ?? []) }}
-            onPlayPlaylist={playPlaylist}
+            onForcePlayPlaylist={forcePlayPlaylist}
             onDeletePlaylist={async (id) => {
               // If currently playing this playlist, clear queue
               const pl = playlists.find(p => p.id === id)

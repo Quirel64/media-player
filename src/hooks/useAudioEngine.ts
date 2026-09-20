@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from 'react'
+import { useRef, useEffect, useCallback, useState } from 'react'
 import { usePlayerStore } from '../stores/playerStore'
 import type { Track } from '../lib/types'
 import { getFileURLFromOPFS } from '../lib/opfs'
@@ -80,6 +80,7 @@ export function useAudioEngine() {
 
   const { currentTrackIndex, queue, volume, isMuted, setPlaying, setCurrentTime, setDuration, setCurrentTrackIndex } = usePlayerStore()
   const currentTrack = queue[currentTrackIndex]
+  const [loadForce, setLoadForce] = useState(0)
 
   const getSync = useCallback(() => {
     if (!videoSyncRef.current) {
@@ -376,7 +377,7 @@ export function useAudioEngine() {
     const p = getPrevTrackIndex(); if (p !== null) { nextGestureRef.current = true; setPlaying(usePlayerStore.getState().isPlaying || ownerRef.current==='track'); setCurrentTrackIndex(p) }
   }, [seek, setCurrentTrackIndex, setPlaying])
 
-  const goToTrack = useCallback((i: number) => { nextGestureRef.current = true; setPlaying(true); setCurrentTrackIndex(i) }, [setCurrentTrackIndex, setPlaying])
+  // goToTrack defined after loadTrack to allow same-index fresh reload
   const markNextGesture = useCallback(() => { nextGestureRef.current = true }, [])
 
   const handleTrackEnd = useCallback(() => {
@@ -442,6 +443,14 @@ export function useAudioEngine() {
       el.src = url; el.load()
     }
   }, [attachVideo, cleanupVideo, setCurrentTime, setDuration, stopRaf])
+
+  // goToTrack defined after loadTrack so same-index tap forces fresh reload via useEffect
+  const goToTrack = useCallback((i: number) => {
+    nextGestureRef.current = true
+    setPlaying(true)
+    setCurrentTrackIndex(i)
+    setLoadForce(v => v + 1)
+  }, [setCurrentTrackIndex, setPlaying, setLoadForce])
 
   // Permanent element once
   useEffect(() => {
@@ -598,7 +607,7 @@ export function useAudioEngine() {
     return () => { document.removeEventListener('visibilitychange', onVis); window.removeEventListener('pageshow', onPageShow as EventListener) }
   }, [startVideoFrames, stopRaf])
 
-  useEffect(() => { if (currentTrack && queue.length>0) void loadTrack(currentTrackIndex) }, [currentTrackIndex, (currentTrack as Track & { instanceId?: string })?.instanceId ?? currentTrack?.id])
+  useEffect(() => { if (currentTrack && queue.length>0) { void loadTrack(currentTrackIndex); setLoadForce(0) } }, [currentTrackIndex, loadForce])
   useEffect(() => { if (mediaRef.current) mediaRef.current.volume = isMuted ? 0 : volume }, [volume, isMuted])
   useEffect(() => () => { if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current) }, [])
 

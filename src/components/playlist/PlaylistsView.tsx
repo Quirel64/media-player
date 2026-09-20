@@ -9,13 +9,13 @@ import { showError } from '../ui/Toast'
 interface Props {
   playlists: Playlist[]
   onCreatePlaylist: (name: string, tracks?: Track[]) => Promise<void>
-  onPlayPlaylist: (id: string, startIdx?: number) => void
+  onForcePlayPlaylist: (id: string, startIdx?: number) => void
   onDeletePlaylist: (id: string) => void
   onRemoveFromPlaylist?: (playlistId: string, itemIds: string[]) => Promise<void>
   currentTrackId?: string | null
 }
 
-export function PlaylistsView({ playlists, onCreatePlaylist, onPlayPlaylist, onDeletePlaylist, onRemoveFromPlaylist, currentTrackId }: Props) {
+export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist, onDeletePlaylist, onRemoveFromPlaylist, currentTrackId }: Props) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [activeTracks, setActiveTracks] = useState<Track[]>([])
   const [showCreate, setShowCreate] = useState(false)
@@ -131,7 +131,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onPlayPlaylist, onD
               <p className="text-xs text-slate-400">{active.items.length} tracks {active.items.length !== activeTracks.length ? `(${activeTracks.length} available)` : ''}</p>
             </div>
             <button onClick={() => setEditMode(v => !v)} className={`rounded-lg px-3 py-1.5 text-sm font-medium ${editMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}>{editMode ? 'Done' : 'Edit'}</button>
-            <button onClick={() => onPlayPlaylist(active.id, 0)} className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white">Play</button>
+            <button onClick={() => onForcePlayPlaylist(active.id, 0)} className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white">Play</button>
           </div>
           <div className="mt-3 flex items-center justify-between">
             <div className="flex items-center gap-1 rounded-full bg-slate-800 p-1">
@@ -163,7 +163,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onPlayPlaylist, onD
                 const isSelected = selectedItemIds.has(itemId)
                 const isPlaying = !editMode && currentTrackId === t.id
                 return (
-                  <div key={`${itemId}-${idx}`} onClick={() => editMode ? toggleSelect(itemId) : onPlayPlaylist(active.id, idx)} className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 ${editMode && isSelected ? 'bg-primary/20' : isPlaying ? 'bg-primary/20 text-primary-light' : 'hover:bg-slate-800/50 text-slate-300'}`}>
+                  <div key={`${itemId}-${idx}`} onClick={() => editMode ? toggleSelect(itemId) : onForcePlayPlaylist(active.id, idx)} className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 ${editMode && isSelected ? 'bg-primary/20' : isPlaying ? 'bg-primary/20 text-primary-light' : 'hover:bg-slate-800/50 text-slate-300'}`}>
                     <div className="flex w-8 items-center justify-center">
                       {editMode ? (
                         <div className={`h-5 w-5 rounded border-2 ${isSelected ? 'border-primary bg-primary' : 'border-slate-600'}`}>{isSelected && <svg viewBox="0 0 16 16" className="h-full w-full text-white" fill="currentColor"><path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z" /></svg>}</div>
@@ -196,7 +196,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onPlayPlaylist, onD
               {activeTracks.map((t, idx) => {
                 const thumb = thumbs[t.fileName]
                 return (
-                  <button key={`${active.items[idx]?.id ?? t.id}-${idx}`} onClick={() => onPlayPlaylist(active.id, idx)} className="flex flex-col overflow-hidden rounded-lg bg-slate-900 text-left">
+                  <button key={`${active.items[idx]?.id ?? t.id}-${idx}`} onClick={() => onForcePlayPlaylist(active.id, idx)} className="flex flex-col overflow-hidden rounded-lg bg-slate-900 text-left">
                     <div className="flex h-28 items-center justify-center overflow-hidden bg-slate-800">
                       {thumb ? <img src={thumb} alt="" className="h-full w-full object-cover" loading="lazy" /> : <span className="text-2xl">{t.mediaType === 'video' ? '🎬' : '🎵'}</span>}
                     </div>
