@@ -40,9 +40,49 @@ export default function App() {
       if (savedMode === 'skip10' || savedMode === 'prevnext') {
         usePlayerStore.getState().setLockScreenMode(savedMode)
       }
+      // Cleanup dud tracks from previous instanceId bug (same fileName dupes where instanceId !== id)
+      try {
+        const all = await getAllTracks()
+        const seenFileName = new Map<string, Track>()
+        const toDelete: string[] = []
+        for (const t of all) {
+          const existing = seenFileName.get(t.fileName)
+          if (!existing) {
+            seenFileName.set(t.fileName, t)
+          } else {
+            // Duplicate fileName — keep the one without instanceId or with instanceId === id (original), delete dud
+            const isDud = t.instanceId && t.instanceId !== t.id
+            const existingIsDud = existing.instanceId && existing.instanceId !== existing.id
+            if (isDud && !existingIsDud) {
+              toDelete.push(t.id)
+            } else if (!isDud && existingIsDud) {
+              toDelete.push(existing.id)
+              seenFileName.set(t.fileName, t)
+            } else if (isDud && existingIsDud) {
+              toDelete.push(t.id)
+            }
+          }
+        }
+        if (toDelete.length > 0) {
+          const { deleteTrack } = await import('./lib/idb')
+          for (const id of toDelete) await deleteTrack(id)
+          // Also cleanup playlists referencing deleted trackIds
+          const allPls = await getAllPlaylists()
+          for (const pl of allPls) {
+            const before = pl.items.length
+            pl.items = pl.items.filter(it => !toDelete.includes(it.trackId))
+            if (pl.items.length !== before) {
+              pl.items.forEach((it, idx) => { it.order = idx })
+              await savePlaylist(pl)
+            }
+          }
+        }
+      } catch {}
       const tracks = await loadSavedTracks()
-      setLibraryTracks(tracks)
-      if (tracks.length > 0) {
+      // Ensure libraryTracks are clean (no instanceId dupes)
+      const clean = tracks.filter(t => !t.instanceId || t.instanceId === t.id)
+      setLibraryTracks(clean)
+      if (clean.length > 0) {
         setActiveTab('library')
       } else {
         setActiveTab('add')
@@ -52,13 +92,13 @@ export default function App() {
     init()
   }, [])
 
-  // Keep libraryTracks in sync when queue is library (not playlist)
+  // Keep libraryTracks in sync when queue is library (not playlist) — filter duds
   useEffect(() => {
     const sync = async () => {
       const all = await getAllTracks()
-      setLibraryTracks(all)
+      const clean = all.filter(t => !t.instanceId || t.instanceId === t.id)
+      setLibraryTracks(clean)
     }
-    // Sync after any queue change that might be library
     void sync()
   }, [queue.length])
 
@@ -79,12 +119,15 @@ export default function App() {
     })
   }, [play, pause, remotePauseOrResume, prevTrack, nextTrack, seek])
 
-  // Flush queue to IDB on hide/pagehide — best-effort durability for iOS force-close
+  // Flush libraryTracks to IDB on hide/pagehide — best-effort durability for iOS force-close
+  // Do NOT flush queue when it contains playlist instanceId dupes (would create dud tracks with same fileName)
   useEffect(() => {
     const flush = () => {
-      const { queue: q } = usePlayerStore.getState()
-      if (q.length === 0) return
-      void saveTracks(q)
+      if (libraryTracks.length === 0) return
+      // Only save tracks without instanceId or where instanceId === id (library tracks)
+      const toSave = libraryTracks.filter(t => !t.instanceId || t.instanceId === t.id)
+      if (toSave.length === 0) return
+      void saveTracks(toSave)
     }
     const onVisibility = () => { if (document.visibilityState === 'hidden') flush() }
     document.addEventListener('visibilitychange', onVisibility)
@@ -93,7 +136,7 @@ export default function App() {
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('pagehide', flush)
     }
-  }, [])
+  }, [libraryTracks])
 
   const handleSelectTrack = useCallback(
     (index: number) => {
@@ -231,14 +274,14 @@ export default function App() {
               pl.updatedAt = Date.now()
               await sp(pl)
               await refreshPlaylists()
-              // If currently playing this playlist, update queue to new order and save
+              // If currently playing this playlist, update queue to new order (instanceId per item)
               if (wasPlayingThisPlaylist) {
                 const allTracks = await gat()
                 const map = new Map(allTracks.map(t => [t.id, t] as const))
                 const resolved: Track[] = []
                 for (const it of pl.items) {
                   const t = map.get(it.trackId)
-                  if (t) resolved.push(t)
+                  if (t) resolved.push({ ...t, instanceId: it.id })
                 }
                 const { setQueue, setOriginalOrder, setCurrentTrackIndex, currentTrackIndex: curIdx } = usePlayerStore.getState()
                 if (resolved.length === 0) {
@@ -246,12 +289,10 @@ export default function App() {
                   setOriginalOrder([])
                   setCurrentTrackIndex(0)
                 } else {
-                  // Keep current index if still valid, else clamp
                   const newIdx = Math.min(curIdx, resolved.length - 1)
                   setQueue(resolved)
                   setOriginalOrder(resolved)
                   setCurrentTrackIndex(newIdx >= 0 ? newIdx : 0)
-                  void saveTracks(resolved)
                 }
               }
             }}

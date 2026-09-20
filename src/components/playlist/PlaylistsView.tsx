@@ -138,7 +138,12 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onPlayPlaylist, onD
               <button onClick={() => setViewMode('tracks')} className={`rounded-full px-3 py-1 text-xs font-medium ${viewMode === 'tracks' ? 'bg-primary text-white' : 'text-slate-400'}`}>Tracks</button>
               <button onClick={() => setViewMode('queue')} className={`rounded-full px-3 py-1 text-xs font-medium ${viewMode === 'queue' ? 'bg-primary text-white' : 'text-slate-400'}`}>Queue</button>
             </div>
-            {editMode && <span className="text-xs text-slate-400">{selectedItemIds.size} selected</span>}
+            <div className="flex items-center gap-2">
+              {editMode && viewMode === 'queue' && (
+                <button onClick={() => setSelectedItemIds(s => s.size === active!.items.length ? new Set() : new Set(active!.items.map(it => it.id)))} className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300">{selectedItemIds.size === active?.items.length ? 'Deselect All' : 'Select All'}</button>
+              )}
+              {editMode && <span className="text-xs text-slate-400">{selectedItemIds.size} selected</span>}
+            </div>
           </div>
         </div>
 
