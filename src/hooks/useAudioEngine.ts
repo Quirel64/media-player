@@ -112,7 +112,8 @@ export function useAudioEngine() {
     // Universal reset: always reload even if same src so same-track tap restarts fresh
     v.src = url; v.load()
     try { v.currentTime = 0 } catch {}
-    v.pause()
+    // Force first frame decode so video shows immediately when track starts
+    v.play().then(() => { try { v.pause(); v.currentTime = 0 } catch {} }).catch(() => {})
   }, [])
   const detachVideo = useCallback(() => { const v=videoRef.current; if(!v) return; v.pause(); v.removeAttribute('src'); v.load() }, [])
   const cleanupVideo = useCallback(() => { if (videoRef.current) { const v=videoRef.current; v.pause(); v.removeAttribute('src'); v.load(); if(v.parentNode) v.parentNode.removeChild(v); videoRef.current=null } }, [])
