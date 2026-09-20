@@ -30,7 +30,7 @@ export default function App() {
 
   const { pickFolder, pickFiles, loadSavedTracks, clearAll, removeTracks } = useFolderPicker()
   const { playlists, createPlaylist, addTracksToPlaylist, deletePlaylist, playPlaylist, refresh: refreshPlaylists } = usePlaylists()
-  const { play, pause, remotePauseOrResume, togglePlay, nextTrack, prevTrack, seek, goToTrack, videoContainerRef } = useAudioEngine()
+  const { play, pause, remotePauseOrResume, togglePlay, nextTrack, prevTrack, seek, goToTrack, markNextGesture, videoContainerRef } = useAudioEngine()
   const { setHandlers } = useMediaSession()
 
   useEffect(() => {
@@ -140,6 +140,8 @@ export default function App() {
 
   const handleSelectTrack = useCallback(
     (index: number) => {
+      // Universal reset: every tap restarts fresh, even same fileName/instance
+      markNextGesture()
       // If queue is not libraryTracks (e.g., playlist), switch queue to library with instanceIds
       const isLibraryQueue = queue.length === libraryTracks.length && queue.every((t, i) => (t.instanceId ?? t.id) === (libraryTracks[i]?.instanceId ?? libraryTracks[i]?.id))
       if (!isLibraryQueue && libraryTracks.length > 0) {
@@ -153,7 +155,7 @@ export default function App() {
         goToTrack(index)
       }
     },
-    [goToTrack, queue, libraryTracks]
+    [goToTrack, markNextGesture, queue, libraryTracks]
   )
 
   const handlePickFolder = useCallback(async () => {

@@ -102,14 +102,13 @@ export function useAudioEngine() {
       v = document.createElement('video')
       v.muted = true; (v as unknown as { defaultMuted: boolean }).defaultMuted = true
       v.playsInline = true; v.setAttribute('webkit-playsinline','true'); v.setAttribute('x-webkit-airplay','deny'); v.preload='auto'; v.controls=false
-      // Hint iOS not to treat as remote media session
       try { (v as unknown as { disableRemotePlayback: boolean }).disableRemotePlayback = true } catch {}
       v.style.width='100%'; v.style.height='100%'; v.style.objectFit='contain'; v.style.background='#000'
       videoRef.current = v
     }
     const c = videoContainerRef.current
     if (c && v.parentNode !== c) { c.innerHTML=''; c.appendChild(v) }
-    // Every tap is fresh — always reload even for same url (fixes dupes/video stuck on same fileName)
+    // Universal reset: always reload even if same src so same-track tap restarts fresh
     v.src = url; v.load()
     try { v.currentTime = 0 } catch {}
     v.pause()
@@ -378,6 +377,7 @@ export function useAudioEngine() {
   }, [seek, setCurrentTrackIndex, setPlaying])
 
   const goToTrack = useCallback((i: number) => { nextGestureRef.current = true; setPlaying(true); setCurrentTrackIndex(i) }, [setCurrentTrackIndex, setPlaying])
+  const markNextGesture = useCallback(() => { nextGestureRef.current = true }, [])
 
   const handleTrackEnd = useCallback(() => {
     const { getNextTrackIndex, repeatMode } = usePlayerStore.getState()
@@ -598,9 +598,9 @@ export function useAudioEngine() {
     return () => { document.removeEventListener('visibilitychange', onVis); window.removeEventListener('pageshow', onPageShow as EventListener) }
   }, [startVideoFrames, stopRaf])
 
-  useEffect(() => { if (currentTrack && queue.length>0) void loadTrack(currentTrackIndex) }, [currentTrackIndex, currentTrack?.id])
+  useEffect(() => { if (currentTrack && queue.length>0) void loadTrack(currentTrackIndex) }, [currentTrackIndex, (currentTrack as Track & { instanceId?: string })?.instanceId ?? currentTrack?.id])
   useEffect(() => { if (mediaRef.current) mediaRef.current.volume = isMuted ? 0 : volume }, [volume, isMuted])
   useEffect(() => () => { if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current) }, [])
 
-  return { play, pause, remotePauseOrResume, togglePlay, seek, seekRelative: (d:number)=>seek(frozenPosRef.current+d), nextTrack, prevTrack, goToTrack, videoContainerRef }
+  return { play, pause, remotePauseOrResume, togglePlay, seek, seekRelative: (d:number)=>seek(frozenPosRef.current+d), nextTrack, prevTrack, goToTrack, markNextGesture, videoContainerRef }
 }
