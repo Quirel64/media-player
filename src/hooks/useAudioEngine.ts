@@ -169,6 +169,7 @@ export function useAudioEngine() {
     }
     media.autoplay = true; setRate(media, rate)
     media.src = url; media.load()
+    if (isVideoTrack && v) { v.src = url; v.load() }
     if (kind === 'track' && Math.abs((media.currentTime || 0) - position) > 0.15) try { media.currentTime = position } catch {}
     // Sync lock UI before await to keep PWA gesture — must match final state (fix iOS 26.2 inverted icon)
     // For iOS 26.2, also publish position BEFORE state so bar and icon stay in sync
