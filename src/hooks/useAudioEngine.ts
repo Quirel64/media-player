@@ -109,8 +109,9 @@ export function useAudioEngine() {
     }
     const c = videoContainerRef.current
     if (c && v.parentNode !== c) { c.innerHTML=''; c.appendChild(v) }
-    if (v.src !== url) { v.src = url; v.load() }
-    // Keep paused until dual-play; rAF fallback was seek-only, dual-play will call v.play() muted
+    // Every tap is fresh — always reload even for same url (fixes dupes/video stuck on same fileName)
+    v.src = url; v.load()
+    try { v.currentTime = 0 } catch {}
     v.pause()
   }, [])
   const detachVideo = useCallback(() => { const v=videoRef.current; if(!v) return; v.pause(); v.removeAttribute('src'); v.load() }, [])
@@ -389,8 +390,9 @@ export function useAudioEngine() {
   }, [setCurrentTrackIndex, setPlaying, setCurrentTime])
 
   const loadTrack = useCallback(async (idx: number) => {
-    const { queue: qq } = usePlayerStore.getState()
-    const t0 = qq[idx]; const t0Instance = (t0 as Track & { instanceId?: string })?.instanceId ?? t0?.id; const prevInstance = prevTrackIdRef.current; if (t0 && prevInstance && (prevInstance !== t0Instance || nextGestureRef.current)) frozenPosRef.current = 0
+    // Every tap is a fresh start — even same fileName/instanceId dupes (simplifies playlist dupes)
+    frozenPosRef.current = 0
+    setCurrentTime(0)
     const gen = ++loadGenRef.current
     const { queue: q } = usePlayerStore.getState()
     const track = q[idx]; if (!track) return
@@ -415,11 +417,11 @@ export function useAudioEngine() {
     if (!url) { showError(`File not found: ${track.fileName}`); return }
     blobUrlRef.current = url
     const el = mediaRef.current; if (!el) return
-    // Only reset time/duration if new instance is different — same instance restart keeps duration for seek bar
     const instanceId = (track as Track & { instanceId?: string }).instanceId ?? track.id
-    const isSameTrackRestart = prevTrackIdRef.current === instanceId && nextGestureRef.current
-    if (!isSameTrackRestart) { setCurrentTime(0); setDuration(0); trackDurationRef.current = 0 }
-    else { setCurrentTime(0); /* keep trackDurationRef for same instance restart */ }
+    // Every tap is fresh — always reset time/duration even for same fileName dupes
+    setCurrentTime(0); setDuration(0); trackDurationRef.current = 0
+    if (prevId && prevId !== instanceId) addLog(`track change ${prevId.slice(0,4)} -> ${instanceId.slice(0,4)}: fresh load`)
+    else if (prevId) addLog(`track restart ${instanceId.slice(0,4)}: fresh load`)
     prevTrackIdRef.current = instanceId
 
     if (track.mediaType === 'video') attachVideo(url)

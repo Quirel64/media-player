@@ -21,6 +21,7 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
   const [search, setSearch] = useState('')
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
   const [queueSelectMode, setQueueSelectMode] = useState(false)
+  const [queueSelectAllTrigger, setQueueSelectAllTrigger] = useState(0)
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
 
   const grouped = useMemo(() => groupTracks(tracks, { minGroupSize: 2 }), [tracks])
@@ -111,6 +112,9 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
             <p className="text-xs text-slate-400">{tracks.length} tracks • {grouped.groups.length} groups • {grouped.loose.length} loose</p>
           </div>
           <div className="flex items-center gap-2">
+            {mode === 'queue' && queueSelectMode && (
+              <button onClick={() => setQueueSelectAllTrigger(v => v + 1)} className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300">Select All</button>
+            )}
             {mode === 'queue' && (
               <button onClick={() => setQueueSelectMode(v => !v)} className={`rounded-lg px-3 py-1.5 text-xs font-medium ${queueSelectMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}>{queueSelectMode ? 'Done' : 'Select'}</button>
             )}
@@ -137,7 +141,7 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
 
       {mode === 'queue' ? (
         <div className="flex-1 overflow-hidden">
-          <TrackList tracks={tracks} currentTrackIndex={currentTrackIndex} onSelectTrack={onSelectTrack} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} hideHeader externalSelectMode={queueSelectMode} onExternalSelectModeChange={setQueueSelectMode} />
+          <TrackList tracks={tracks} currentTrackIndex={currentTrackIndex} onSelectTrack={onSelectTrack} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} hideHeader externalSelectMode={queueSelectMode} onExternalSelectModeChange={setQueueSelectMode} selectAllTrigger={queueSelectAllTrigger} />
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-3">

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { Track } from '../../lib/types'
 
@@ -12,6 +12,7 @@ interface TrackListProps {
   hideHeader?: boolean
   externalSelectMode?: boolean
   onExternalSelectModeChange?: (v: boolean) => void
+  selectAllTrigger?: number
 }
 
 function formatDuration(seconds: number): string {
@@ -26,7 +27,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
+export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
   const [internalSelectMode, setInternalSelectMode] = useState(false)
   const selectMode = externalSelectMode !== undefined ? externalSelectMode : internalSelectMode
   const setSelectMode = (v: boolean | ((prev: boolean) => boolean)) => {
@@ -35,6 +36,11 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
     else setInternalSelectMode(next)
   }
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    if (selectAllTrigger && selectAllTrigger > 0) {
+      setSelectedIds(new Set(tracks.map(t => t.id)))
+    }
+  }, [selectAllTrigger, tracks])
 
   const toggleSelect = (trackId: string) => {
     setSelectedIds((prev) => {
