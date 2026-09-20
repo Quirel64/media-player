@@ -232,15 +232,21 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
 
       {/* Selection action bar */}
       <AnimatePresence>
-        {selectMode && selectedIds.size > 0 && (
+        {selectMode && (
           <motion.div
             initial={{ y: 60 }}
             animate={{ y: 0 }}
             exit={{ y: 60 }}
             className="flex-shrink-0 border-t border-slate-800 bg-slate-900 px-4 py-3"
           >
-            <div className="flex items-center justify-center gap-3">
-              {onAddToPlaylist && (
+            <div className="flex items-center justify-center gap-2">
+              <button
+                onClick={selectedIds.size === tracks.length ? deselectAll : selectAll}
+                className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-300"
+              >
+                {selectedIds.size === tracks.length ? 'Deselect All' : 'Select All'}
+              </button>
+              {onAddToPlaylist && selectedIds.size > 0 && (
                 <button
                   onClick={() => {
                     const selected = tracks.filter((t) => selectedIds.has(t.id))
