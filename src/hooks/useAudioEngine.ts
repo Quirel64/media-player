@@ -426,6 +426,11 @@ export function useAudioEngine() {
     const instanceId = (track as Track & { instanceId?: string }).instanceId ?? track.id
     // Every tap is fresh — always reset time/duration even for same fileName dupes
     setCurrentTime(0); setDuration(0); trackDurationRef.current = 0
+    // If media element already has the same src, onLoadedMetadata won't re-fire, so read duration directly
+    if (el && Number.isFinite(el.duration) && el.duration > 0) {
+      trackDurationRef.current = el.duration
+      setDuration(el.duration)
+    }
     if (prevId && prevId !== instanceId) addLog(`track change ${prevId.slice(0,4)} -> ${instanceId.slice(0,4)}: fresh load`)
     else if (prevId) addLog(`track restart ${instanceId.slice(0,4)}: fresh load`)
     prevTrackIdRef.current = instanceId
