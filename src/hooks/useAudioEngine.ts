@@ -72,6 +72,7 @@ export function useAudioEngine() {
   const commandRunnerRef = useRef<((c: 'play' | 'pause') => void) | null>(null)
   const loadGenRef = useRef(0)
   const prevTrackIdRef = useRef<string | null>(null)
+  const prevFileNameRef = useRef<string | null>(null)
   const nextGestureRef = useRef(false)
 
   const sourceKindRef = useRef<SourceKind>('track')
@@ -302,8 +303,8 @@ export function useAudioEngine() {
       } else {
         // Need src swap — ensure blob URL for OPFS track
         let url = blobUrlRef.current
-        // If blob was revoked or track changed, re-derive
-        if (!url || prevTrackIdRef.current !== track.id) {
+        // If blob was revoked or fileName changed, re-derive
+        if (!url || prevFileNameRef.current !== track.fileName) {
           if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
           const fresh = await getFileURLFromOPFS(track.fileName)
           if (!fresh) { showError(`File not found: ${track.fileName}`); throw new Error('no url') }
@@ -428,6 +429,7 @@ export function useAudioEngine() {
     if (prevId && prevId !== instanceId) addLog(`track change ${prevId.slice(0,4)} -> ${instanceId.slice(0,4)}: fresh load`)
     else if (prevId) addLog(`track restart ${instanceId.slice(0,4)}: fresh load`)
     prevTrackIdRef.current = instanceId
+    prevFileNameRef.current = track.fileName
 
     if (track.mediaType === 'video') attachVideo(url)
     if ('mediaSession' in navigator) {
