@@ -1,10 +1,8 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import type { Track } from '../../lib/types'
 import { groupTracks } from '../../lib/group'
 import { TrackList } from '../playlist/TrackList'
-import { getFileFromOPFS } from '../../lib/opfs'
-import { getTrackThumbnail } from '../../lib/thumbnail'
 
 interface Props {
   tracks: Track[]
@@ -20,34 +18,10 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
   const [mode, setMode] = useState<'groups' | 'queue'>('groups')
   const [search, setSearch] = useState('')
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
-  const [queueSelectMode, setQueueSelectMode] = useState(false)
+const [queueSelectMode, setQueueSelectMode] = useState(false)
   const [queueSelectAllTrigger, setQueueSelectAllTrigger] = useState(0)
-  const [thumbs, setThumbs] = useState<Record<string, string>>({})
 
   const grouped = useMemo(() => groupTracks(tracks, { minGroupSize: 2 }), [tracks])
-
-  // Lazy thumbnails: only first 4 per group + visible loose (limit 24 total) to avoid OPFS churn on iOS
-  useEffect(() => {
-    let cancelled = false
-    const toLoad: Track[] = []
-    for (const g of grouped.groups) for (let i = 0; i < Math.min(4, g.tracks.length); i++) toLoad.push(g.tracks[i])
-    for (let i = 0; i < Math.min(100, grouped.loose.length); i++) toLoad.push(grouped.loose[i])
-    const uniq = [...new Map(toLoad.map((t) => [t.fileName, t] as const)).values()]
-    const missing = uniq.filter((t) => !thumbs[t.fileName])
-    if (missing.length === 0) return
-    ;(async () => {
-      for (const t of missing) {
-        if (cancelled) break
-        try {
-          const file = await getFileFromOPFS(t.fileName)
-          if (!file || cancelled) continue
-          const url = await getTrackThumbnail(file, t.mediaType)
-          if (url && !cancelled) setThumbs((prev) => (prev[t.fileName] ? prev : { ...prev, [t.fileName]: url }))
-        } catch { /* ignore */ }
-      }
-    })()
-    return () => { cancelled = true }
-  }, [grouped.groups, grouped.loose])
   const query = search.trim().toLowerCase()
 
   const filteredGroups = useMemo(() => {
@@ -160,11 +134,10 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
                     {[0, 1, 2, 3].map((i) => {
                       const t = g.tracks[i]
                       if (!t) return <div key={i} className="bg-slate-700" />
-                      if (i === 3 && g.tracks.length > 4) return <div key={i} className="flex items-center justify-center bg-slate-700 text-sm font-semibold text-slate-300">+{g.tracks.length - 3}</div>
-                      const thumb = t ? thumbs[t.fileName] : undefined
+if (i === 3 && g.tracks.length > 4) return <div key={i} className="flex items-center justify-center bg-slate-700 text-sm font-semibold text-slate-300">+{g.tracks.length - 3}</div>
                       return (
                         <div key={i} className="flex items-center justify-center overflow-hidden bg-slate-700 text-[10px] text-slate-300">
-                          {thumb ? <img src={thumb} alt="" className="h-full w-full object-cover" loading="lazy" /> : t.mediaType === 'video' ? '🎬' : '🎵'}
+                          {t.mediaType === 'video' ? '🎬' : '🎵'}
                         </div>
                       )
                     })}
@@ -175,9 +148,8 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
                   </div>
                 </motion.button>
               ))}
-              {filteredLoose.map((t) => {
-                const thumb = thumbs[t.fileName]
-                return (
+{filteredLoose.map((t) => {
+                 return (
                   <motion.button
                     key={t.id}
                     whileTap={{ scale: 0.97 }}
@@ -185,7 +157,7 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
                     className="flex flex-col overflow-hidden rounded-lg bg-slate-900 text-left"
                   >
                     <div className="flex h-28 items-center justify-center overflow-hidden bg-slate-800">
-                      {thumb ? <img src={thumb} alt="" className="h-full w-full object-cover" loading="lazy" /> : <span className="text-2xl">{t.mediaType === 'video' ? '🎬' : '🎵'}</span>}
+                      <span className="text-2xl">{t.mediaType === 'video' ? '🎬' : '🎵'}</span>
                     </div>
                     <div className="px-3 py-2.5">
                       <p className="truncate pr-1 text-sm font-medium text-white">{t.name}</p>
