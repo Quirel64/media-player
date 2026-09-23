@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import type { Track } from '../lib/types'
-import { saveTracks, getAllTracks, savePlaylist, clearAllTracks, deleteTrack, getPlaylist, requestPersistentStorage } from '../lib/idb'
+import { saveTracks, getAllTracks, savePlaylist, clearAllTracks, deleteTrack, getPlaylist, clearFileBlobs } from '../lib/idb'
 import { saveFileToOPFS, clearOPFS, deleteFileFromOPFS } from '../lib/opfs'
 import { generateTrackId } from '../lib/shuffle'
 import { usePlayerStore } from '../stores/playerStore'
@@ -47,9 +47,6 @@ async function processFiles(
   const mediaFiles = files.filter(isMediaFile)
 
   if (mediaFiles.length === 0) return null
-
-  // Request persistent storage while still in user-gesture context (pickFolder/pickFiles click)
-  try { await requestPersistentStorage() } catch { /* ignore */ }
 
   const folderName =
     mediaFiles[0].webkitRelativePath?.split('/')[0] || 'Selected Files'
@@ -198,8 +195,6 @@ export function useFolderPicker() {
         const files = Array.from(input.files || [])
         cleanup()
         if (files.length === 0) { resolve(null); return }
-        // Fire persist request synchronously in the change gesture before any await
-        try { void requestPersistentStorage() } catch { /* ignore */ }
         const existingQueue = usePlayerStore.getState().queue
         const result = await processFiles(files, existingQueue, setQueue, setOriginalOrder, setCurrentTrackIndex)
         resolve(result)
@@ -227,7 +222,6 @@ export function useFolderPicker() {
         const files = Array.from(input.files || [])
         cleanup()
         if (files.length === 0) { resolve(null); return }
-        try { void requestPersistentStorage() } catch { /* ignore */ }
         const existingQueue = usePlayerStore.getState().queue
         const result = await processFiles(files, existingQueue, setQueue, setOriginalOrder, setCurrentTrackIndex)
         resolve(result)
@@ -271,6 +265,7 @@ export function useFolderPicker() {
   const clearAll = useCallback(async () => {
     await clearAllTracks()
     await clearOPFS()
+    await clearFileBlobs()
     setQueue([])
     setOriginalOrder([])
     setCurrentTrackIndex(0)

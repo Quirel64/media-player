@@ -9,7 +9,7 @@ import { useAudioEngine } from './hooks/useAudioEngine'
 import { useMediaSession } from './hooks/useMediaSession'
 import { useFolderPicker } from './hooks/useFolderPicker'
 import { usePlayerStore } from './stores/playerStore'
-import { requestPersistentStorage, getSetting, saveSetting, saveTracks, getAllTracks, getAllPlaylists, savePlaylist } from './lib/idb'
+import { getSetting, saveSetting, saveTracks, getAllTracks, getAllPlaylists, savePlaylist } from './lib/idb'
 import { ToastContainer } from './components/ui/Toast'
 import { EventLog } from './components/ui/EventLog'
 import { PlaylistsView } from './components/playlist/PlaylistsView'
@@ -40,7 +40,6 @@ export default function App() {
 
   useEffect(() => {
     const init = async () => {
-      await requestPersistentStorage()
       const savedMode = await getSetting('lockScreenMode') as LockScreenMode | undefined
       if (savedMode === 'skip10' || savedMode === 'prevnext') {
         usePlayerStore.getState().setLockScreenMode(savedMode)

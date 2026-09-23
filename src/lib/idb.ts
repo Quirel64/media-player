@@ -78,13 +78,11 @@ async function getDB(): Promise<IDBPDatabase<MediaDB>> {
 }
 
 export async function saveTrack(track: Track): Promise<void> {
-  try { await requestPersistentStorage() } catch { /* ignore */ }
   const db = await getDB()
   await db.put(TRACKS_STORE, track)
 }
 
 export async function saveTracks(tracks: Track[]): Promise<void> {
-  try { await requestPersistentStorage() } catch { /* ignore */ }
   const db = await getDB()
   const tx = db.transaction(TRACKS_STORE, 'readwrite')
   // Queue all puts without per-put await to keep transaction alive and flush in one commit
@@ -145,15 +143,13 @@ function normalizePlaylist(pl: Playlist): Playlist {
 }
 
 export async function savePlaylist(playlist: Playlist): Promise<void> {
-  try { await requestPersistentStorage() } catch { /* ignore */ }
-  // Keep legacy tracks for backwards compat (library still uses tracks until reordering feature)
+  const db = await getDB()
   // For new playlists, tracks is kept in sync from items for easy debugging
   if (playlist.items && playlist.items.length > 0) {
     // Optionally sync tracks from items if we have all tracks in DB — caller should handle
   } else if (!playlist.items) {
     playlist.items = []
   }
-  const db = await getDB()
   await db.put(PLAYLISTS_STORE, playlist)
 }
 
