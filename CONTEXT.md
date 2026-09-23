@@ -160,10 +160,26 @@ Lock `play` and `pause` both route via `remotePauseOrResume` `src/hooks/useMedia
 **Root 2 — lock `visible` inversion**: `visible`-created `anchor` (in-app pause) publishes `paused + HOLD_RATE` correctly but iOS 26.2 PWA shows `||` instead of `>` until ~1s later flips; `hidden`-created `anchor` (pause via lock while hidden) shows `>` correctly. `HOLD_RATE 0` makes bar run to end and kills session after 30s (`14:56:20` `truly paused` → `speelt niets af`), `1e-7` keeps it but still `||` when visible.
 **Fix**: `activateSource` + `play` now `publishPosition` before `playbackState` + `post` + `re` + `500ms` publishes; `onPlaying`/`onTimeUpdate`/`visibility` enforce `paused/HOLD_RATE` vs `playing/1` + `v.pause()`/`v.currentTime=frozenPos` while anchor, `v.currentTime=audio.currentTime` + `v.play()` while track; app-switcher `visible` does `drift>0.15` seek; `useMediaSession.ts:42` both center buttons → `remotePauseOrResume` so 1 press toggles even when inverted. `806f395` deferred `pendingAnchor` tested but kept audio playing audibly after in-app pause, so reverted to immediate swap. Parked control center/Windows `||` always. Builds `390-392kB`.
 
+
+8. **Duration carryover bug — FIXED 2026-09-15**: double-tapping a track or next-track caused the bar duration to carry over from the old track. Root: `onTimeUpdate` overwrote `frozenPosRef.current` back to the stale position between `loadTrack` resetting it and `play()` reading it. Fix: `loadTrack` seeks `mediaRef.current.currentTime = 0` so `onTimeUpdate` updates `frozenPosRef` to 0. Also reads `media.duration` directly if `media.src` is unchanged so `onLoadedMetadata` is not needed.
+9. **Playlist dupe video black screen — FIXED 2026-09-15**: playlist duplicate tracks (same `fileName`, different `instanceId`) caused `play()` to revoke the cached blob URL and re-derive it. The video element `src` pointed to the revoked URL → black screen. Fix: `activateSource` now does `v.src = url; v.load()` for video tracks. Also changed URL revocation check from `prevTrackIdRef.current !== track.id` to `prevFileNameRef.current !== track.fileName` so same-file dupes do not trigger unnecessary revocation.
+10. **Seek bar freeze — FIXED 2026-09-15**: double-tapping the same track left `trackDurationRef.current = 0` because `onLoadedMetadata` did not re-fire for the same `media.src`. Fix: `loadTrack` reads `mediaRef.current.duration` directly and sets `trackDurationRef.current`/`setDuration` if valid.
+
+## Playlist feature — COMPLETE 2026-09-15
+All core functionality verified on iOS 26.2 PWA + Windows:
+- `PlaylistItem {id, trackId, order, addedAt}` dupes allowed, `Playlist {items}` ordered refs
+- `usePlaylists.ts`: `createPlaylist`, `addTracksToPlaylist`, `deletePlaylist`, `playPlaylist`, `removeTracksFromPlaylist`
+- `PlaylistsView.tsx`: Tracks/Queue/Edit modes, 2×2 thumbnails, playing indicator, Select All in header
+- `AddToPlaylistSheet.tsx`: select tracks → choose/create playlist
+- Library Select → Add to Playlist (clears selection + jumps to Playlists tab)
+- Every track tap forces fresh load (`frozenPos=0`, `v.load()`, `instanceId`-based `loadTrack` re-trigger)
+- Lock screen: `skip10` mode, `remotePauseOrResume` resilient toggle, `HOLD_RATE=1e-7` session keeping
+- Build ~414kB. Known benign: `video resume failed` in logs (benign `onPlaying` `v.play()` rejection, caught silently)
+
 ## Planned Features
 1. **Skip mode toggle**: Switch between ±10s skip buttons and prev/next track buttons on lock screen. Test app has working implementation — simple `setMode()` toggle between `skip10` and `prevnext`. To integrate into main app settings or as a one-button cycle.
 *done*
-2. **Playlist feature**: should probably come first before moving onto weights and per track volume as currently that is a empty tab.
+2. **Playlist feature** — *DONE 2026-09-15* ✓
    *base done 2026-09-15*: `PlaylistItem {id, trackId, order, addedAt}` dupes allowed, `Playlist {items}` is ordered refs, `TRACKS_STORE` single source, `OPFS` once, `DB_VERSION 4` migrates legacy `tracks[]` → `items[]` (`src/lib/types.ts:15`, `src/lib/idb.ts:4`). `usePlaylists.ts` create/add/play, `PlaylistsView` `src/components/playlist/PlaylistsView.tsx` + `AddToPlaylistSheet`, `Library` Select → Add to playlist (clears + jumps to Playlists) and Playlists `+ Create` / `Play` per `items` order. Library stays `createdAt` for now.
 3. **low prio brother complaints**: addding a value system that influences the fisher yates algorythm based on values given by the user so that a certain track has a higher or lower chance of appearing when using the shuffle.
 4. **low prio complaints2**: adding a stack feature where the user can add a track to a stack on top or below a queue which would play first over the current playlist preferably inside of a playlist so you can isolate each stack.

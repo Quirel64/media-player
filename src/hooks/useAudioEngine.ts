@@ -61,7 +61,6 @@ export function useAudioEngine() {
   const blobUrlRef = useRef<string | null>(null)
   const anchorUrlRef = useRef('')
   const anchorForDurationRef = useRef(0)
-  const urlCacheRef = useRef<Map<string, string>>(new Map())
 
   const videoSyncRef = useRef<VideoSyncController | null>(null)
   const frozenPosRef = useRef(0)
@@ -409,17 +408,13 @@ export function useAudioEngine() {
     transitionRef.current = false; queuedCommandRef.current = null
 
     stopRaf(); cleanupVideo()
-    // Don't revoke cached URL here — cache keeps it for gesture-kept next/prev
+    // Revoke old blob URL to free memory — always derive fresh to avoid stale blob accumulation
+    if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
     blobUrlRef.current = null
 
-    // Try cache first to keep gesture for next/prev — OPFS is async and loses PWA gesture
-    let url = urlCacheRef.current.get(track.fileName) ?? null
-    if (!url) {
-      url = await getFileURLFromOPFS(track.fileName)
-      if (url) urlCacheRef.current.set(track.fileName, url)
-    }
-    if (gen !== loadGenRef.current) { addLog(`load [${idx+1}] stale gen ${gen} abandoned`); // don't revoke cached url
-      return }
+    // Derive fresh blob URL each time — OPFS is async and loses PWA gesture if cached
+    const url = await getFileURLFromOPFS(track.fileName)
+    if (gen !== loadGenRef.current) { addLog(`load [${idx+1}] stale gen ${gen} abandoned`); if (url) URL.revokeObjectURL(url); return }
     if (!url) { showError(`File not found: ${track.fileName}`); return }
     blobUrlRef.current = url
     const el = mediaRef.current; if (!el) return
