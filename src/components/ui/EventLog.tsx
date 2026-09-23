@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { getLogs, subscribeLogs, clearLogs, addLog } from '../../lib/logger'
 import { usePlayerStore } from '../../stores/playerStore'
 import { groupTracks, describeGroups } from '../../lib/group'
+import { getStorageEstimate } from '../../lib/idb'
 
 export function EventLog() {
   const [entries, setEntries] = useState<string[]>(() => getLogs())
@@ -17,6 +18,18 @@ export function EventLog() {
     if (res.loose.length > 0) addLog(`Tip: loose tracks stay as single items; folder toggle will keep queue flat`)
   }
 
+  const runStorageCheck = async () => {
+    const est = await getStorageEstimate()
+    if (est) {
+      const usageMB = (est.usage / (1024 * 1024)).toFixed(2)
+      const quotaMB = (est.quota / (1024 * 1024)).toFixed(0)
+      addLog(`storage estimate: usage=${usageMB}MB quota=${quotaMB}MB`)
+    } else {
+      addLog('storage estimate: not available')
+    }
+    try { await (window as any).debugOPFS?.() } catch {}
+  }
+
   return (
     <div className="flex h-full flex-col rounded-xl border border-slate-800 bg-slate-900">
       <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
@@ -28,6 +41,13 @@ export function EventLog() {
             title="Preview auto-group (folder + common words)"
           >
             Test Grouping
+          </button>
+          <button
+            onClick={runStorageCheck}
+            className="rounded-md bg-slate-800 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-700"
+            title="Check storage estimate and OPFS file list"
+          >
+            Check Storage
           </button>
           <button
             onClick={clearLogs}

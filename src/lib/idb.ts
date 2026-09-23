@@ -235,3 +235,7 @@ export async function getAllFileBlobNames(): Promise<string[]> {
   const db = await getDB()
   return db.getAllKeys(FILES_STORE) as Promise<string[]>
 }
+
+if (typeof window !== 'undefined') {
+  ;(window as any).getStorageEstimate = getStorageEstimate
+}
