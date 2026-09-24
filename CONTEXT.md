@@ -197,24 +197,24 @@ All core functionality verified on iOS 26.2 PWA + Windows:
 - Lock screen: `skip10` mode, `remotePauseOrResume` resilient toggle, `HOLD_RATE=1e-7` session keeping
 - Build ~414kB. Known benign: `video resume failed` in logs (benign `onPlaying` `v.play()` rejection, caught silently)
 
-## Fix 2026-09-16 — Storage leak investigation + diagnostic tools
-**Finding**: `getStorageEstimate()` (`navigator.storage.estimate()`) stays at ~1088MB after deleting all tracks on iOS Safari. Safari "webdata" drops to 3.2MB, but `getStorageEstimate()` stays high. Only after force-close Safari does `getStorageEstimate()` drop to 0.65MB. This means **deleted space is not immediately released by iOS Safari** — the browser holds onto it until restart.
+## Fix 2026-09-16 — Storage investigation + diagnostic tools + thumbnails restored
+**Investigation**: Tested whether thumbnails caused storage leak — they did NOT. Thumbnails restored.
 
-**Root cause**: `resetDB()` in `idb.ts` called `deleteDatabase()` then immediately `getDB()` to reopen, which kept the space allocated. The `dbInstance` singleton held an open IndexedDB connection that prevented space release.
+**Confirmed Safari browser bug**: `getStorageEstimate()` stays at ~1089MB after deleting all tracks on iOS Safari. Safari "webdata" drops to 3.2MB, but `getStorageEstimate()` stays high. Only after force-close Safari does `getStorageEstimate()` drop to 0.65MB. Documents and Data stays at ~1.16GB until force-close. **This is a Safari bug — deleted OPFS/IndexedDB space is not released until the browser restarts.**
 
-**Fix applied**:
-- `clearAllTracks()` now calls `db.close(); dbInstance = null` after clearing
-- `clearFileBlobs()` now calls `db.close(); dbInstance = null` after clearing
-- `resetDB()` no longer calls `await getDB()` — database is deleted and closed, space can be freed
-- `clearOPFS()` calls `navigator.storage.estimate()` after clearing to trigger space recalculation
-- **Thumbnail generation removed** from `LibraryView.tsx` and `PlaylistsView.tsx` (tested — not the cause of storage leak)
+**Fixes applied (though insufficient to solve the Safari bug)**:
+- `clearAllTracks()` calls `db.close(); dbInstance = null` after clearing
+- `clearFileBlobs()` calls `db.close(); dbInstance = null` after clearing
+- `resetDB()` no longer calls `await getDB()` — database is deleted and closed
+- `clearOPFS()` calls `navigator.storage.estimate()` after clearing to trigger recalculation
+- `clearAll()` logs warning and shows toast: "Safari may need a restart to fully release storage"
 
 **Diagnostic tools added**:
 - "Check Storage" button in EventLog calls `getStorageEstimate()` + `debugOPFS()`
 - `window.getStorageEstimate()` and `window.debugOPFS()` exposed for console testing
 - `EventLog.tsx` footer documents console commands
 
-**Remaining**: iOS Safari holds deleted space until force-close. This is browser behavior, not a code bug. The `getStorageEstimate()` reading after `clearAll()` should now be more accurate with the connection closed and database deleted, but may still show high numbers until Safari restarts.
+**Thumbnails**: Restored in `LibraryView.tsx` and `PlaylistsView.tsx` — confirmed NOT the cause of storage issues.
 
 ## Planned Features
 1. **Skip mode toggle**: Switch between ±10s skip buttons and prev/next track buttons on lock screen. Test app has working implementation — simple `setMode()` toggle between `skip10` and `prevnext`. To integrate into main app settings or as a one-button cycle.

@@ -5,6 +5,7 @@ import { saveFileToOPFS, clearOPFS, deleteFileFromOPFS, debugOPFS } from '../lib
 import { generateTrackId } from '../lib/shuffle'
 import { usePlayerStore } from '../stores/playerStore'
 import { addLog } from '../lib/logger'
+import { showInfo } from '../components/ui/Toast'
 
 const MEDIA_EXTENSIONS = /\.(mp3|wav|ogg|flac|m4a|aac|wma|opus|mp4|m4v|webm|avi|mkv|mov)$/i
 const VIDEO_EXTENSIONS = /\.(mp4|m4v|webm|avi|mkv|mov)$/i
@@ -276,7 +277,9 @@ export function useFolderPicker() {
     } catch {}
     let est = await getStorageEstimate()
     addLog(`after cleanup: estimate=${(est?.usage ?? 0) / (1024*1024)}MB`)
+    addLog('Storage freed logically. Safari may hold disk space until force-close/reopen.')
     try { await debugOPFS() } catch {}
+    showInfo('Library cleared. Safari may need a restart to fully release storage.')
     setQueue([])
     setOriginalOrder([])
     setCurrentTrackIndex(0)
