@@ -1,9 +1,8 @@
 import { clearFileBlobs, deleteFileBlob, getAllFileBlobNames, getFileBlob, saveFileBlob } from './idb'
-import { addLog } from './logger'
 
-// TEMPORARY: OPFS disabled due to Safari space-not-freed bug.
-// All file operations route through IndexedDB (FILES_STORE) instead.
-// To test OPFS again, replace these with the original OPFS implementations.
+// OPFS disabled permanently due to WebKit bug: deleted OPFS space is not
+// released until Safari force-close. All file operations route through
+// IndexedDB FILES_STORE instead. See CONTEXT.md for details.
 
 export async function saveFileToOPFS(fileName: string, file: File): Promise<void> {
   await saveFileBlob(fileName, file)
@@ -25,8 +24,6 @@ export async function deleteFileFromOPFS(fileName: string): Promise<void> {
 
 export async function clearOPFS(): Promise<void> {
   await clearFileBlobs()
-  try { await navigator.storage.estimate() } catch {}
-  addLog('OPFS: cleared via IndexedDB (OPFS disabled)')
 }
 
 export async function listFilesInOPFS(): Promise<string[]> {

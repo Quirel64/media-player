@@ -277,9 +277,8 @@ export function useFolderPicker() {
     } catch {}
     let est = await getStorageEstimate()
     addLog(`after cleanup: estimate=${(est?.usage ?? 0) / (1024*1024)}MB`)
-    addLog('Storage freed logically. Safari may hold disk space until force-close/reopen.')
     try { await debugOPFS() } catch {}
-    showInfo('Library cleared. Safari may need a restart to fully release storage.')
+    showInfo('Library cleared.')
     setQueue([])
     setOriginalOrder([])
     setCurrentTrackIndex(0)

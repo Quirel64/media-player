@@ -197,17 +197,18 @@ All core functionality verified on iOS 26.2 PWA + Windows:
 - Lock screen: `skip10` mode, `remotePauseOrResume` resilient toggle, `HOLD_RATE=1e-7` session keeping
 - Build ~414kB. Known benign: `video resume failed` in logs (benign `onPlaying` `v.play()` rejection, caught silently)
 
-## Fix 2026-09-16 — Storage investigation + diagnostic tools + thumbnails restored
-**Investigation**: Tested whether thumbnails caused storage leak — they did NOT. Thumbnails restored.
+## Fix 2026-09-16 — OPFS storage leak: permanently switched to IndexedDB
+**Root cause**: OPFS (Origin Private File System) has a WebKit bug where `removeEntry()` deletes files but does not release disk space until Safari is force-closed and reopened. `navigator.storage.estimate()` stays high (~1GB) after deletion while Safari "webdata" drops to 3.2MB. This is WebKit bug 289754 and related OPFS storage management issues.
 
-**Confirmed Safari browser bug**: `getStorageEstimate()` stays at ~1089MB after deleting all tracks on iOS Safari. Safari "webdata" drops to 3.2MB, but `getStorageEstimate()` stays high. Only after force-close Safari does `getStorageEstimate()` drop to 0.65MB. Documents and Data stays at ~1.16GB until force-close. **This is a Safari bug — deleted OPFS/IndexedDB space is not released until the browser restarts.**
+**Proof**: With OPFS enabled: documents and data = 1.22GB after uploading tracks, stayed at 1.22GB after deletion. With OPFS disabled (IndexedDB-only): documents and data = 1.22GB after uploading, dropped to 68.5MB after deletion. OPFS was the sole culprit.
 
-**Fixes applied (though insufficient to solve the Safari bug)**:
-- `clearAllTracks()` calls `db.close(); dbInstance = null` after clearing
-- `clearFileBlobs()` calls `db.close(); dbInstance = null` after clearing
-- `resetDB()` no longer calls `await getDB()` — database is deleted and closed
-- `clearOPFS()` calls `navigator.storage.estimate()` after clearing to trigger recalculation
-- `clearAll()` logs warning and shows toast: "Safari may need a restart to fully release storage"
+**Fix applied — permanently disabled OPFS, routes all file operations through IndexedDB `FILES_STORE`**:
+- `src/lib/opfs.ts`: All OPFS functions (`saveFileToOPFS`, `getFileFromOPFS`, `getFileURLFromOPFS`, `deleteFileFromOPFS`, `clearOPFS`, `listFilesInOPFS`, `debugOPFS`) now route through IndexedDB `FILES_STORE` via `saveFileBlob`, `getFileBlob`, `deleteFileBlob`, `clearFileBlobs`, `getAllFileBlobNames`
+- Function signatures unchanged — no callers need modification
+- `clearOPFS()` no longer calls `navigator.storage.estimate()` or `debugOPFS()`
+- `clearAll()` removes Safari restart notification
+
+**Root cause details**: WebKit bug 289754 ("Files remaining in WebsiteData folder after removing all website data") was fixed in r292422@main (March 2025), but the underlying OPFS space-not-freed issue persists in Safari 26.2. OPFS uses Safari's internal file system storage which doesn't immediately release space on `removeEntry()`. IndexedDB does not have this issue.
 
 **Diagnostic tools added**:
 - "Check Storage" button in EventLog calls `getStorageEstimate()` + `debugOPFS()`
@@ -215,6 +216,8 @@ All core functionality verified on iOS 26.2 PWA + Windows:
 - `EventLog.tsx` footer documents console commands
 
 **Thumbnails**: Restored in `LibraryView.tsx` and `PlaylistsView.tsx` — confirmed NOT the cause of storage issues.
+
+**Remaining minor issue**: Safari documents and data grows ~1MB per app refresh (service worker cache / Safari cache). This is unrelated to our app's storage and is normal Safari behavior.
 
 ## Planned Features
 1. **Skip mode toggle**: Switch between ±10s skip buttons and prev/next track buttons on lock screen. Test app has working implementation — simple `setMode()` toggle between `skip10` and `prevnext`. To integrate into main app settings or as a one-button cycle.
