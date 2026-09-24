@@ -123,12 +123,13 @@ export async function deleteTrack(id: string): Promise<void> {
 export async function clearAllTracks(): Promise<void> {
   const db = await getDB()
   await db.clear(TRACKS_STORE)
+  db.close()
+  dbInstance = null
 }
 
 export async function resetDB(): Promise<void> {
   dbInstance = null
   await deleteDatabase(DB_NAME)
-  await getDB()
 }
 
 function normalizePlaylist(pl: Playlist): Playlist {
@@ -235,6 +236,8 @@ export async function deleteFileBlob(fileName: string): Promise<void> {
 export async function clearFileBlobs(): Promise<void> {
   const db = await getDB()
   await db.clear(FILES_STORE)
+  db.close()
+  dbInstance = null
 }
 
 export async function getAllFileBlobNames(): Promise<string[]> {

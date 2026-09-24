@@ -76,6 +76,7 @@ export async function clearOPFS(): Promise<void> {
     addLog(`OPFS: clearOPFS error: ${e}`)
   }
   await clearFileBlobs()
+  try { await navigator.storage.estimate() } catch {}
 }
 
 export async function listFilesInOPFS(): Promise<string[]> {

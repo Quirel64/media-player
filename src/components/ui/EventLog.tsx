@@ -69,7 +69,7 @@ export function EventLog() {
         )}
       </div>
       <p className="border-t border-slate-800 px-4 py-2 text-[10px] text-slate-500">
-        Tip: keep this tab open, then lock your phone. After resume, come back here — logs persist until clear. Thumbnail helper: <span className="text-slate-400">await getTrackThumbnail(file, 'video')</span> available in console (PWA homescreen has no console — use this log).
+        Tip: keep this tab open, then lock your phone. After resume, come back here — logs persist until clear. Storage debug: <span className="text-slate-400">await getStorageEstimate()</span> and <span className="text-slate-400">await debugOPFS()</span> available in console (PWA homescreen has no console — use this log).
       </p>
     </div>
   )
