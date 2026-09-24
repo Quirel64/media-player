@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import type { Track } from '../lib/types'
-import { saveTracks, getAllTracks, savePlaylist, clearAllTracks, deleteTrack, getPlaylist, clearFileBlobs } from '../lib/idb'
-import { saveFileToOPFS, clearOPFS, deleteFileFromOPFS } from '../lib/opfs'
+import { saveTracks, getAllTracks, savePlaylist, resetDB, deleteTrack, getPlaylist, getStorageEstimate } from '../lib/idb'
+import { saveFileToOPFS, clearOPFS, deleteFileFromOPFS, debugOPFS } from '../lib/opfs'
 import { generateTrackId } from '../lib/shuffle'
 import { usePlayerStore } from '../stores/playerStore'
 import { addLog } from '../lib/logger'
@@ -263,9 +263,20 @@ export function useFolderPicker() {
   }, [setQueue, setOriginalOrder, setCurrentTrackIndex])
 
   const clearAll = useCallback(async () => {
-    await clearAllTracks()
+    const estBefore = await getStorageEstimate()
+    addLog(`clearAll start: estimate=${(estBefore?.usage ?? 0) / (1024*1024)}MB`)
     await clearOPFS()
-    await clearFileBlobs()
+    await resetDB()
+    try {
+      const cacheNames = await caches.keys()
+      for (const name of cacheNames) {
+        await caches.delete(name)
+        addLog(`cache deleted: ${name}`)
+      }
+    } catch {}
+    let est = await getStorageEstimate()
+    addLog(`after cleanup: estimate=${(est?.usage ?? 0) / (1024*1024)}MB`)
+    try { await debugOPFS() } catch {}
     setQueue([])
     setOriginalOrder([])
     setCurrentTrackIndex(0)

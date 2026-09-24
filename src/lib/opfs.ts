@@ -1,4 +1,5 @@
 import { clearFileBlobs, deleteFileBlob, getAllFileBlobNames, getFileBlob, saveFileBlob } from './idb'
+import { addLog } from './logger'
 
 const MEDIA_DIR = 'media-files'
 
@@ -53,9 +54,26 @@ export async function deleteFileFromOPFS(fileName: string): Promise<void> {
 export async function clearOPFS(): Promise<void> {
   try {
     const root = await navigator.storage.getDirectory()
-    await root.removeEntry(MEDIA_DIR, { recursive: true })
-  } catch {
-    // dir didn't exist, ignore
+    try { await root.removeEntry(MEDIA_DIR, { recursive: true }) }
+    catch { /* may not exist */ }
+    let exists = false
+    try { await root.getDirectoryHandle(MEDIA_DIR); exists = true } catch { /* doesn't exist */ }
+    if (exists) {
+      try {
+        const dir = await root.getDirectoryHandle(MEDIA_DIR)
+        for await (const [name] of dir.entries()) {
+          await dir.removeEntry(name, { recursive: true })
+        }
+        await root.removeEntry(MEDIA_DIR)
+        addLog('OPFS: iterative deletion succeeded')
+      } catch (e2) {
+        addLog(`OPFS: iterative deletion failed: ${e2}`)
+      }
+    } else {
+      addLog('OPFS: media-files directory already gone')
+    }
+  } catch (e) {
+    addLog(`OPFS: clearOPFS error: ${e}`)
   }
   await clearFileBlobs()
 }

@@ -129,7 +129,28 @@ User tests on iOS device (iOS 26.2, Brave + Safari) and Windows laptop.
 5. **Session keeping — SOLVED** 2026-08-30: Same-element silent placeholder (Arena) with `HOLD_RATE 1e-7` — gaps `26m` `7.99→7.99`, `28m` `93→93`, `22m` `13.4→13.4` on PWA, no `AbortError`, `5h` `28125KB` placeholder still swaps in `0.5s`. In-app `ended`/`seek 100%` and lock `nexttrack` both `track resumed @0.03s` with one tap.
 6. **Same-name resume — FIXED 2026-09-05**: `generateTrackId` was `${name}-${size}-${lastModified}` (`shuffle.ts:63`) -> colliding IDs for same-name files overwrote `TRACKS_STORE` and `prevTrackIdRef` treated `song.mp3` -> `song (1).mp3` as same track, kept `frozenPos`. Fix: UUID `crypto.randomUUID()` per upload, `fileName` still deduped via `getUniqueFileName`.
 7. **Library reorder on reload — FIXED 2026-09-06**: 64-track screenshot showed duplicates at 30/34 after restart. Root: `getAllTracks()` key-order (UUID random) scattered insertion order. Fix: `Track.createdAt` + `by-createdAt` index + playlist-first load (`useFolderPicker.ts:236`, `idb.ts:122`). Library vs Playlist confusion noted — see `## Library Ordering & Display`.
+8. **Storage not freed on deletion — FIXED 2026-09-15**: `navigator.storage.estimate().usage` stayed at ~1088MB after deleting all tracks via the app. Root: `clearAllTracks()` only did `db.clear(TRACKS_STORE)` (doesn't release IndexedDB pages), `clearOPFS()` silently failed if `removeEntry` threw, and service worker caches weren't cleared. Fix: `clearAll()` now calls `resetDB()` (deletes and recreates the entire IndexedDB database) + `clearOPFS()` with iterative fallback + `caches.keys()`/`caches.delete()` for service worker caches + logging. `getStorageEstimate()` exposed on `window` and `debugOPFS()` on `window` for console debugging. "Check Storage" button added to EventLog.
 
+
+## Storage Diagnostic — 2026-09-15
+**Key finding**: `navigator.storage.estimate().usage` (our website's storage) ≠ Safari "Documents and Data" (total Safari storage including other websites + cache).
+- Fresh install: `estimate().usage` = 0.42MB, `quota` = 39322MB
+- After uploading tracks: `estimate().usage` = 1088.79MB (matches track size)
+- After deleting tracks via app: `estimate().usage` = 1088.82MB (NOT freed!)
+- After clearing webdata via Settings: `estimate().usage` = 0.42MB (freed)
+- Windows: 29.16MB usage with 318 files from an earlier build still in OPFS/IndexedDB
+
+**Root cause**: `clearAll()` used `db.clear(TRACKS_STORE)` and `db.clear(FILES_STORE)` which don't release IndexedDB pages. `clearOPFS()` silently failed if `removeEntry` threw. Service worker caches weren't cleared.
+
+**Fix applied** (all in `clearAll()`):
+1. `resetDB()` — deletes and recreates the entire IndexedDB database (`deleteDatabase` + `openDB`) to release pages
+2. `clearOPFS()` — iterative fallback if `removeEntry` fails, with logging
+3. `caches.keys()` + `caches.delete()` — clears all service worker caches
+4. `getStorageEstimate()` — exposed on `window` for console use
+5. `debugOPFS()` — exposed on `window` for console use
+6. "Check Storage" button in EventLog — calls both and logs results
+
+**Diagnostic commands** (console): `await getStorageEstimate()` and `await debugOPFS()`
 
 ## iOS Session Keeping — Complete Research Summary — FINAL (Arena + your tweak)
 
