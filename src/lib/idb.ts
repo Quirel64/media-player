@@ -245,6 +245,50 @@ export async function getAllFileBlobNames(): Promise<string[]> {
   return db.getAllKeys(FILES_STORE) as Promise<string[]>
 }
 
+export async function saveTrackFile(fileName: string, file: File): Promise<void> {
+  await saveFileBlob(fileName, file)
+}
+
+export async function getTrackFile(fileName: string): Promise<File | null> {
+  return (await getFileBlob(fileName)) ?? null
+}
+
+export async function getTrackFileURL(fileName: string): Promise<string | null> {
+  const file = await getFileBlob(fileName)
+  if (!file) return null
+  return URL.createObjectURL(file)
+}
+
+export async function deleteTrackFile(fileName: string): Promise<void> {
+  await deleteFileBlob(fileName)
+}
+
+export async function clearTrackFiles(): Promise<void> {
+  await clearFileBlobs()
+}
+
+export async function listTrackFiles(): Promise<string[]> {
+  return getAllFileBlobNames()
+}
+
+export async function debugTrackFiles(): Promise<void> {
+  const files = await getAllFileBlobNames()
+  if (files.length === 0) {
+    console.log('No track files stored.')
+    return
+  }
+  console.group(`Track files: ${files.length} file(s)`)
+  for (const name of files) {
+    const file = await getFileBlob(name)
+    if (file) {
+      const sizeMB = (file.size / (1024 * 1024)).toFixed(2)
+      console.log(`${name} — ${sizeMB} MB`)
+    }
+  }
+  console.groupEnd()
+}
+
 if (typeof window !== 'undefined') {
   ;(window as any).getStorageEstimate = getStorageEstimate
+  ;(window as any).debugTrackFiles = debugTrackFiles
 }

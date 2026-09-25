@@ -1,7 +1,6 @@
 import { useCallback } from 'react'
 import type { Track } from '../lib/types'
-import { saveTracks, getAllTracks, savePlaylist, resetDB, deleteTrack, getPlaylist, getStorageEstimate } from '../lib/idb'
-import { saveFileToOPFS, clearOPFS, deleteFileFromOPFS, debugOPFS } from '../lib/opfs'
+import { saveTracks, getAllTracks, savePlaylist, resetDB, deleteTrack, getPlaylist, getStorageEstimate, saveTrackFile, clearTrackFiles, deleteTrackFile, debugTrackFiles } from '../lib/idb'
 import { generateTrackId } from '../lib/shuffle'
 import { usePlayerStore } from '../stores/playerStore'
 import { addLog } from '../lib/logger'
@@ -76,10 +75,10 @@ async function processFiles(
     }
   })
 
-  // Persist file blobs sequentially to avoid parallel OPFS directory-handle contention on iOS
+  // Persist file blobs sequentially
   for (const track of tracks) {
     const file = fileMap.get(track.fileName)
-    if (file) await saveFileToOPFS(track.fileName, file)
+    if (file) await saveTrackFile(track.fileName, file)
   }
 
   // Persist metadata immediately with duration 0 so a force-close during
@@ -266,7 +265,7 @@ export function useFolderPicker() {
   const clearAll = useCallback(async () => {
     const estBefore = await getStorageEstimate()
     addLog(`clearAll start: estimate=${(estBefore?.usage ?? 0) / (1024*1024)}MB`)
-    await clearOPFS()
+    await clearTrackFiles()
     await resetDB()
     try {
       const cacheNames = await caches.keys()
@@ -277,7 +276,7 @@ export function useFolderPicker() {
     } catch {}
     let est = await getStorageEstimate()
     addLog(`after cleanup: estimate=${(est?.usage ?? 0) / (1024*1024)}MB`)
-    try { await debugOPFS() } catch {}
+    try { await debugTrackFiles() } catch {}
     showInfo('Library cleared.')
     setQueue([])
     setOriginalOrder([])
@@ -285,9 +284,7 @@ export function useFolderPicker() {
   }, [setQueue, setOriginalOrder, setCurrentTrackIndex])
 
   const removeTrack = useCallback(async (track: Track) => {
-    // Remove from OPFS
-    await deleteFileFromOPFS(track.fileName)
-    // Remove from IndexedDB
+    await deleteTrackFile(track.fileName)
     await deleteTrack(track.id)
     // Update queue
     const { queue, currentTrackIndex, originalOrder } = usePlayerStore.getState()
@@ -307,7 +304,7 @@ export function useFolderPicker() {
 
   const removeTracks = useCallback(async (tracks: Track[]) => {
     for (const track of tracks) {
-      await deleteFileFromOPFS(track.fileName)
+      await deleteTrackFile(track.fileName)
       await deleteTrack(track.id)
     }
     const removedIds = new Set(tracks.map((t) => t.id))

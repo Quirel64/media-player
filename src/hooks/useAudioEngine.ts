@@ -1,7 +1,7 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
 import { usePlayerStore } from '../stores/playerStore'
 import type { Track } from '../lib/types'
-import { getFileURLFromOPFS } from '../lib/opfs'
+import { getTrackFileURL } from '../lib/idb'
 import { showError } from '../components/ui/Toast'
 import { addLog } from '../lib/logger'
 import { createSilentWavUrl, describeSilentWav } from '../lib/silentAudio'
@@ -300,12 +300,12 @@ export function useAudioEngine() {
           try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = getLockPlaybackState('track') } catch {}
         }, 120)
       } else {
-        // Need src swap — ensure blob URL for OPFS track
+        // Need src swap — ensure blob URL for track
         let url = blobUrlRef.current
         // If blob was revoked or fileName changed, re-derive
         if (!url || prevFileNameRef.current !== track.fileName) {
           if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
-          const fresh = await getFileURLFromOPFS(track.fileName)
+          const fresh = await getTrackFileURL(track.fileName)
           if (!fresh) { showError(`File not found: ${track.fileName}`); throw new Error('no url') }
           blobUrlRef.current = fresh; url = fresh
         }
@@ -412,8 +412,8 @@ export function useAudioEngine() {
     if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
     blobUrlRef.current = null
 
-    // Derive fresh blob URL each time — OPFS is async and loses PWA gesture if cached
-    const url = await getFileURLFromOPFS(track.fileName)
+    // Derive fresh blob URL each time — IndexedDB is async and loses PWA gesture if cached
+    const url = await getTrackFileURL(track.fileName)
     if (gen !== loadGenRef.current) { addLog(`load [${idx+1}] stale gen ${gen} abandoned`); if (url) URL.revokeObjectURL(url); return }
     if (!url) { showError(`File not found: ${track.fileName}`); return }
     blobUrlRef.current = url

@@ -200,22 +200,31 @@ All core functionality verified on iOS 26.2 PWA + Windows:
 ## Fix 2026-09-16 — OPFS storage leak: permanently switched to IndexedDB
 **Root cause**: OPFS (Origin Private File System) has a WebKit bug where `removeEntry()` deletes files but does not release disk space until Safari is force-closed and reopened. `navigator.storage.estimate()` stays high (~1GB) after deletion while Safari "webdata" drops to 3.2MB. This is WebKit bug 289754 and related OPFS storage management issues.
 
-**Proof**: With OPFS enabled: documents and data = 1.22GB after uploading tracks, stayed at 1.22GB after deletion. With OPFS disabled (IndexedDB-only): documents and data = 1.22GB after uploading, dropped to 68.5MB after deletion. OPFS was the sole culprit.
+**Proof**: With OPFS enabled: documents and data = 1.22GB after uploading tracks, stayed at 1.22GB after deletion. With IndexedDB-only: documents and data dropped to 68.5MB after deletion. OPFS was the sole culprit.
 
-**Fix applied — permanently disabled OPFS, routes all file operations through IndexedDB `FILES_STORE`**:
-- `src/lib/opfs.ts`: All OPFS functions (`saveFileToOPFS`, `getFileFromOPFS`, `getFileURLFromOPFS`, `deleteFileFromOPFS`, `clearOPFS`, `listFilesInOPFS`, `debugOPFS`) now route through IndexedDB `FILES_STORE` via `saveFileBlob`, `getFileBlob`, `deleteFileBlob`, `clearFileBlobs`, `getAllFileBlobNames`
-- Function signatures unchanged — no callers need modification
-- `clearOPFS()` no longer calls `navigator.storage.estimate()` or `debugOPFS()`
-- `clearAll()` removes Safari restart notification
+**Fix applied — `src/lib/opfs.ts` deleted, all file operations now in `src/lib/idb.ts` with renamed functions**:
+- `saveFileToOPFS` → `saveTrackFile`
+- `getFileFromOPFS` → `getTrackFile`
+- `getFileURLFromOPFS` → `getTrackFileURL`
+- `deleteFileFromOPFS` → `deleteTrackFile`
+- `clearOPFS` → `clearTrackFiles`
+- `listFilesInOPFS` → `listTrackFiles`
+- `debugOPFS` → `debugTrackFiles`
+- All route through IndexedDB `FILES_STORE` via `saveFileBlob`, `getFileBlob`, `deleteFileBlob`, `clearFileBlobs`, `getAllFileBlobNames`
+- `clearAll()` no longer shows Safari restart notification
+- `useAudioEngine.ts`, `useFolderPicker.ts` updated to use new names
+- `LibraryView.tsx`, `PlaylistsView.tsx` cleaned of stale imports and dead thumbnail code
 
 **Root cause details**: WebKit bug 289754 ("Files remaining in WebsiteData folder after removing all website data") was fixed in r292422@main (March 2025), but the underlying OPFS space-not-freed issue persists in Safari 26.2. OPFS uses Safari's internal file system storage which doesn't immediately release space on `removeEntry()`. IndexedDB does not have this issue.
 
 **Diagnostic tools added**:
-- "Check Storage" button in EventLog calls `getStorageEstimate()` + `debugOPFS()`
-- `window.getStorageEstimate()` and `window.debugOPFS()` exposed for console testing
+- "Check Storage" button in EventLog calls `getStorageEstimate()` + `debugTrackFiles()`
+- `window.getStorageEstimate()` and `window.debugTrackFiles()` exposed for console testing
 - `EventLog.tsx` footer documents console commands
 
 **Thumbnails**: Restored in `LibraryView.tsx` and `PlaylistsView.tsx` — confirmed NOT the cause of storage issues.
+
+**Remaining minor issue**: Safari documents and data grows ~1MB per app refresh (service worker cache / Safari cache). This is unrelated to our app's storage and is normal Safari behavior.
 
 **Remaining minor issue**: Safari documents and data grows ~1MB per app refresh (service worker cache / Safari cache). This is unrelated to our app's storage and is normal Safari behavior.
 
@@ -228,8 +237,8 @@ All core functionality verified on iOS 26.2 PWA + Windows:
 4. **low prio complaints2**: adding a stack feature where the user can add a track to a stack on top or below a queue which would play first over the current playlist preferably inside of a playlist so you can isolate each stack.
 5. adding a manual grouping feature where users can sort their ow tracks in cases where auto grouping misses some tracks.
 6. **low prio brother complaints3**: being able to set a sound value to each track which is that a certain track plays at a certain volume.
-7. giving the app a better visual makeover with animations, startup and menu.
-8. adding fullscreen mode to the video which would work for when you tilt the phone horizonatally for example or just a button tha t gives fullscreen.
-9. making the group play in the groups order instead of the quee. (once playlists are implemented.)
+7. giving the app a better visual makeover with animations, startup screen and menu's including clarity for ease of use.
+8. adding fullscreen mode to the video which would work for when you tilt the phone horizonatally for example or just a button that gives fullscreen.
+9. making the group play in the groups order instead of the queue. (once playlists are implemented.)
 10. allowing users to modify the order of the queue in a playlist or in the library queue mode.
 
