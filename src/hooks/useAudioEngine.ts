@@ -16,7 +16,7 @@ import { VideoSyncController } from '../lib/videoSync'
     is often rejected as AbortError in standalone. Same permanent <audio> swapping src track <-> silent placeholder
     keeps the activation because play() happens synchronously in the MediaSession callback before any await.
   - Silent placeholder is duration-matched (no 2s loop snap) and HOLD_RATE 0.0000001 (your test: 0.25 still drifted, 1e-7 = 4 months per second)
-  - Memory: 1 placeholder at a time (~2MB for 125s), revoked when not active, not OPFS — 5h track 28125KB still only 0.5s swap, no storage bloat
+  - Memory: 1 placeholder at a time (~2MB for 125s), revoked when not active, not IndexedDB — 5h track 28125KB still only 0.5s swap, no storage bloat
 
   States on one element: idle -> track (playing) -> anchor (paused, silent keeps session) -> track (resume)
   Logs: track resumed @ X / track → placeholder @ X / anchor source active @ X

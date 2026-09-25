@@ -215,6 +215,7 @@ All core functionality verified on iOS 26.2 PWA + Windows:
 - `useAudioEngine.ts`, `useFolderPicker.ts` updated to use new names
 - `LibraryView.tsx`, `PlaylistsView.tsx` cleaned of stale imports and dead thumbnail code
 
+**resetDB() fix**: Uses indexedDB.deleteDatabase(DB_NAME) directly instead of idb deleteDatabase
 **Root cause details**: WebKit bug 289754 ("Files remaining in WebsiteData folder after removing all website data") was fixed in r292422@main (March 2025), but the underlying OPFS space-not-freed issue persists in Safari 26.2. OPFS uses Safari's internal file system storage which doesn't immediately release space on `removeEntry()`. IndexedDB does not have this issue.
 
 **Diagnostic tools added**:

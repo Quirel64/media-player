@@ -1,4 +1,4 @@
-import { openDB, deleteDB as deleteDatabase, type IDBPDatabase, type DBSchema } from 'idb'
+import { openDB, type IDBPDatabase, type DBSchema } from 'idb'
 import type { Track, Playlist } from './types'
 
 const DB_NAME = 'media-player-db'
@@ -129,7 +129,7 @@ export async function clearAllTracks(): Promise<void> {
 
 export async function resetDB(): Promise<void> {
   dbInstance = null
-  await deleteDatabase(DB_NAME)
+  try { indexedDB.deleteDatabase(DB_NAME) } catch {}
 }
 
 function normalizePlaylist(pl: Playlist): Playlist {

@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import type { Track, Playlist } from '../../lib/types'
 import { getAllTracks } from '../../lib/idb'
+import { getTrackFile } from '../../lib/idb'
+import { getTrackThumbnail } from '../../lib/thumbnail'
 import { showError } from '../ui/Toast'
 
 interface Props {
@@ -21,6 +23,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
   const [viewMode, setViewMode] = useState<'tracks' | 'queue'>('tracks')
   const [editMode, setEditMode] = useState(false)
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
+  const [thumbs, setThumbs] = useState<Record<string, string>>({})
 
   const active = activeId ? playlists.find(p => p.id === activeId) ?? null : null
 
@@ -40,6 +43,56 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
     })()
     return () => { cancelled = true }
   }, [active])
+
+  // Thumbnails for active detail and grid
+  useEffect(() => {
+    let cancelled = false
+    const toLoad: { fileName: string, track: Track }[] = []
+    if (active && activeTracks.length > 0) {
+      const items = viewMode === 'tracks' ? activeTracks : activeTracks.slice(0, 4)
+      items.forEach(t => { if (!thumbs[t.fileName]) toLoad.push({ fileName: t.fileName, track: t }) })
+      if (toLoad.length === 0) return
+      ;(async () => {
+        for (const { track } of toLoad) {
+          if (cancelled) break
+          try {
+            const file = await getTrackFile(track.fileName)
+            if (!file || cancelled) continue
+            const url = await getTrackThumbnail(file, track.mediaType)
+            if (url && !cancelled) setThumbs(prev => prev[track.fileName] ? prev : { ...prev, [track.fileName]: url })
+          } catch {}
+        }
+      })()
+    }
+    return () => { cancelled = true }
+  }, [active, activeTracks, viewMode, thumbs])
+
+  // Grid thumbnails for playlist overview (first 4 per playlist)
+  useEffect(() => {
+    if (active) return
+    let cancelled = false
+    ;(async () => {
+      const all = await getAllTracks()
+      const map = new Map(all.map(t => [t.id, t] as const))
+      const toLoad: Track[] = []
+      for (const pl of playlists) {
+        for (let i = 0; i < Math.min(4, pl.items.length); i++) {
+          const t = map.get(pl.items[i].trackId)
+          if (t && !thumbs[t.fileName] && !toLoad.find(x => x.fileName === t.fileName)) toLoad.push(t)
+        }
+      }
+      for (const t of toLoad) {
+        if (cancelled) break
+        try {
+          const file = await getTrackFile(t.fileName)
+          if (!file || cancelled) continue
+          const url = await getTrackThumbnail(file, t.mediaType)
+          if (url && !cancelled) setThumbs(prev => prev[t.fileName] ? prev : { ...prev, [t.fileName]: url })
+        } catch {}
+      }
+    })()
+    return () => { cancelled = true }
+  }, [playlists, active, thumbs])
 
   const handleCreate = async () => {
     const name = newName.trim()
@@ -140,10 +193,11 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
           <div className="flex-1 overflow-y-auto p-3">
             <div className="grid grid-cols-2 gap-3">
 {activeTracks.map((t, idx) => {
+                const thumb = thumbs[t.fileName]
                 return (
                   <button key={`${active.items[idx]?.id ?? t.id}-${idx}`} onClick={() => onForcePlayPlaylist(active.id, idx)} className="flex flex-col overflow-hidden rounded-lg bg-slate-900 text-left">
                     <div className="flex h-28 items-center justify-center overflow-hidden bg-slate-800">
-                      <span className="text-2xl">{t.mediaType === 'video' ? '🎬' : '🎵'}</span>
+                      {thumb ? <img src={thumb} alt="" className="h-full w-full object-cover" loading="lazy" /> : <span className="text-2xl">{t.mediaType === 'video' ? '🎬' : '🎵'}</span>}
                     </div>
                     <div className="px-3 py-2.5">
                       <p className="truncate text-sm font-medium text-white">{t.name}</p>
