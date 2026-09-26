@@ -158,7 +158,18 @@ export function useAudioEngine() {
     // Video keeps its own track src — never load the silent anchor WAV into <video>
     // (that was the black-screen-on-pause-outside bug: anchor swap clobbered v.src,
     // resume restored it, so it looked like it "fixed itself" on unpause).
-    if (isVideoTrack && v && kind === 'track') { v.src = url; v.load() }
+    // On anchor→track resume v.src is ALREADY the track blob (anchor no longer clobbers),
+    // so skip v.load() to avoid flash-of-old-frame + black reload. Only reload on real
+    // track change (different URL). Pre-seek before play so first shown frame is correct.
+    if (isVideoTrack && v && kind === 'track') {
+      const curSrc = v.currentSrc || v.src || ''
+      if (!curSrc || curSrc !== url) {
+        v.src = url; v.load()
+        try { v.currentTime = position } catch { /* metadata not ready — post-play seek catches it */ }
+      } else {
+        try { if (Math.abs((v.currentTime || 0) - position) > 0.05) v.currentTime = position } catch {}
+      }
+    }
     if (kind === 'track' && Math.abs((media.currentTime || 0) - position) > 0.15) try { media.currentTime = position } catch {}
     // Sync lock UI before await to keep PWA gesture — must match final state (fix iOS 26.2 inverted icon)
     // For iOS 26.2, also publish position BEFORE state so bar and icon stay in sync
