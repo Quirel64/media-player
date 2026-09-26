@@ -134,7 +134,7 @@ export function useAudioEngine() {
     const v = videoRef.current
     // Ensure video is in correct paused/playing state immediately (fix: video kept playing after 2nd lock pause)
     if (isVideoTrack && v) {
-      if (kind === 'anchor') { try { v.pause() } catch {} }
+      if (kind === 'anchor') { try { v.pause(); v.currentTime = frozenPosRef.current } catch {} }
       else { v.muted = true }
     } else if (v && kind === 'anchor') {
       try { v.pause() } catch {}
@@ -155,7 +155,10 @@ export function useAudioEngine() {
     }
     media.autoplay = true; setRate(media, rate)
     media.src = url; media.load()
-    if (isVideoTrack && v) { v.src = url; v.load() }
+    // Video keeps its own track src — never load the silent anchor WAV into <video>
+    // (that was the black-screen-on-pause-outside bug: anchor swap clobbered v.src,
+    // resume restored it, so it looked like it "fixed itself" on unpause).
+    if (isVideoTrack && v && kind === 'track') { v.src = url; v.load() }
     if (kind === 'track' && Math.abs((media.currentTime || 0) - position) > 0.15) try { media.currentTime = position } catch {}
     // Sync lock UI before await to keep PWA gesture — must match final state (fix iOS 26.2 inverted icon)
     // For iOS 26.2, also publish position BEFORE state so bar and icon stay in sync
