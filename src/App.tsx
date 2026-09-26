@@ -9,7 +9,7 @@ import { useAudioEngine } from './hooks/useAudioEngine'
 import { useMediaSession } from './hooks/useMediaSession'
 import { useFolderPicker } from './hooks/useFolderPicker'
 import { usePlayerStore } from './stores/playerStore'
-import { getSetting, saveSetting, saveTracks, getAllTracks, getAllPlaylists, savePlaylist } from './lib/idb'
+import { getSetting, saveSetting, saveTracks, getAllTracks, getAllPlaylists, savePlaylist, deleteTrack, getPlaylist } from './lib/idb'
 import { ToastContainer } from './components/ui/Toast'
 import { EventLog } from './components/ui/EventLog'
 import { PlaylistsView } from './components/playlist/PlaylistsView'
@@ -68,7 +68,6 @@ export default function App() {
           }
         }
         if (toDelete.length > 0) {
-          const { deleteTrack } = await import('./lib/idb')
           for (const id of toDelete) await deleteTrack(id)
           // Also cleanup playlists referencing deleted trackIds
           const allPls = await getAllPlaylists()
@@ -269,8 +268,7 @@ export default function App() {
               }
             }}
             onRemoveFromPlaylist={async (pid, itemIds) => {
-              const { getPlaylist: gp, savePlaylist: sp, getAllTracks: gat } = await import('./lib/idb')
-              const pl = await gp(pid)
+              const pl = await getPlaylist(pid)
               if (!pl) return
               const beforeIds = new Set(pl.items.map(it => it.trackId))
               const wasPlayingThisPlaylist = queue.length > 0 && queue.every(t => beforeIds.has(t.id)) && queue.length === pl.items.length
@@ -278,11 +276,11 @@ export default function App() {
               pl.items = pl.items.filter(it => !s.has(it.id))
               pl.items.forEach((it, idx) => { it.order = idx })
               pl.updatedAt = Date.now()
-              await sp(pl)
+              await savePlaylist(pl)
               await refreshPlaylists()
               // If currently playing this playlist, update queue to new order (instanceId per item)
               if (wasPlayingThisPlaylist) {
-                const allTracks = await gat()
+                const allTracks = await getAllTracks()
                 const map = new Map(allTracks.map(t => [t.id, t] as const))
                 const resolved: Track[] = []
                 for (const it of pl.items) {

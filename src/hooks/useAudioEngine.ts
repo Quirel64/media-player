@@ -6,7 +6,6 @@ import { showError } from '../components/ui/Toast'
 import { addLog } from '../lib/logger'
 import { createSilentWavUrl, describeSilentWav } from '../lib/silentAudio'
 import { getPlayingArtwork } from '../lib/artwork'
-import { VideoSyncController } from '../lib/videoSync'
 
 /*
   FINAL — Same-element source swap (Arena idea + your 0.0000001 tweak).
@@ -20,6 +19,10 @@ import { VideoSyncController } from '../lib/videoSync'
 
   States on one element: idle -> track (playing) -> anchor (paused, silent keeps session) -> track (resume)
   Logs: track resumed @ X / track → placeholder @ X / anchor source active @ X
+
+  Video: muted <video> plays alongside <audio> (native 30fps). No continuous sync —
+  VideoSyncController was removed (caused stutter/seek storms). Only recalibration is
+  on visibility return (hidden pauses video, visible does one drift>0.15 seek).
 */
 
 const HOLD_RATE = 0.0000001
@@ -62,7 +65,6 @@ export function useAudioEngine() {
   const anchorUrlRef = useRef('')
   const anchorForDurationRef = useRef(0)
 
-  const videoSyncRef = useRef<VideoSyncController | null>(null)
   const frozenPosRef = useRef(0)
   const trackDurationRef = useRef(0)
   const transitionRef = useRef(false)
@@ -81,21 +83,6 @@ export function useAudioEngine() {
   const { currentTrackIndex, queue, volume, isMuted, setPlaying, setCurrentTime, setDuration, setCurrentTrackIndex } = usePlayerStore()
   const currentTrack = queue[currentTrackIndex]
   const [loadForce, setLoadForce] = useState(0)
-
-  const getSync = useCallback(() => {
-    if (!videoSyncRef.current) {
-      videoSyncRef.current = new VideoSyncController({
-        getAudio: () => mediaRef.current,
-        getVideo: () => videoRef.current,
-        isActive: () => sourceKindRef.current === 'track' && ownerRef.current === 'track' && !!mediaRef.current && !mediaRef.current.paused && document.visibilityState === 'visible',
-        log: (m) => addLog(m),
-        onStats: (s) => { if (s.lastAction !== 'locked' && s.lastAction !== 'idle') addLog(`vsync ${s.lastAction} drift ${s.drift.toFixed(2)} rate ${s.rate.toFixed(3)}`) },
-      })
-    }
-    return videoSyncRef.current
-  }, [])
-  const stopRaf = useCallback(() => { videoSyncRef.current?.stop() }, [])
-  const startVideoFrames = useCallback(() => { getSync().start() }, [getSync])
 
   const attachVideo = useCallback((url: string) => {
     let v = videoRef.current
@@ -246,7 +233,7 @@ export function useAudioEngine() {
       }
     }, 500)
     addLog(`${kind} source active on permanent element @ ${media.currentTime.toFixed(2)}s${isVideoTrack && kind==='track' ? (v && !v.paused ? ' +video playing' : ' +video paused') : ''} owner=${kind}`)
-  }, [setOwner, startVideoFrames, setPlaying])
+  }, [setOwner, setPlaying])
 
   const play = useCallback(async () => {
     const state = usePlayerStore.getState()
@@ -315,7 +302,7 @@ export function useAudioEngine() {
       }
     } catch (e) { setPlaying(false); setOwner('idle'); addLog(`resume failed: ${e}`) }
     finally { transitionRef.current = false; flushQueued() }
-  }, [activateSource, currentTrack, flushQueued, setOwner, setPlaying, startVideoFrames])
+  }, [activateSource, currentTrack, flushQueued, setOwner, setPlaying])
 
   const pause = useCallback(async () => {
     const media = mediaRef.current
@@ -325,7 +312,7 @@ export function useAudioEngine() {
     // Defer visible anchor to hidden: visible anchor shows || inverted, hidden shows > correctly + keeps session with HOLD_RATE
     if (document.visibilityState === 'visible' && sourceKindRef.current === 'track') {
       const pos = media.currentTime
-      frozenPosRef.current = pos; setCurrentTime(pos); setPlaying(false); stopRaf()
+      frozenPosRef.current = pos; setCurrentTime(pos); setPlaying(false)
       const vPause = videoRef.current; if (vPause) try { vPause.pause(); vPause.currentTime = pos } catch {}
       try { media.pause(); addLog(`pause deferred media.pause @ ${pos.toFixed(2)}s`) } catch {}
       pendingAnchorPosRef.current = pos
@@ -338,14 +325,14 @@ export function useAudioEngine() {
     transitionRef.current = true
     try {
       const pos = media.currentTime
-      frozenPosRef.current = pos; setCurrentTime(pos); setPlaying(false); stopRaf()
+      frozenPosRef.current = pos; setCurrentTime(pos); setPlaying(false)
       const vPause = videoRef.current; if (vPause) try { vPause.pause() } catch {}
       ensureAnchor(trackDurationRef.current || media.duration || 2)
       await activateSource('anchor', anchorUrlRef.current, pos)
       addLog(`track → placeholder swap @ ${pos.toFixed(2)}s`)
     } catch (e) { setOwner('idle'); addLog(`placeholder swap failed: ${e}`) }
     finally { transitionRef.current = false; flushQueued() }
-  }, [activateSource, ensureAnchor, flushQueued, play, setOwner, setPlaying, setCurrentTime, stopRaf])
+  }, [activateSource, ensureAnchor, flushQueued, play, setOwner, setPlaying, setCurrentTime])
 
   commandRunnerRef.current = (c) => { if (c === 'play') void play(); else void pause() }
   const togglePlay = useCallback(() => { if (ownerRef.current === 'track') void pause(); else void play() }, [pause, play])
@@ -407,7 +394,7 @@ export function useAudioEngine() {
     // If frozen placeholder active, we'll swap to track — no need to keep HOLD_RATE
     transitionRef.current = false; queuedCommandRef.current = null
 
-    stopRaf(); cleanupVideo()
+    cleanupVideo()
     // Revoke old blob URL to free memory — always derive fresh to avoid stale blob accumulation
     if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
     blobUrlRef.current = null
@@ -448,7 +435,7 @@ export function useAudioEngine() {
     } else {
       el.src = url; el.load()
     }
-  }, [attachVideo, cleanupVideo, setCurrentTime, setDuration, stopRaf])
+  }, [attachVideo, cleanupVideo, setCurrentTime, setDuration, play])
 
   // goToTrack defined after loadTrack so same-index tap forces fresh reload via useEffect
   const goToTrack = useCallback((i: number) => {
@@ -515,10 +502,10 @@ export function useAudioEngine() {
     media.addEventListener('timeupdate', onTimeUpdate); media.addEventListener('ended', onEnded); media.addEventListener('error', onError)
     setAudioSessionType(); addLog('permanent audio element ready (same-element handoff)')
     return () => {
-      stopRaf(); transitionTokenRef.current+=1; media.pause(); media.removeAttribute('src'); media.load(); media.remove(); mediaRef.current=null
+      transitionTokenRef.current+=1; media.pause(); media.removeAttribute('src'); media.load(); media.remove(); mediaRef.current=null
       if (anchorUrlRef.current) URL.revokeObjectURL(anchorUrlRef.current); if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
     }
-  }, [ensureAnchor, handleTrackEnd, setDuration, setPlaying, setCurrentTime, startVideoFrames, stopRaf])
+  }, [ensureAnchor, handleTrackEnd, setDuration, setPlaying, setCurrentTime])
 
   useEffect(() => { const t=queue[currentTrackIndex]; if(!t) return; if (t.mediaType==='video') attachVideo(blobUrlRef.current||''); else detachVideo() }, [currentTrackIndex, queue])
 
@@ -526,7 +513,6 @@ export function useAudioEngine() {
     const onVis = () => {
       addLog(`visibility -> ${document.visibilityState} owner=${ownerRef.current} kind=${sourceKindRef.current} pending=${pendingAnchorPosRef.current} lock=${getLockPlaybackState(sourceKindRef.current as 'track'|'anchor')}`)
       if (document.visibilityState==='hidden') {
-        stopRaf();
         // Pending in-app pause: do real anchor swap while hidden (hidden-created anchor shows > correctly)
         if (pendingAnchorPosRef.current !== null) {
           const pos = pendingAnchorPosRef.current
@@ -595,14 +581,16 @@ export function useAudioEngine() {
         return
       }
       if (ownerRef.current==='track' && m && !m.paused) {
-        // App switcher: video paused while hidden, audio continued — seek video to audio on return (fix ahead)
+        // Leave-app recalibration only: video paused while hidden, audio continued.
+        // No continuous sync (VideoSyncController removed — it caused stutter/seek storms).
+        // On return, one drift>0.15 seek re-aligns video to audio; otherwise they stay in sync.
         if (isVideo && v && v.src) {
           const drift = Math.abs(v.currentTime - m.currentTime)
           if (drift > 0.15) {
             try { v.currentTime = m.currentTime; addLog(`visible video seek to audio ${m.currentTime.toFixed(2)} drift ${drift.toFixed(2)}`) } catch {}
           }
           if (v.paused) { v.muted = true; v.play().catch(() => addLog('visible video fallback disabled')) }
-        } else if (!isVideo) startVideoFrames()
+        }
         publishPosition(m.duration || trackDurationRef.current, m.currentTime, 1)
         try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = getLockPlaybackState('track') } catch {}
         addLog(`visible track playing seek synced`)
@@ -611,7 +599,7 @@ export function useAudioEngine() {
     const onPageShow = (e: PageTransitionEvent) => { setAudioSessionType(); addLog(`pageshow${(e as unknown as { persisted?: boolean }).persisted?' (bfcache)':''}`) }
     document.addEventListener('visibilitychange', onVis); window.addEventListener('pageshow', onPageShow as EventListener)
     return () => { document.removeEventListener('visibilitychange', onVis); window.removeEventListener('pageshow', onPageShow as EventListener) }
-  }, [startVideoFrames, stopRaf])
+  }, [activateSource, ensureAnchor, setPlaying])
 
   useEffect(() => { if (currentTrack && queue.length>0) { void loadTrack(currentTrackIndex); setLoadForce(0) } }, [currentTrackIndex, loadForce])
   useEffect(() => { if (mediaRef.current) mediaRef.current.volume = isMuted ? 0 : volume }, [volume, isMuted])
