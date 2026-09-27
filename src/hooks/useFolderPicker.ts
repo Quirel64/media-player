@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import type { Track } from '../lib/types'
-import { saveTracks, getAllTracks, savePlaylist, resetDB, deleteTrack, getPlaylist, getStorageEstimate, saveTrackFile, clearTrackFiles, deleteTrackFile, debugTrackFiles } from '../lib/idb'
+import { saveTracks, getAllTracks, savePlaylist, resetDB, deleteTrack, getPlaylist, getAllPlaylists, getStorageEstimate, saveTrackFile, clearTrackFiles, deleteTrackFile, debugTrackFiles } from '../lib/idb'
 import { generateTrackId } from '../lib/shuffle'
 import { usePlayerStore } from '../stores/playerStore'
 import { addLog } from '../lib/logger'
@@ -169,6 +169,36 @@ async function processFiles(
   return tracks
 }
 
+// Phase 1a: prune deleted trackIds from EVERY playlist copy (including the
+// 'library' tracks[]/items[] snapshots) + resequence order IDs so future
+// reorder/sort has stable sequential orders. Best-effort: never throws.
+async function prunePlaylistsForDeletedTrackIds(deletedIds: Set<string>): Promise<number> {
+  if (deletedIds.size === 0) return 0
+  try {
+    const all = await getAllPlaylists()
+    let pruned = 0
+    for (const pl of all) {
+      const beforeItems = pl.items.length
+      const beforeTracks = Array.isArray(pl.tracks) ? pl.tracks.length : 0
+      pl.items = (pl.items ?? []).filter((it) => !deletedIds.has(it.trackId))
+      if (Array.isArray(pl.tracks) && pl.tracks.length > 0) {
+        pl.tracks = pl.tracks.filter((t) => !deletedIds.has(t.id))
+      }
+      if (pl.items.length !== beforeItems || (Array.isArray(pl.tracks) ? pl.tracks.length : 0) !== beforeTracks) {
+        pl.items.forEach((it, idx) => { it.order = idx })
+        pl.updatedAt = Date.now()
+        await savePlaylist(pl)
+        pruned += (beforeItems - pl.items.length) + (beforeTracks - (Array.isArray(pl.tracks) ? pl.tracks.length : 0))
+      }
+    }
+    if (pruned > 0) addLog(`pruned ${pruned} deleted refs from playlists`)
+    return pruned
+  } catch (e) {
+    addLog(`prune playlists failed: ${e}`)
+    return 0
+  }
+}
+
 export function useFolderPicker() {
   const setQueue = usePlayerStore((s) => s.setQueue)
   const setOriginalOrder = usePlayerStore((s) => s.setOriginalOrder)
@@ -286,6 +316,9 @@ export function useFolderPicker() {
   const removeTrack = useCallback(async (track: Track) => {
     await deleteTrackFile(track.fileName)
     await deleteTrack(track.id)
+    // Phase 1a: transactional delete — also prune library copy + all playlist refs
+    // so deleted metadata can't resurrect on reload (dud stacking).
+    await prunePlaylistsForDeletedTrackIds(new Set([track.id]))
     // Update queue
     const { queue, currentTrackIndex, originalOrder } = usePlayerStore.getState()
     const newQueue = queue.filter((t) => t.id !== track.id)
@@ -307,6 +340,9 @@ export function useFolderPicker() {
       await deleteTrackFile(track.fileName)
       await deleteTrack(track.id)
     }
+    // Phase 1a: transactional delete — also prune library copy + all playlist refs
+    // so deleted metadata can't resurrect on reload (dud stacking).
+    await prunePlaylistsForDeletedTrackIds(new Set(tracks.map((t) => t.id)))
     const removedIds = new Set(tracks.map((t) => t.id))
     const { queue, currentTrackIndex, originalOrder } = usePlayerStore.getState()
     const newQueue = queue.filter((t) => !removedIds.has(t.id))

@@ -180,25 +180,12 @@ export default function App() {
   }, [pickFiles])
 
   const handleRemoveTracks = useCallback(async (tracks: Track[]) => {
+    // Phase 1a: removeTracks() now prunes library copy + playlist refs itself
+    // (transactional delete) — here we just refresh library + playlist views.
     await removeTracks(tracks)
     const all = await getAllTracks()
     setLibraryTracks(all)
-    // Cleanup playlists: remove items referencing deleted trackIds
-    const allPlaylists = await getAllPlaylists()
-    let changed = false
-    for (const pl of allPlaylists) {
-      if (pl.id === 'library') continue
-      const before = pl.items.length
-      const deletedIds = new Set(tracks.map(t => t.id))
-      pl.items = pl.items.filter(it => !deletedIds.has(it.trackId))
-      if (pl.items.length !== before) {
-        pl.items.forEach((it, idx) => { it.order = idx })
-        pl.updatedAt = Date.now()
-        await savePlaylist(pl)
-        changed = true
-      }
-    }
-    if (changed) await refreshPlaylists()
+    await refreshPlaylists()
   }, [removeTracks, refreshPlaylists])
 
   const handleAddToPlaylist = useCallback((tracks: Track[]) => {
