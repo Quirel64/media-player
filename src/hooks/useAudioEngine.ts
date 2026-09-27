@@ -1,6 +1,6 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
 import { usePlayerStore } from '../stores/playerStore'
-import type { Track } from '../lib/types'
+import { queueKey } from '../lib/queue'
 import { getTrackFileURL } from '../lib/idb'
 import { showError } from '../components/ui/Toast'
 import { addLog } from '../lib/logger'
@@ -419,7 +419,7 @@ export function useAudioEngine() {
     if (!url) { showError(`File not found: ${track.fileName}`); return }
     blobUrlRef.current = url
     const el = mediaRef.current; if (!el) return
-    const instanceId = (track as Track & { instanceId?: string }).instanceId ?? track.id
+    const instanceId = queueKey(track)
     // Every tap is fresh — always reset time/duration even for same fileName dupes
     setCurrentTime(0); setDuration(0); trackDurationRef.current = 0
     // If media element already has the same src, onLoadedMetadata won't re-fire, so read duration directly

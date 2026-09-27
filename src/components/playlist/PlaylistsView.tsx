@@ -13,9 +13,12 @@ interface Props {
   onDeletePlaylist: (id: string) => void
   onRemoveFromPlaylist?: (playlistId: string, itemIds: string[]) => Promise<void>
   currentTrackId?: string | null
+  // Phase 3: occurrence-aware highlight — matches the exact queue occurrence
+  // (playlist item id), so twin entries no longer light up together.
+  currentQueueKey?: string | null
 }
 
-export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist, onDeletePlaylist, onRemoveFromPlaylist, currentTrackId }: Props) {
+export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist, onDeletePlaylist, onRemoveFromPlaylist, currentTrackId, currentQueueKey }: Props) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [activeTracks, setActiveTracks] = useState<Track[]>([])
   const [showCreate, setShowCreate] = useState(false)
@@ -160,7 +163,11 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
               {activeTracks.map((t, idx) => {
                 const itemId = active.items[idx]?.id ?? t.id
                 const isSelected = selectedItemIds.has(itemId)
-                const isPlaying = !editMode && currentTrackId === t.id
+                // Occurrence-aware: only the exact playing occurrence lights up.
+                // Falls back to track-id match when queueKey unavailable (e.g. tests).
+                const isPlaying = !editMode && (currentQueueKey != null
+                  ? itemId === currentQueueKey
+                  : currentTrackId === t.id)
                 return (
                   <div key={`${itemId}-${idx}`} onClick={() => editMode ? toggleSelect(itemId) : onForcePlayPlaylist(active.id, idx)} className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 ${editMode && isSelected ? 'bg-primary/20' : isPlaying ? 'bg-primary/20 text-primary-light' : 'hover:bg-slate-800/50 text-slate-300'}`}>
                     <div className="flex w-8 items-center justify-center">

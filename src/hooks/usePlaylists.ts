@@ -1,6 +1,7 @@
 import { useCallback, useState, useEffect } from 'react'
 import type { Track, Playlist } from '../lib/types'
 import { getAllPlaylists, getPlaylist, savePlaylist, deletePlaylist, createPlaylistItem, getAllTracks } from '../lib/idb'
+import { toQueueItem } from '../lib/queue'
 import { usePlayerStore } from '../stores/playerStore'
 import { showError, showSuccess } from '../components/ui/Toast'
 import { addLog } from '../lib/logger'
@@ -89,7 +90,7 @@ export function usePlaylists() {
     const resolved: Track[] = []
     for (const item of pl.items) {
       const t = trackMap.get(item.trackId)
-      if (t) resolved.push({ ...t, instanceId: item.id })
+      if (t) resolved.push(toQueueItem(t, item.id))
     }
     if (resolved.length === 0) { showError('No tracks found for playlist'); return }
     const { setQueue, setOriginalOrder, setCurrentTrackIndex, setPlaying } = usePlayerStore.getState()
