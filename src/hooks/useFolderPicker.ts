@@ -51,7 +51,15 @@ async function processFiles(
   const folderName =
     mediaFiles[0].webkitRelativePath?.split('/')[0] || 'Selected Files'
 
-  const existingNames = new Set<string>(existingQueue.map((t) => t.fileName))
+  // Phase 1c: canonical base — NEVER build on the transient Zustand queue.
+  // That queue may currently be a playlist (full of instanceId occurrences) or
+  // stale relative to IDB; persisting it baked queue leaks into TRACKS_STORE
+  // (the old dud-stacking path). canonicalBase is also already createdAt-sorted.
+  void existingQueue
+  const canonicalBase = (await getAllTracks().catch(() => [] as Track[]))
+    .filter((t) => !t.instanceId || t.instanceId === t.id)
+    .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
+  const existingNames = new Set<string>(canonicalBase.map((t) => t.fileName))
   // Map from uniqueFileName back to original File for duration lookup
   const fileMap = new Map<string, File>()
 
@@ -83,16 +91,37 @@ async function processFiles(
 
   // Persist metadata immediately with duration 0 so a force-close during
   // duration probing (which can take N*5s) does not lose the entire batch.
-  const combinedEarly = [...existingQueue, ...tracks]
+  // Stable library order IDs: keep surviving item UUIDs (future reorder/sort
+  // depends on them), mint once for newcomers and reuse in the final save.
+  const combinedEarly = [...canonicalBase, ...tracks]
   await saveTracks(combinedEarly)
+  const prevLib = await getPlaylist('library').catch(() => undefined)
+  const itemIdByTrack = new Map<string, { id: string; addedAt: number }>()
+  for (const it of prevLib?.items ?? []) {
+    if (!itemIdByTrack.has(it.trackId)) itemIdByTrack.set(it.trackId, { id: it.id, addedAt: it.addedAt })
+  }
+  {
+    const nowEarly = Date.now()
+    for (const t of combinedEarly) {
+      if (!itemIdByTrack.has(t.id)) itemIdByTrack.set(t.id, { id: crypto.randomUUID(), addedAt: nowEarly + itemIdByTrack.size })
+    }
+  }
+  const toLibraryItems = (list: Track[]) => {
+    const now = Date.now()
+    return list.map((t, idx) => {
+      const kept = itemIdByTrack.get(t.id)
+      return kept
+        ? { id: kept.id, trackId: t.id, order: idx, addedAt: kept.addedAt }
+        : { id: crypto.randomUUID(), trackId: t.id, order: idx, addedAt: now + idx }
+    })
+  }
   try {
-    const existingPlaylistEarly = await getPlaylist('library')
     await savePlaylist({
       id: 'library',
       name: 'Library',
       tracks: combinedEarly,
-      items: combinedEarly.map((t, idx) => ({ id: crypto.randomUUID(), trackId: t.id, order: idx, addedAt: Date.now() + idx })),
-      createdAt: existingPlaylistEarly?.createdAt ?? Date.now(),
+      items: toLibraryItems(combinedEarly),
+      createdAt: prevLib?.createdAt ?? Date.now(),
       updatedAt: Date.now(),
     })
   } catch { /* playlist is secondary; tracks store is source of truth */ }
@@ -129,19 +158,19 @@ async function processFiles(
     }
   }
 
-  const combined = [...existingQueue, ...tracks]
+  const combined = [...canonicalBase, ...tracks]
 
   // Save updated durations if any changed (second durable write)
   await saveTracks(combined)
 
-  // Use a consistent ID so the library playlist gets updated, not duplicated
-  const existingPlaylist = await getPlaylist('library')
+  // Library snapshot reuses the SAME item IDs minted above (no churn).
+  const existingPlaylist = await getPlaylist('library').catch(() => undefined)
   const playlist = {
     id: 'library',
     name: 'Library',
     tracks: combined,
-    items: combined.map((t, idx) => ({ id: crypto.randomUUID(), trackId: t.id, order: idx, addedAt: Date.now() + idx })),
-    createdAt: existingPlaylist?.createdAt ?? Date.now(),
+    items: toLibraryItems(combined),
+    createdAt: existingPlaylist?.createdAt ?? prevLib?.createdAt ?? Date.now(),
     updatedAt: Date.now(),
   }
   await savePlaylist(playlist as unknown as import('../lib/types').Playlist)
@@ -164,7 +193,7 @@ async function processFiles(
 
   setQueue(combined)
   setOriginalOrder(combined)
-  setCurrentTrackIndex(existingQueue.length)
+  setCurrentTrackIndex(canonicalBase.length)
 
   return tracks
 }
