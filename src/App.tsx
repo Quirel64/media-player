@@ -195,6 +195,8 @@ export default function App() {
             onPickFiles={handlePickFiles}
             onRemoveTracks={handleRemoveTracks}
             onAddToPlaylist={handleAddToPlaylist}
+            queueIsLibrary={isLibraryQueue(queue, libraryTracks)}
+            currentTrackId={currentTrack?.id ?? null}
           />
         )
       case 'playlists':

@@ -14,14 +14,20 @@ interface Props {
   onPickFiles: () => void
   onRemoveTracks?: (tracks: Track[]) => void
   onAddToPlaylist?: (tracks: Track[]) => void
+  // False while a playlist is playing: highlights become "source" dots and
+  // group taps still resolve through the same queue helpers.
+  queueIsLibrary?: boolean
+  currentTrackId?: string | null
 }
 
-export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist }: Props) {
+export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, queueIsLibrary = true, currentTrackId = null }: Props) {
   const [mode, setMode] = useState<'groups' | 'queue'>('groups')
   const [search, setSearch] = useState('')
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
   const [queueSelectMode, setQueueSelectMode] = useState(false)
   const [queueSelectAllTrigger, setQueueSelectAllTrigger] = useState(0)
+  const [queueSelectClearTrigger, setQueueSelectClearTrigger] = useState(0)
+  const [queueSelectAllOn, setQueueSelectAllOn] = useState(false)
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
 
   const grouped = useMemo(() => groupTracks(tracks, { minGroupSize: 2 }), [tracks])
@@ -71,8 +77,12 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
     return <TrackList tracks={tracks} currentTrackIndex={currentTrackIndex} onSelectTrack={onSelectTrack} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} />
   }
 
-  // Group detail view
+  // Group detail view — reuses TrackList so groups get the same Select /
+  // Add-to-playlist / Delete powers (and the same indicator) as Queue mode.
   if (activeGroup) {
+    const detailCurrentIdx = currentTrackId
+      ? activeGroup.tracks.findIndex((t) => t.id === currentTrackId)
+      : -1
     return (
       <div className="flex h-full flex-col">
         <div className="flex items-center gap-3 border-b border-slate-800 px-4 py-3">
@@ -82,21 +92,18 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
             <p className="text-xs text-slate-400">{activeGroup.tracks.length} tracks • {activeGroup.reason.split(' score')[0]}</p>
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto p-2">
-          {activeGroup.tracks.map((t) => {
-            const qIdx = tracks.findIndex((x) => x.id === t.id)
-            const isPlaying = qIdx === currentTrackIndex
-            return (
-              <div key={t.id} onClick={() => handleSelectInGroup(t)} className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 ${isPlaying ? 'bg-primary/20 text-primary-light' : 'hover:bg-slate-800/50 text-slate-300'}`}>
-                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded bg-slate-800 text-xs">{t.mediaType === 'video' ? '🎬' : '🎵'}</div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm">{t.name}</p>
-                  <p className="truncate text-xs text-slate-500">{t.artist !== 'Unknown Artist' ? t.artist : t.folderName} • {(t.duration ? `${Math.floor(t.duration/60)}:${String(Math.floor(t.duration%60)).padStart(2,'0')}` : '--:--')}</p>
-                </div>
-                {isPlaying && <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />}
-              </div>
-            )
-          })}
+        <div className="flex-1 overflow-hidden">
+          <TrackList
+            tracks={activeGroup.tracks}
+            currentTrackIndex={detailCurrentIdx}
+            onSelectTrack={(gi) => { const t = activeGroup.tracks[gi]; if (t) handleSelectInGroup(t) }}
+            onPickFolder={onPickFolder}
+            onPickFiles={onPickFiles}
+            onRemoveTracks={onRemoveTracks}
+            onAddToPlaylist={onAddToPlaylist}
+            hideHeader
+            currentIsSource={!queueIsLibrary}
+          />
         </div>
       </div>
     )
@@ -113,10 +120,23 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
           </div>
           <div className="flex items-center gap-2">
             {mode === 'queue' && queueSelectMode && (
-              <button onClick={() => setQueueSelectAllTrigger(v => v + 1)} className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300">Select All</button>
+              <button
+                onClick={() => {
+                  if (queueSelectAllOn) {
+                    setQueueSelectClearTrigger(v => v + 1)
+                    setQueueSelectAllOn(false)
+                  } else {
+                    setQueueSelectAllTrigger(v => v + 1)
+                    setQueueSelectAllOn(true)
+                  }
+                }}
+                className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300"
+              >
+                {queueSelectAllOn ? 'Clear' : 'Select All'}
+              </button>
             )}
             {mode === 'queue' && (
-              <button onClick={() => setQueueSelectMode(v => !v)} className={`rounded-lg px-3 py-1.5 text-xs font-medium ${queueSelectMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}>{queueSelectMode ? 'Done' : 'Select'}</button>
+              <button onClick={() => { setQueueSelectMode(v => !v); setQueueSelectAllOn(false) }} className={`rounded-lg px-3 py-1.5 text-xs font-medium ${queueSelectMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}>{queueSelectMode ? 'Done' : 'Select'}</button>
             )}
             <div className="flex items-center gap-1 rounded-full bg-slate-800 p-1">
               <button onClick={() => setMode('groups')} className={`rounded-full px-3 py-1 text-xs font-medium ${mode === 'groups' ? 'bg-primary text-white' : 'text-slate-400'}`}>Groups</button>
@@ -141,7 +161,7 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
 
       {mode === 'queue' ? (
         <div className="flex-1 overflow-hidden">
-          <TrackList tracks={tracks} currentTrackIndex={currentTrackIndex} onSelectTrack={onSelectTrack} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} hideHeader externalSelectMode={queueSelectMode} onExternalSelectModeChange={setQueueSelectMode} selectAllTrigger={queueSelectAllTrigger} />
+          <TrackList tracks={tracks} currentTrackIndex={currentTrackIndex} onSelectTrack={onSelectTrack} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} hideHeader externalSelectMode={queueSelectMode} onExternalSelectModeChange={(v) => { setQueueSelectMode(v); if (!v) setQueueSelectAllOn(false) }} selectAllTrigger={queueSelectAllTrigger} selectClearTrigger={queueSelectClearTrigger} currentIsSource={!queueIsLibrary} />
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-3">

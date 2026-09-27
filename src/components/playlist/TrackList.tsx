@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { Track } from '../../lib/types'
+import { PlayingIndicator } from '../ui/PlayingIndicator'
 
 interface TrackListProps {
   tracks: Track[]
@@ -13,6 +14,10 @@ interface TrackListProps {
   externalSelectMode?: boolean
   onExternalSelectModeChange?: (v: boolean) => void
   selectAllTrigger?: number
+  selectClearTrigger?: number
+  // When true the highlighted row is the library source of a playlist
+  // occurrence playing elsewhere (muted dot, not the pulsing one).
+  currentIsSource?: boolean
 }
 
 function formatDuration(seconds: number): string {
@@ -27,7 +32,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
+export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger, selectClearTrigger, currentIsSource }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
   const [internalSelectMode, setInternalSelectMode] = useState(false)
   const selectMode = externalSelectMode !== undefined ? externalSelectMode : internalSelectMode
   const setSelectMode = (v: boolean | ((prev: boolean) => boolean)) => {
@@ -41,6 +46,11 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
       setSelectedIds(new Set(tracks.map(t => t.id)))
     }
   }, [selectAllTrigger, tracks])
+  useEffect(() => {
+    if (selectClearTrigger && selectClearTrigger > 0) {
+      setSelectedIds(new Set())
+    }
+  }, [selectClearTrigger])
 
   const toggleSelect = (trackId: string) => {
     setSelectedIds((prev) => {
@@ -204,11 +214,7 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
                       )}
                     </div>
                   ) : index === currentTrackIndex ? (
-                    <motion.div
-                      animate={{ scale: [1, 1.2, 1] }}
-                      transition={{ repeat: Infinity, duration: 1.5 }}
-                      className="h-4 w-4 rounded-full bg-primary"
-                    />
+                    <PlayingIndicator variant={currentIsSource ? 'source' : 'playing'} />
                   ) : (
                     <span className="text-sm text-slate-500">{index + 1}</span>
                   )}

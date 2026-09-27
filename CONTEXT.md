@@ -243,3 +243,12 @@ All core functionality verified on iOS 26.2 PWA + Windows:
 9. making the group play in the groups order instead of the queue. (once playlists are implemented.)
 10. allowing users to modify the order of the queue in a playlist or in the library queue mode.
 
+## Cleanup Phases — DONE 2026-09-27 (C, 1a/1b/1c, 3; Phase 4 struck off)
+Verified on iPhone 12 (Safari-web + standalone PWA, separate IDB stores) + Windows laptop:
+- **C**: `App.tsx` static idb imports (kills `INEFFECTIVE_DYNAMIC_IMPORT`); deleted dead `VideoSyncController` (`videoSync.ts`, ~5.6kB saved). Video stays in sync via leave-app-only recalibration (`drift>0.15` seek on visible). Two follow-up video fixes: anchor swap no longer loads silent WAV into `<video>` (black-screen on pause-outside); anchor→track resume skips `v.load()` when src already correct + pre-seeks (flash/black/resync on unpause).
+- **1a transactional delete**: `prunePlaylistsForDeletedTrackIds()` removes deleted ids from EVERY playlist copy incl. `library` + resequences `order`; `App.handleRemoveTracks` simplified. Kills dud resurrection.
+- **1b boot reconcile + truthful readout**: `loadSavedTracks` purges queue-leak metadata, missing-blob ghosts, orphan blobs; repairs `library` snapshot with STABLE item IDs; `getTruthfulStorageReport()` (Track.size sum, no blob reads) + Check Storage logs real MB. Finding: `estimate()` lies on iOS (0.57MB for a real 1.1GB library — WebKit doesn't count File blobs); Safari Settings webdata is ground truth. Stable: 0.0→1088.3→0.0MB, docs-and-data residue ~25–65MB Safari overhead.
+- **1c canonical uploads**: `processFiles` builds on `getAllTracks()` (instanceIds stripped, createdAt-sorted), never the transient queue; library items keep stable UUIDs across early/final saves. Playlist of 4 refs adds 0 bytes; re-upload doubles 57→114 tracks / 1088→2176MB exactly.
+- **3 queue/library split**: `src/lib/queue.ts` (`queueKey`, `toQueueItem`, `isLibraryQueue`, `findQueueIndexByKey`); App dud-filters deleted (~40 lines); occurrence-aware playlist indicator (twins no longer co-light); shared `PlayingIndicator` (playing pulse vs source muted dot); group detail reuses `TrackList` (Select/Add/Delete parity); Select All↔Clear toggle.
+- **Phase 4 (storage health) STRUCK OFF**: needs nothing — deletes free device storage (1.1GB reclaimed), no stacking across 4 upload/delete rounds, per-version stores confirmed separate. `requestPersistentStorage`/probing batches left as-is.
+

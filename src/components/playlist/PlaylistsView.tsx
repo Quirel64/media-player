@@ -5,6 +5,7 @@ import { getAllTracks } from '../../lib/idb'
 import { getTrackFile } from '../../lib/idb'
 import { getTrackThumbnail } from '../../lib/thumbnail'
 import { showError } from '../ui/Toast'
+import { PlayingIndicator } from '../ui/PlayingIndicator'
 
 interface Props {
   playlists: Playlist[]
@@ -182,7 +183,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
                       <p className="truncate text-sm">{t.name}</p>
                       <p className="truncate text-xs text-slate-500">{t.artist !== 'Unknown Artist' ? t.artist : t.folderName}</p>
                     </div>
-                    {isPlaying && <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />}
+                    {isPlaying && <PlayingIndicator variant="playing" />}
                   </div>
                 )
               })}
@@ -201,8 +202,12 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
             <div className="grid grid-cols-2 gap-3">
 {activeTracks.map((t, idx) => {
                 const thumb = thumbs[t.fileName]
+                const gridPlaying = currentQueueKey != null
+                  ? active.items[idx]?.id === currentQueueKey
+                  : currentTrackId === t.id
                 return (
-                  <button key={`${active.items[idx]?.id ?? t.id}-${idx}`} onClick={() => onForcePlayPlaylist(active.id, idx)} className="flex flex-col overflow-hidden rounded-lg bg-slate-900 text-left">
+                  <button key={`${active.items[idx]?.id ?? t.id}-${idx}`} onClick={() => onForcePlayPlaylist(active.id, idx)} className="relative flex flex-col overflow-hidden rounded-lg bg-slate-900 text-left">
+                    {gridPlaying && <span className="absolute right-2 top-2 z-10"><PlayingIndicator variant="playing" /></span>}
                     <div className="flex h-28 items-center justify-center overflow-hidden bg-slate-800">
                       {thumb ? <img src={thumb} alt="" className="h-full w-full object-cover" loading="lazy" /> : <span className="text-2xl">{t.mediaType === 'video' ? '🎬' : '🎵'}</span>}
                     </div>
