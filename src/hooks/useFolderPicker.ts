@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import type { Track } from '../lib/types'
-import { saveTracks, getAllTracks, savePlaylist, resetDB, deleteTrack, getPlaylist, getAllPlaylists, getStorageEstimate, saveTrackFile, clearTrackFiles, deleteTrackFile, debugTrackFiles } from '../lib/idb'
+import { saveTracks, getAllTracks, savePlaylist, resetDB, deleteTrack, getPlaylist, getAllPlaylists, getAllFileBlobNames, getStorageEstimate, saveTrackFile, clearTrackFiles, deleteTrackFile, debugTrackFiles } from '../lib/idb'
 import { generateTrackId } from '../lib/shuffle'
 import { usePlayerStore } from '../stores/playerStore'
 import { addLog } from '../lib/logger'
@@ -262,34 +262,125 @@ export function useFolderPicker() {
   }, [setQueue, setOriginalOrder, setCurrentTrackIndex])
 
   const loadSavedTracks = useCallback(async (): Promise<Track[]> => {
-    // Prefer playlist 'library' which preserves exact insertion order (append batches).
-    // Fallback to getAllTracks sorted by createdAt (UUID key order would scatter).
-    let tracks: Track[] = []
+    // Phase 1b boot reconcile: TRACKS_STORE is canonical. Purges dud metadata
+    // (persisted instanceId queue leaks, missing-blob ghosts from pre-1a deletes),
+    // frees orphan blobs, and repairs the 'library' snapshot copy (stable item IDs
+    // preserved so future reorder/sort keeps working). PWA and Safari-web keep
+    // SEPARATE IDB stores on iOS — each reconciles its own.
     try {
-      const lib = await getPlaylist('library')
-      if (lib && Array.isArray(lib.tracks) && lib.tracks.length > 0) {
-        tracks = lib.tracks
-        // Backfill createdAt for old tracks missing it
-        let needsBackfill = false
-        for (const t of tracks) {
-          if (typeof (t as unknown as { createdAt?: number }).createdAt !== 'number') {
-            ;(t as unknown as { createdAt: number }).createdAt = Date.now()
-            needsBackfill = true
-          }
+      const [all, lib, blobNames] = await Promise.all([
+        getAllTracks().catch(() => [] as Track[]),
+        getPlaylist('library').catch(() => undefined),
+        getAllFileBlobNames().catch(() => [] as string[]),
+      ])
+      const blobSet = new Set(blobNames)
+
+      // 1. Classify canonical tracks
+      const leaked: Track[] = [] // instanceId objects that must never persist
+      const validByName = new Map<string, Track>()
+      const valid: Track[] = []
+      for (const t of all) {
+        if (t.instanceId && t.instanceId !== t.id) { leaked.push(t); continue }
+        if (!blobSet.has(t.fileName)) continue // missing-blob ghost (handled below)
+        valid.push(t)
+        if (!validByName.has(t.fileName)) validByName.set(t.fileName, t)
+      }
+      // Missing-blob duds: metadata in TRACKS_STORE with no file (pre-1a ghosts)
+      const validIds = new Set(valid.map((t) => t.id))
+      const ghosts = all.filter((t) => !validIds.has(t.id) && !(t.instanceId && t.instanceId !== t.id))
+
+      // 2. Purge dud metadata (never delete a blob still referenced by a valid track —
+      // legacy duds can share fileName with the good copy)
+      for (const d of [...leaked, ...ghosts]) {
+        try { await deleteTrack(d.id) } catch { /* best-effort */ }
+        if (!validByName.has(d.fileName)) {
+          try { await deleteTrackFile(d.fileName) } catch { /* already gone */ }
         }
-        if (needsBackfill) await saveTracks(tracks)
+      }
+
+      // 3. Free orphan blobs (file with no valid track referencing it)
+      let orphanCount = 0
+      for (const name of blobNames) {
+        if (!validByName.has(name)) {
+          try { await deleteTrackFile(name); orphanCount++ } catch { /* best-effort */ }
+        }
+      }
+
+      // 4. Repair library snapshot: tracks[] = valid in createdAt order; items keep
+      // stable IDs for surviving trackIds (no UUID churn), new IDs only for newcomers.
+      const ordered = [...valid].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
+      const orderedIds = ordered.map((t) => t.id).join(',')
+      const prevIds = Array.isArray(lib?.tracks) ? lib!.tracks.map((t) => t.id).join(',') : null
+      const existingItemByTrack = new Map<string, { id: string; addedAt: number }>()
+      for (const it of lib?.items ?? []) {
+        if (!existingItemByTrack.has(it.trackId)) {
+          existingItemByTrack.set(it.trackId, { id: it.id, addedAt: it.addedAt })
+        }
+      }
+      const needsRepair =
+        prevIds !== orderedIds ||
+        (lib?.items.length ?? -1) !== ordered.length ||
+        (lib ? lib.items.some((it) => !validIds.has(it.trackId)) : ordered.length > 0)
+      if (needsRepair) {
+        const now = Date.now()
+        const items = ordered.map((t, idx) => {
+          const kept = existingItemByTrack.get(t.id)
+          return kept
+            ? { id: kept.id, trackId: t.id, order: idx, addedAt: kept.addedAt }
+            : { id: crypto.randomUUID(), trackId: t.id, order: idx, addedAt: now + idx }
+        })
+        await savePlaylist({
+          id: 'library',
+          name: 'Library',
+          tracks: ordered,
+          items,
+          createdAt: lib?.createdAt ?? now,
+          updatedAt: now,
+        })
+      }
+      // Backfill createdAt for very old tracks missing it
+      let needsBackfill = false
+      for (const t of ordered) {
+        if (typeof (t as unknown as { createdAt?: number }).createdAt !== 'number') {
+          ;(t as unknown as { createdAt: number }).createdAt = Date.now()
+          needsBackfill = true
+        }
+      }
+      if (needsBackfill && ordered.length > 0) await saveTracks(ordered)
+
+      if (leaked.length + ghosts.length + orphanCount > 0 || needsRepair) {
+        addLog(`reconcile: ${all.length}→${ordered.length} valid (${leaked.length} queue-leaks, ${ghosts.length} missing-blob duds purged, ${orphanCount} orphan blobs freed${needsRepair ? ', library repaired' : ''})`)
       } else {
+        addLog(`reconcile ok: ${ordered.length} tracks, library in sync`)
+      }
+
+      if (ordered.length > 0) {
+        setQueue(ordered)
+        setOriginalOrder(ordered)
+        setCurrentTrackIndex(0)
+      }
+      return ordered
+    } catch (e) {
+      addLog(`reconcile failed, fallback: ${e}`)
+      // Fallback: legacy path (library copy, then createdAt-sorted tracks)
+      let tracks: Track[] = []
+      try {
+        const lib = await getPlaylist('library')
+        if (lib && Array.isArray(lib.tracks) && lib.tracks.length > 0) {
+          tracks = lib.tracks.filter((t) => !t.instanceId || t.instanceId === t.id)
+        } else {
+          tracks = await getAllTracks()
+        }
+      } catch {
         tracks = await getAllTracks()
       }
-    } catch {
-      tracks = await getAllTracks()
+      if (tracks.length > 0) {
+        setQueue(tracks)
+        setOriginalOrder(tracks)
+        setCurrentTrackIndex(0)
+      }
+      return tracks
     }
-    if (tracks.length > 0) {
-      setQueue(tracks)
-      setOriginalOrder(tracks)
-      setCurrentTrackIndex(0)
-    }
-    return tracks
   }, [setQueue, setOriginalOrder, setCurrentTrackIndex])
 
   const clearAll = useCallback(async () => {

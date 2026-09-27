@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { getLogs, subscribeLogs, clearLogs, addLog } from '../../lib/logger'
 import { usePlayerStore } from '../../stores/playerStore'
 import { groupTracks, describeGroups } from '../../lib/group'
-import { getStorageEstimate } from '../../lib/idb'
+import { getStorageEstimate, getTruthfulStorageReport } from '../../lib/idb'
 
 export function EventLog() {
   const [entries, setEntries] = useState<string[]>(() => getLogs())
@@ -19,13 +19,23 @@ export function EventLog() {
   }
 
   const runStorageCheck = async () => {
-    const est = await getStorageEstimate()
-    if (est) {
-      const usageMB = (est.usage / (1024 * 1024)).toFixed(2)
-      const quotaMB = (est.quota / (1024 * 1024)).toFixed(0)
-      addLog(`storage estimate: usage=${usageMB}MB quota=${quotaMB}MB`)
-    } else {
-      addLog('storage estimate: not available')
+    // estimate() under-reports on iOS (shows ~0.6MB for a real 1.1GB library),
+    // so report metadata-byte sum (matches Safari Settings webdata) alongside it.
+    try {
+      const rep = await getTruthfulStorageReport()
+      const realMB = (rep.metadataBytes / (1024 * 1024)).toFixed(1)
+      const estMB = rep.estimateUsage != null ? (rep.estimateUsage / (1024 * 1024)).toFixed(2) : '?'
+      const quotaMB = rep.estimateQuota != null ? (rep.estimateQuota / (1024 * 1024)).toFixed(0) : '?'
+      addLog(`storage real: ${realMB}MB across ${rep.trackCount} tracks / ${rep.blobCount} blobs (estimate()=${estMB}MB of ${quotaMB}MB — iOS under-counts, trust the real figure)`)
+    } catch (e) {
+      const est = await getStorageEstimate()
+      if (est) {
+        const usageMB = (est.usage / (1024 * 1024)).toFixed(2)
+        const quotaMB = (est.quota / (1024 * 1024)).toFixed(0)
+        addLog(`storage estimate: usage=${usageMB}MB quota=${quotaMB}MB`)
+      } else {
+        addLog(`storage check failed: ${e}`)
+      }
     }
     try { await (window as any).debugTrackFiles?.() } catch {}
   }

@@ -218,6 +218,35 @@ export async function getStorageEstimate(): Promise<{ usage: number; quota: numb
   return null
 }
 
+// Phase 1b: truthful readout. navigator.storage.estimate() severely under-reports
+// on iOS Safari/PWA (0.57MB shown for a real 1.1GB library — WebKit doesn't count
+// IndexedDB File blobs). Track.size metadata sum needs no blob reads (safe on
+// iPhone 12 with 57+ tracks) and matches Safari Settings webdata.
+export interface StorageReport {
+  trackCount: number
+  blobCount: number
+  metadataBytes: number
+  estimateUsage: number | null
+  estimateQuota: number | null
+}
+
+export async function getTruthfulStorageReport(): Promise<StorageReport> {
+  const [tracks, blobNames, est] = await Promise.all([
+    getAllTracks().catch(() => [] as Track[]),
+    getAllFileBlobNames().catch(() => [] as string[]),
+    getStorageEstimate(),
+  ])
+  let metadataBytes = 0
+  for (const t of tracks) metadataBytes += t.size || 0
+  return {
+    trackCount: tracks.length,
+    blobCount: blobNames.length,
+    metadataBytes,
+    estimateUsage: est?.usage ?? null,
+    estimateQuota: est?.quota ?? null,
+  }
+}
+
 export async function saveFileBlob(fileName: string, file: File): Promise<void> {
   const db = await getDB()
   await db.put(FILES_STORE, file, fileName)
@@ -291,4 +320,5 @@ export async function debugTrackFiles(): Promise<void> {
 if (typeof window !== 'undefined') {
   ;(window as any).getStorageEstimate = getStorageEstimate
   ;(window as any).debugTrackFiles = debugTrackFiles
+  ;(window as any).getTruthfulStorageReport = getTruthfulStorageReport
 }
