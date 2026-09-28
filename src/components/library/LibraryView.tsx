@@ -36,12 +36,18 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
 
   const grouped = useMemo(() => groupTracks(tracks, { minGroupSize: 2 }), [tracks])
 
-  // Lazy thumbnails: only first 4 per group + visible loose (limit 24 total) to avoid IndexedDB churn on iOS
+  // Lazy thumbnails: first 4 per group + visible loose (limit 24 total) to avoid IndexedDB churn on iOS.
+  // S3: when a group is open, load ALL its members (cap 40) so detail rows show thumbs too.
   useEffect(() => {
     let cancelled = false
     const toLoad: Track[] = []
-    for (const g of grouped.groups) for (let i = 0; i < Math.min(4, g.tracks.length); i++) toLoad.push(g.tracks[i])
-    for (let i = 0; i < Math.min(100, grouped.loose.length); i++) toLoad.push(grouped.loose[i])
+    const open = activeGroupId ? grouped.groups.find((g) => g.id === activeGroupId) : null
+    if (open) {
+      for (let i = 0; i < Math.min(40, open.tracks.length); i++) toLoad.push(open.tracks[i])
+    } else {
+      for (const g of grouped.groups) for (let i = 0; i < Math.min(4, g.tracks.length); i++) toLoad.push(g.tracks[i])
+      for (let i = 0; i < Math.min(100, grouped.loose.length); i++) toLoad.push(grouped.loose[i])
+    }
     const uniq = [...new Map(toLoad.map((t) => [t.fileName, t] as const)).values()]
     const missing = uniq.filter((t) => !thumbs[t.fileName])
     if (missing.length === 0) return
@@ -57,7 +63,7 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
       }
     })()
     return () => { cancelled = true }
-  }, [grouped.groups, grouped.loose])
+  }, [grouped.groups, grouped.loose, activeGroupId])
   const query = search.trim().toLowerCase()
 
   const filteredGroups = useMemo(() => {
@@ -144,6 +150,7 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
             onExternalSelectModeChange={setSelectMode}
             externalSelectedIds={selectedTrackIds}
             onSelectedIdsChange={setSelectedTrackIds}
+            thumbs={thumbs}
             currentIsSource={!queueIsLibrary}
           />
         </div>
@@ -193,7 +200,7 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
 
       {mode === 'queue' ? (
         <div className="flex-1 overflow-hidden">
-          <TrackList tracks={tracks} currentTrackIndex={currentTrackIndex} onSelectTrack={onSelectTrack} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} hideHeader externalSelectMode={selectMode} onExternalSelectModeChange={(v) => { setSelectMode(v); if (!v) setSelectAllOn(false) }} selectAllTrigger={queueSelectAllTrigger} selectClearTrigger={queueSelectClearTrigger} externalSelectedIds={selectedTrackIds} onSelectedIdsChange={setSelectedTrackIds} currentIsSource={!queueIsLibrary} />
+          <TrackList tracks={tracks} currentTrackIndex={currentTrackIndex} onSelectTrack={onSelectTrack} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} hideHeader externalSelectMode={selectMode} onExternalSelectModeChange={(v) => { setSelectMode(v); if (!v) setSelectAllOn(false) }} selectAllTrigger={queueSelectAllTrigger} selectClearTrigger={queueSelectClearTrigger} externalSelectedIds={selectedTrackIds} onSelectedIdsChange={setSelectedTrackIds} thumbs={thumbs} currentIsSource={!queueIsLibrary} />
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-3">
