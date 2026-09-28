@@ -120,40 +120,91 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
     return <TrackList tracks={tracks} currentTrackIndex={currentTrackIndex} onSelectTrack={onSelectTrack} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} />
   }
 
-  // Group detail view — reuses TrackList so groups get the same Select /
-  // Add-to-playlist / Delete powers (and the same indicator) as Queue mode.
+  // Group detail view — thumbnail grid like the loose cards (per S3 decision):
+  // tap plays, Select-mode tap selects, playing card gets ring + badge dot.
   if (activeGroup) {
-    const detailCurrentIdx = currentTrackId
-      ? activeGroup.tracks.findIndex((t) => t.id === currentTrackId)
-      : -1
+    const membersSelected = activeGroup.tracks.filter((t) => selectedTrackIds.has(t.id))
+    const detailAllSelected = activeGroup.tracks.length > 0 && membersSelected.length === activeGroup.tracks.length
+    const toggleDetailSelectAll = () => {
+      if (detailAllSelected) {
+        const ids = new Set(activeGroup.tracks.map((t) => t.id))
+        setSelectedTrackIds(prev => new Set([...prev].filter((id) => !ids.has(id))))
+      } else {
+        const ids = activeGroup.tracks.map((t) => t.id)
+        setSelectedTrackIds(prev => new Set([...prev, ...ids]))
+      }
+    }
     return (
       <div className="flex h-full flex-col">
         <div className="flex items-center gap-3 border-b border-slate-800 px-4 py-3">
           <button onClick={() => setActiveGroupId(null)} className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-200">← Back</button>
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-sm font-semibold text-white">{activeGroup.name}</h2>
-            <p className="text-xs text-slate-400">{selectMode ? `${selectedTrackIds.size} selected • ` : ''}{activeGroup.tracks.length} tracks • {activeGroup.reason.split(' score')[0]}</p>
+            <p className="text-xs text-slate-400">{selectMode ? `${membersSelected.length} selected • ` : ''}{activeGroup.tracks.length} tracks • {activeGroup.reason.split(' score')[0]}</p>
           </div>
+          {selectMode && (
+            <button onClick={toggleDetailSelectAll} className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300">{detailAllSelected ? 'Clear' : 'Select All'}</button>
+          )}
           <button onClick={toggleSelectMode} className={`rounded-lg px-3 py-1.5 text-xs font-medium ${selectMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}>{selectMode ? 'Done' : 'Select'}</button>
         </div>
-        <div className="flex-1 overflow-hidden">
-          <TrackList
-            tracks={activeGroup.tracks}
-            currentTrackIndex={detailCurrentIdx}
-            onSelectTrack={(gi) => { const t = activeGroup.tracks[gi]; if (t) handleSelectInGroup(t) }}
-            onPickFolder={onPickFolder}
-            onPickFiles={onPickFiles}
-            onRemoveTracks={onRemoveTracks}
-            onAddToPlaylist={onAddToPlaylist}
-            hideHeader
-            externalSelectMode={selectMode}
-            onExternalSelectModeChange={setSelectMode}
-            externalSelectedIds={selectedTrackIds}
-            onSelectedIdsChange={setSelectedTrackIds}
-            thumbs={thumbs}
-            currentIsSource={!queueIsLibrary}
-          />
+        <div className="flex-1 overflow-y-auto p-3">
+          <div className="grid grid-cols-2 gap-3">
+            {activeGroup.tracks.map((t) => {
+              const thumb = thumbs[t.fileName]
+              const selected = selectedTrackIds.has(t.id)
+              const playing = currentTrackId != null && t.id === currentTrackId
+              return (
+                <motion.button
+                  key={t.id}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => { if (selectMode) toggleTrackSelected(t.id); else handleSelectInGroup(t) }}
+                  className={`relative flex flex-col overflow-hidden rounded-lg bg-slate-900 text-left ${playing || (selectMode && selected) ? 'ring-2 ring-primary' : ''}`}
+                >
+                  {playing && <span className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/60"><PlayingIndicator variant={playingVariant} size="md" /></span>}
+                  {selectMode && !playing && (
+                    <span className={`absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold ${selected ? 'bg-primary text-white' : 'border-2 border-slate-500 bg-slate-900/70 text-transparent'}`}>✓</span>
+                  )}
+                  {selectMode && playing && (
+                    <span className={`absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold ${selected ? 'bg-primary text-white' : 'border-2 border-slate-500 bg-slate-900/70 text-transparent'}`}>✓</span>
+                  )}
+                  <div className="flex h-28 items-center justify-center overflow-hidden bg-slate-800">
+                    {thumb ? <img src={thumb} alt="" className="h-full w-full object-cover" loading="lazy" /> : <span className="text-2xl">{t.mediaType === 'video' ? '🎬' : '🎵'}</span>}
+                  </div>
+                  <div className="px-3 py-2.5">
+                    <p className="truncate pr-1 text-sm font-medium text-white">{t.name}</p>
+                    <p className="truncate pr-1 text-xs text-slate-400">{t.artist !== 'Unknown Artist' ? t.artist : t.folderName} • {t.duration ? `${Math.floor(t.duration / 60)}:${String(Math.floor(t.duration % 60)).padStart(2, '0')}` : '--:--'}</p>
+                  </div>
+                </motion.button>
+              )
+            })}
+          </div>
         </div>
+        {selectMode && membersSelected.length > 0 && (
+          <div className="flex-shrink-0 border-t border-slate-800 bg-slate-900 px-4 py-3">
+            <div className="flex items-center justify-center gap-3">
+              {onAddToPlaylist && (
+                <button
+                  onClick={() => onAddToPlaylist(membersSelected)}
+                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-light active:scale-[0.98]"
+                >
+                  Add to playlist ({membersSelected.length})
+                </button>
+              )}
+              {onRemoveTracks && (
+                <button
+                  onClick={() => {
+                    onRemoveTracks(membersSelected)
+                    const ids = new Set(membersSelected.map((t) => t.id))
+                    setSelectedTrackIds(prev => new Set([...prev].filter((id) => !ids.has(id))))
+                  }}
+                  className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-500 active:scale-[0.98]"
+                >
+                  Delete ({membersSelected.length})
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -200,7 +251,7 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
 
       {mode === 'queue' ? (
         <div className="flex-1 overflow-hidden">
-          <TrackList tracks={tracks} currentTrackIndex={currentTrackIndex} onSelectTrack={onSelectTrack} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} hideHeader externalSelectMode={selectMode} onExternalSelectModeChange={(v) => { setSelectMode(v); if (!v) setSelectAllOn(false) }} selectAllTrigger={queueSelectAllTrigger} selectClearTrigger={queueSelectClearTrigger} externalSelectedIds={selectedTrackIds} onSelectedIdsChange={setSelectedTrackIds} thumbs={thumbs} currentIsSource={!queueIsLibrary} />
+          <TrackList tracks={tracks} currentTrackIndex={currentTrackIndex} onSelectTrack={onSelectTrack} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} hideHeader externalSelectMode={selectMode} onExternalSelectModeChange={(v) => { setSelectMode(v); if (!v) setSelectAllOn(false) }} selectAllTrigger={queueSelectAllTrigger} selectClearTrigger={queueSelectClearTrigger} externalSelectedIds={selectedTrackIds} onSelectedIdsChange={setSelectedTrackIds} currentIsSource={!queueIsLibrary} />
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-3">
@@ -214,12 +265,12 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
                 const hasPlaying = currentTrackId != null && g.tracks.some((t) => t.id === currentTrackId)
                 return (
                 <motion.button
-                  key={g.id}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={() => setActiveGroupId(g.id)}
-                  className={`relative flex flex-col overflow-hidden rounded-lg bg-slate-900 text-left ${selectMode && allSelected ? 'ring-2 ring-primary' : selectMode && someSelected ? 'ring-1 ring-slate-500' : ''}`}
-                >
-                  {hasPlaying && <span className="absolute right-2 top-2 z-10"><PlayingIndicator variant={playingVariant} /></span>}
+                    key={g.id}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => setActiveGroupId(g.id)}
+                    className={`relative flex flex-col overflow-hidden rounded-lg bg-slate-900 text-left ${hasPlaying ? 'ring-2 ring-primary' : selectMode && allSelected ? 'ring-2 ring-primary' : selectMode && someSelected ? 'ring-1 ring-slate-500' : ''}`}
+                  >
+                  {hasPlaying && <span className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/60"><PlayingIndicator variant={playingVariant} size="md" /></span>}
                   {selectMode && allSelected && <span className="absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-white">✓</span>}
                   <div className="grid h-28 grid-cols-2 gap-0.5 bg-slate-800 p-0.5">
 {[0, 1, 2, 3].map((i) => {
@@ -250,9 +301,9 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
                     key={t.id}
                     whileTap={{ scale: 0.97 }}
                     onClick={() => { if (selectMode) toggleTrackSelected(t.id); else handleSelectInGroup(t) }}
-                    className={`relative flex flex-col overflow-hidden rounded-lg bg-slate-900 text-left ${selectMode && selected ? 'ring-2 ring-primary' : ''}`}
+                    className={`relative flex flex-col overflow-hidden rounded-lg bg-slate-900 text-left ${playing ? 'ring-2 ring-primary' : selectMode && selected ? 'ring-2 ring-primary' : ''}`}
                   >
-                    {playing && <span className="absolute right-2 top-2 z-10"><PlayingIndicator variant={playingVariant} /></span>}
+                    {playing && <span className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/60"><PlayingIndicator variant={playingVariant} size="md" /></span>}
                     {selectMode && (
                       <span className={`absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold ${selected ? 'bg-primary text-white' : 'border-2 border-slate-500 bg-slate-900/70 text-transparent'}`}>✓</span>
                     )}

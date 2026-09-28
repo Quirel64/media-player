@@ -15,9 +15,6 @@ interface TrackListProps {
   onExternalSelectModeChange?: (v: boolean) => void
   selectAllTrigger?: number
   selectClearTrigger?: number
-  // S3: optional thumbnails keyed by fileName (Library passes its lazy map;
-  // rows without one keep the icon fallback). Same look in queue + detail.
-  thumbs?: Record<string, string>
   // Controlled selection (S1): when provided, selection state lives in the
   // parent so Queue mode and Group detail share ONE set — no loose states.
   // Falls back to internal state when absent.
@@ -40,7 +37,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger, selectClearTrigger, thumbs, externalSelectedIds, onSelectedIdsChange, currentIsSource }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
+export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger, selectClearTrigger, externalSelectedIds, onSelectedIdsChange, currentIsSource }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
   const [internalSelectMode, setInternalSelectMode] = useState(false)
   const selectMode = externalSelectMode !== undefined ? externalSelectMode : internalSelectMode
   const setSelectMode = (v: boolean | ((prev: boolean) => boolean)) => {
@@ -237,12 +234,6 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
                   ) : (
                     <span className="text-sm text-slate-500">{index + 1}</span>
                   )}
-                </div>
-
-                <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded bg-slate-800 text-xs ${index === currentTrackIndex ? 'ring-1 ring-primary' : ''}`}>
-                  {thumbs?.[track.fileName]
-                    ? <img src={thumbs[track.fileName]} alt="" className="h-full w-full object-cover" loading="lazy" />
-                    : (track.mediaType === 'video' ? '🎬' : '🎵')}
                 </div>
 
                 <div className="min-w-0 flex-1">
