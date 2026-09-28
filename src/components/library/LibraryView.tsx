@@ -130,9 +130,9 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
                     setQueueSelectAllOn(true)
                   }
                 }}
-                className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300"
+                className="rounded-lg bg-slate-800 px-10 py-10 text-xs text-slate-300"
               >
-                {queueSelectAllOn ? 'Clear' : 'Select All'}
+                {queueSelectAllOn ? 'Clear All' : 'Select All'}
               </button>
             )}
             {mode === 'queue' && (
