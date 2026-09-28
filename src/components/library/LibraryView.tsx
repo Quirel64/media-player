@@ -120,7 +120,7 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
           </div>
           <div className="flex items-center gap-2">
             {mode === 'queue' && queueSelectMode && (
-              <button
+              <button 
                 onClick={() => {
                   if (queueSelectAllOn) {
                     setQueueSelectClearTrigger(v => v + 1)
@@ -131,6 +131,7 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
                   }
                 }}
                 className="rounded-lg bg-slate-800 px-30 py-30 text-xs text-slate-300"
+                style={{padding: "20px"}}
               >
                 {queueSelectAllOn ? 'Clear All' : 'Select All'}
               </button>
