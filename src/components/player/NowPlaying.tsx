@@ -16,7 +16,7 @@ export function NowPlaying({ currentTrack, videoContainerRef, collapsed, onToggl
   const { currentTime, duration } = usePlayerStore()
 
   const CollapseBtn = onToggleCollapsed ? (
-    <button onClick={onToggleCollapsed} className="rounded-full bg-slate-800 p-1.5 text-slate-400 hover:bg-slate-700 hover:text-white" title={collapsed ? 'Expand player' : 'Collapse player'}>
+    <button onClick={onToggleCollapsed} style={{padding: "5px"}} className="rounded-full bg-slate-800 p-1.5 text-slate-400 hover:bg-slate-700 hover:text-white" title={collapsed ? 'Expand player' : 'Collapse player'}>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">{collapsed ? <path d="M6 9l6 6 6-6" /> : <path d="M6 15l6-6 6 6" />}</svg>
     </button>
   ) : null

@@ -137,7 +137,7 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
               </button>
             )}
             {mode === 'queue' && (
-              <button onClick={() => { setQueueSelectMode(v => !v); setQueueSelectAllOn(false) }} className={`rounded-lg px-3 py-1.5 text-xs font-medium ${queueSelectMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}>{queueSelectMode ? 'Done' : 'Select'}</button>
+              <button style={{padding: "10px"}} onClick={() => { setQueueSelectMode(v => !v); setQueueSelectAllOn(false) }} className={`rounded-lg px-3 py-1.5 text-xs font-medium ${queueSelectMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}>{queueSelectMode ? 'Done' : 'Select'}</button>
             )}
             <div className="flex items-center gap-1 rounded-full bg-slate-800 p-1">
               <button onClick={() => setMode('groups')} className={`rounded-full px-3 py-1 text-xs font-medium ${mode === 'groups' ? 'bg-primary text-white' : 'text-slate-400'}`}>Groups</button>
