@@ -24,7 +24,10 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
   const [mode, setMode] = useState<'groups' | 'queue'>('groups')
   const [search, setSearch] = useState('')
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
-  const [queueSelectMode, setQueueSelectMode] = useState(false)
+  // S1: ONE select mode + ONE selection set for the whole Library (queue mode,
+  // group detail, and later the grid) — Back preserves selection, no loose states.
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(new Set())
   const [queueSelectAllTrigger, setQueueSelectAllTrigger] = useState(0)
   const [queueSelectClearTrigger, setQueueSelectClearTrigger] = useState(0)
   const [queueSelectAllOn, setQueueSelectAllOn] = useState(false)
@@ -87,10 +90,11 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
       <div className="flex h-full flex-col">
         <div className="flex items-center gap-3 border-b border-slate-800 px-4 py-3">
           <button onClick={() => setActiveGroupId(null)} className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-200">← Back</button>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h2 className="truncate text-sm font-semibold text-white">{activeGroup.name}</h2>
-            <p className="text-xs text-slate-400">{activeGroup.tracks.length} tracks • {activeGroup.reason.split(' score')[0]}</p>
+            <p className="text-xs text-slate-400">{selectMode ? `${selectedTrackIds.size} selected • ` : ''}{activeGroup.tracks.length} tracks • {activeGroup.reason.split(' score')[0]}</p>
           </div>
+          <button onClick={() => setSelectMode(v => !v)} className={`rounded-lg px-3 py-1.5 text-xs font-medium ${selectMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}>{selectMode ? 'Done' : 'Select'}</button>
         </div>
         <div className="flex-1 overflow-hidden">
           <TrackList
@@ -102,6 +106,10 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
             onRemoveTracks={onRemoveTracks}
             onAddToPlaylist={onAddToPlaylist}
             hideHeader
+            externalSelectMode={selectMode}
+            onExternalSelectModeChange={setSelectMode}
+            externalSelectedIds={selectedTrackIds}
+            onSelectedIdsChange={setSelectedTrackIds}
             currentIsSource={!queueIsLibrary}
           />
         </div>
@@ -119,8 +127,8 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
             <p className="text-xs text-slate-400">{tracks.length} tracks • {grouped.groups.length} groups • {grouped.loose.length} loose</p>
           </div>
           <div className="flex items-center gap-2">
-            {mode === 'queue' && queueSelectMode && (
-              <button 
+            {mode === 'queue' && selectMode && (
+              <button
                 onClick={() => {
                   if (queueSelectAllOn) {
                     setQueueSelectClearTrigger(v => v + 1)
@@ -130,14 +138,13 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
                     setQueueSelectAllOn(true)
                   }
                 }}
-                className="rounded-lg bg-slate-800 px-30 py-30 text-xs text-slate-300"
-                style={{padding: "10px"}}
+                className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300"
               >
-                {queueSelectAllOn ? 'Clear All' : 'Select All'}
+                {queueSelectAllOn ? 'Clear' : 'Select All'}
               </button>
             )}
             {mode === 'queue' && (
-              <button style={{padding: "10px"}} onClick={() => { setQueueSelectMode(v => !v); setQueueSelectAllOn(false) }} className={`rounded-lg px-3 py-1.5 text-xs font-medium ${queueSelectMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}>{queueSelectMode ? 'Done' : 'Select'}</button>
+              <button onClick={() => { setSelectMode(v => !v); setQueueSelectAllOn(false) }} className={`rounded-lg px-3 py-1.5 text-xs font-medium ${selectMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}>{selectMode ? 'Done' : 'Select'}</button>
             )}
             <div className="flex items-center gap-1 rounded-full bg-slate-800 p-1">
               <button onClick={() => setMode('groups')} className={`rounded-full px-3 py-1 text-xs font-medium ${mode === 'groups' ? 'bg-primary text-white' : 'text-slate-400'}`}>Groups</button>
@@ -162,7 +169,7 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
 
       {mode === 'queue' ? (
         <div className="flex-1 overflow-hidden">
-          <TrackList tracks={tracks} currentTrackIndex={currentTrackIndex} onSelectTrack={onSelectTrack} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} hideHeader externalSelectMode={queueSelectMode} onExternalSelectModeChange={(v) => { setQueueSelectMode(v); if (!v) setQueueSelectAllOn(false) }} selectAllTrigger={queueSelectAllTrigger} selectClearTrigger={queueSelectClearTrigger} currentIsSource={!queueIsLibrary} />
+          <TrackList tracks={tracks} currentTrackIndex={currentTrackIndex} onSelectTrack={onSelectTrack} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} hideHeader externalSelectMode={selectMode} onExternalSelectModeChange={(v) => { setSelectMode(v); if (!v) setQueueSelectAllOn(false) }} selectAllTrigger={queueSelectAllTrigger} selectClearTrigger={queueSelectClearTrigger} externalSelectedIds={selectedTrackIds} onSelectedIdsChange={setSelectedTrackIds} currentIsSource={!queueIsLibrary} />
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-3">

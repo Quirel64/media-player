@@ -15,6 +15,11 @@ interface TrackListProps {
   onExternalSelectModeChange?: (v: boolean) => void
   selectAllTrigger?: number
   selectClearTrigger?: number
+  // Controlled selection (S1): when provided, selection state lives in the
+  // parent so Queue mode and Group detail share ONE set — no loose states.
+  // Falls back to internal state when absent.
+  externalSelectedIds?: Set<string>
+  onSelectedIdsChange?: (ids: Set<string>) => void
   // When true the highlighted row is the library source of a playlist
   // occurrence playing elsewhere (muted dot, not the pulsing one).
   currentIsSource?: boolean
@@ -32,7 +37,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger, selectClearTrigger, currentIsSource }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
+export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger, selectClearTrigger, externalSelectedIds, onSelectedIdsChange, currentIsSource }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
   const [internalSelectMode, setInternalSelectMode] = useState(false)
   const selectMode = externalSelectMode !== undefined ? externalSelectMode : internalSelectMode
   const setSelectMode = (v: boolean | ((prev: boolean) => boolean)) => {
@@ -40,7 +45,18 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
     if (onExternalSelectModeChange) onExternalSelectModeChange(next)
     else setInternalSelectMode(next)
   }
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [internalSelectedIds, setInternalSelectedIds] = useState<Set<string>>(new Set())
+  // Shared selection when controlled, private otherwise.
+  const selectedIds = externalSelectedIds ?? internalSelectedIds
+  const setSelectedIds = (
+    updater: Set<string> | ((prev: Set<string>) => Set<string>),
+  ) => {
+    const next = typeof updater === 'function'
+      ? (updater as (prev: Set<string>) => Set<string>)(selectedIds)
+      : updater
+    if (onSelectedIdsChange) onSelectedIdsChange(next)
+    else setInternalSelectedIds(next)
+  }
   useEffect(() => {
     if (selectAllTrigger && selectAllTrigger > 0) {
       setSelectedIds(new Set(tracks.map(t => t.id)))
