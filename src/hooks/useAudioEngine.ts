@@ -396,6 +396,14 @@ export function useAudioEngine() {
     // Every tap is a fresh start — even same fileName/instanceId dupes (simplifies playlist dupes)
     frozenPosRef.current = 0
     setCurrentTime(0)
+    // A new track request moots any deferred visible→hidden anchor pause: without
+    // this, play()'s "cancel deferred" shortcut resumes the OLD media.src while the
+    // NEW video element already shows the new track (stale playlist audio + library
+    // video after pause-then-switch-context).
+    if (pendingAnchorPosRef.current !== null) {
+      addLog(`loadTrack cancels deferred anchor (track switch ${idx})`)
+      pendingAnchorPosRef.current = null
+    }
     // Seek media element to 0 so onTimeUpdate updates frozenPosRef to 0 (not stale position)
     const m = mediaRef.current
     if (m && !m.paused) { try { m.currentTime = 0 } catch {} }
