@@ -138,13 +138,27 @@ export default function App() {
   }, [pickFiles])
 
   const handleRemoveTracks = useCallback(async (tracks: Track[]) => {
+    // Capture the sounding occurrence first: same stale-index class of bug as
+    // playlist removal — deleting the playing file must migrate, not ghost.
+    const before = usePlayerStore.getState()
+    const beforeKey = before.queue[before.currentTrackIndex] ? queueKey(before.queue[before.currentTrackIndex]) : null
+    const beforeIdx = before.currentTrackIndex
     // Phase 1a: removeTracks() now prunes library copy + playlist refs itself
     // (transactional delete) — here we just refresh library + playlist views.
     await removeTracks(tracks)
     const all = await getAllTracks()
     setLibraryTracks(all)
     await refreshPlaylists()
-  }, [removeTracks, refreshPlaylists])
+    const after = usePlayerStore.getState()
+    if (after.queue.length === 0) {
+      if (beforeKey != null) { try { await pause() } catch { /* best-effort */ } }
+      return
+    }
+    if (beforeKey != null && !after.queue.some((t) => queueKey(t) === beforeKey)) {
+      // Sounding file deleted → next in line, previous if it was the last one.
+      goToTrack(Math.min(beforeIdx, after.queue.length - 1))
+    }
+  }, [removeTracks, refreshPlaylists, goToTrack, pause])
 
   const handleAddToPlaylist = useCallback((tracks: Track[]) => {
     if (tracks.length === 0) return
@@ -212,6 +226,8 @@ export default function App() {
               const wasPlaying = pl ? queue.length > 0 && queue.length === pl.items.length && queue.every((t) => itemKeys.has(queueKey(t))) : false
               await deletePlaylist(id)
               if (wasPlaying) {
+                // Stop audio too — otherwise the orphaned src keeps sounding with no queue.
+                try { await pause() } catch { /* best-effort */ }
                 const { setQueue, setOriginalOrder, setCurrentTrackIndex } = usePlayerStore.getState()
                 setQueue([])
                 setOriginalOrder([])
@@ -238,16 +254,31 @@ export default function App() {
                   const t = map.get(it.trackId)
                   if (t) resolved.push(toQueueItem(t, it.id))
                 }
-                const { setQueue, setOriginalOrder, setCurrentTrackIndex, currentTrackIndex: curIdx } = usePlayerStore.getState()
+                const { setQueue, setOriginalOrder, setCurrentTrackIndex } = usePlayerStore.getState()
                 if (resolved.length === 0) {
+                  // Last item removed while playing → stop, don't leave orphan audio.
+                  try { await pause() } catch { /* best-effort */ }
                   setQueue([])
                   setOriginalOrder([])
                   setCurrentTrackIndex(0)
                 } else {
-                  const newIdx = Math.min(curIdx, resolved.length - 1)
-                  setQueue(resolved)
-                  setOriginalOrder(resolved)
-                  setCurrentTrackIndex(newIdx >= 0 ? newIdx : 0)
+                  // Policy: if the sounding occurrence survives, keep it playing
+                  // seamlessly at its NEW index; if it was removed, migrate to
+                  // the next in line (same index holds the successor), or the
+                  // previous track when it was the last one.
+                  const curKey = currentTrack ? queueKey(currentTrack) : null
+                  const newPos = curKey ? resolved.findIndex((t) => queueKey(t) === curKey) : -1
+                  if (newPos !== -1) {
+                    setQueue(resolved)
+                    setOriginalOrder(resolved)
+                    setCurrentTrackIndex(newPos)
+                  } else {
+                    const migrateIdx = Math.min(currentTrackIndex, resolved.length - 1)
+                    const { setQueue: sq, setOriginalOrder: soo } = usePlayerStore.getState()
+                    sq(resolved)
+                    soo(resolved)
+                    goToTrack(migrateIdx >= 0 ? migrateIdx : 0)
+                  }
                 }
               }
             }}
