@@ -142,7 +142,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
               <button onClick={() => setViewMode('queue')} className={`rounded-full px-3 py-1 text-xs font-medium ${viewMode === 'queue' ? 'bg-primary text-white' : 'text-slate-400'}`}>Queue</button>
             </div>
             <div className="flex items-center gap-2">
-              {editMode && viewMode === 'queue' && (
+              {editMode && (
                 <button onClick={() => setSelectedItemIds(s => s.size === active!.items.length ? new Set() : new Set(active!.items.map(it => it.id)))} className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300">{selectedItemIds.size === active?.items.length ? 'Deselect All' : 'Select All'}</button>
               )}
               {editMode && <span className="text-xs text-slate-400">{selectedItemIds.size} selected</span>}
@@ -198,16 +198,22 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
             )}
           </div>
         ) : (
+          <div className="flex h-full flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto p-3">
             <div className="grid grid-cols-2 gap-3">
 {activeTracks.map((t, idx) => {
                 const thumb = thumbs[t.fileName]
+                const gridItemId = active.items[idx]?.id ?? t.id
+                const gridSelected = selectedItemIds.has(gridItemId)
                 const gridPlaying = currentQueueKey != null
-                  ? active.items[idx]?.id === currentQueueKey
+                  ? gridItemId === currentQueueKey
                   : currentTrackId === t.id
                 return (
-                  <button key={`${active.items[idx]?.id ?? t.id}-${idx}`} onClick={() => onForcePlayPlaylist(active.id, idx)} className="relative flex flex-col overflow-hidden rounded-lg bg-slate-900 text-left">
-                    {gridPlaying && <span className="absolute right-2 top-2 z-10"><PlayingIndicator variant="playing" /></span>}
+                  <button key={`${gridItemId}-${idx}`} onClick={() => { if (editMode) toggleSelect(gridItemId); else onForcePlayPlaylist(active.id, idx) }} className={`relative flex flex-col overflow-hidden rounded-lg bg-slate-900 text-left ${gridPlaying || (editMode && gridSelected) ? 'ring-2 ring-primary' : ''}`}>
+                    {gridPlaying && <span className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/60"><PlayingIndicator variant="playing" size="md" /></span>}
+                    {editMode && (
+                      <span className={`absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold ${gridSelected ? 'bg-primary text-white' : 'border-2 border-slate-500 bg-slate-900/70 text-transparent'}`}>✓</span>
+                    )}
                     <div className="flex h-28 items-center justify-center overflow-hidden bg-slate-800">
                       {thumb ? <img src={thumb} alt="" className="h-full w-full object-cover" loading="lazy" /> : <span className="text-2xl">{t.mediaType === 'video' ? '🎬' : '🎵'}</span>}
                     </div>
@@ -219,6 +225,15 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
                 )
               })}
             </div>
+          </div>
+          {editMode && (
+            <div className="border-t border-slate-800 bg-slate-900 px-4 py-3">
+              <div className="flex gap-2">
+                <button onClick={handleRemoveSelected} disabled={selectedItemIds.size === 0} className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">Remove from playlist ({selectedItemIds.size})</button>
+                <button onClick={() => onDeletePlaylist(active.id)} className="rounded-lg bg-red-900/30 px-3 py-2 text-sm text-red-300">Delete playlist</button>
+              </div>
+            </div>
+          )}
           </div>
         )}
         {!editMode && active.items.length > 0 && isQueue && (
