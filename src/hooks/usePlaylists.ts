@@ -8,7 +8,6 @@ import { addLog } from '../lib/logger'
 
 export function usePlaylists() {
   const [playlists, setPlaylists] = useState<Playlist[]>([])
-  const [activePlaylistId, setActivePlaylistId] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     const all = await getAllPlaylists()
@@ -65,22 +64,12 @@ export function usePlaylists() {
   const removePlaylist = useCallback(async (id: string) => {
     await deletePlaylist(id)
     await refresh()
-    if (activePlaylistId === id) setActivePlaylistId(null)
     addLog(`playlist deleted ${id}`)
-  }, [activePlaylistId, refresh])
-
-  const removeTracksFromPlaylist = useCallback(async (playlistId: string, itemIds: string[]) => {
-    const pl = await getPlaylist(playlistId)
-    if (!pl) return
-    const toRemove = new Set(itemIds)
-    const before = pl.items.length
-    pl.items = pl.items.filter(it => !toRemove.has(it.id))
-    pl.items.forEach((it, idx) => { it.order = idx })
-    pl.updatedAt = Date.now()
-    await savePlaylist(pl)
-    await refresh()
-    addLog(`removed ${before - pl.items.length} items from playlist "${pl.name}"`)
   }, [refresh])
+
+  // NOTE: track removal lives in App.onRemoveFromPlaylist (it also migrates
+  // playback when the sounding occurrence is removed). Do NOT re-add a naive
+  // remover here — it would reintroduce the stale-index ghost-audio bug.
 
   const playPlaylist = useCallback(async (playlistId: string, startItemIndex = 0) => {
     const pl = await getPlaylist(playlistId)
@@ -103,7 +92,5 @@ export function usePlaylists() {
     addLog(`play playlist "${pl.name}" ${resolved.length} tracks from #${startIdx}`)
   }, [])
 
-  const getActivePlaylist = useCallback(() => playlists.find(p => p.id === activePlaylistId) ?? null, [playlists, activePlaylistId])
-
-  return { playlists, activePlaylistId, setActivePlaylistId, refresh, createPlaylist, addTracksToPlaylist, deletePlaylist: removePlaylist, removeTracksFromPlaylist, playPlaylist, getActivePlaylist }
+  return { playlists, refresh, createPlaylist, addTracksToPlaylist, deletePlaylist: removePlaylist, playPlaylist }
 }

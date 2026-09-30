@@ -10,7 +10,7 @@ import { useMediaSession } from './hooks/useMediaSession'
 import { useFolderPicker } from './hooks/useFolderPicker'
 import { usePlayerStore } from './stores/playerStore'
 import { getSetting, saveSetting, saveTracks, getAllTracks, getPlaylist, savePlaylist } from './lib/idb'
-import { queueKey, toQueueItem, isLibraryQueue } from './lib/queue'
+import { queueKey, toQueueItem, isLibraryQueue, findQueueIndexByKey } from './lib/queue'
 import { ToastContainer } from './components/ui/Toast'
 import { EventLog } from './components/ui/EventLog'
 import { PlaylistsView } from './components/playlist/PlaylistsView'
@@ -267,7 +267,7 @@ export default function App() {
                   // the next in line (same index holds the successor), or the
                   // previous track when it was the last one.
                   const curKey = currentTrack ? queueKey(currentTrack) : null
-                  const newPos = curKey ? resolved.findIndex((t) => queueKey(t) === curKey) : -1
+                  const newPos = curKey ? findQueueIndexByKey(resolved, curKey) : -1
                   if (newPos !== -1) {
                     setQueue(resolved)
                     setOriginalOrder(resolved)
