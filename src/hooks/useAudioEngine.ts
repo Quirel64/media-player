@@ -624,6 +624,19 @@ export function useAudioEngine() {
   }, [activateSource, ensureAnchor, setPlaying])
 
   useEffect(() => { if (currentTrack && queue.length>0) { void loadTrack(currentTrackIndex); setLoadForce(0) } }, [currentTrackIndex, loadForce])
+  // Boot warm-up: the effect above only fires on INDEX change, but boot fills
+  // the queue with index already at 0 — so track 1 was never loaded (no src,
+  // no metadata/duration, no prebuilt anchor) and its first Play was a cold
+  // swap that confused the lock UI. Load it paused once so track 1 behaves
+  // exactly like every track selected afterwards. No autoplay: no gesture yet.
+  const didBootWarmRef = useRef(false)
+  useEffect(() => {
+    if (!didBootWarmRef.current && queue.length > 0 && currentTrack) {
+      didBootWarmRef.current = true
+      addLog(`boot warm-up: preloading track 1/${queue.length} (paused)`)
+      void loadTrack(currentTrackIndex)
+    }
+  }, [queue.length])
   useEffect(() => { if (mediaRef.current) mediaRef.current.volume = isMuted ? 0 : volume }, [volume, isMuted])
   useEffect(() => () => { if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current) }, [])
 
