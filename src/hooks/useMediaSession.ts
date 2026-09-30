@@ -73,13 +73,29 @@ export function useMediaSession() {
       safe('seekbackward', null)
       safe('seekforward', null)
     }
+    addLog(`lockscreen handlers applied: ${lockScreenMode}`)
+    // iOS builds the lock UI from handlers + metadata together: a boot-time
+    // mode restore (skip10 → prevnext before first play) otherwise leaves the
+    // stale skip10 UI up until the user toggles twice. Re-push metadata so the
+    // fresh handler set takes effect immediately.
+    if (currentTrack) {
+      const art = getPlayingArtwork()
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: currentTrack.name,
+          artist: currentTrack.artist || 'Unknown Artist',
+          album: currentTrack.album || 'Unknown Album',
+          artwork: [{ src: art, sizes: '300x300', type: 'image/svg+xml' }],
+        })
+      } catch { /* ignore */ }
+    }
 
     return () => {
       safe('play', null); safe('pause', null); safe('seekto', null)
       safe('seekbackward', null); safe('seekforward', null)
       safe('previoustrack', null); safe('nexttrack', null)
     }
-  }, [lockScreenMode])
+  }, [lockScreenMode, currentTrack?.id])
 
   const setHandlers = (h: {
     onPlay: () => void

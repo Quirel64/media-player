@@ -71,9 +71,9 @@ export function usePlaylists() {
   // playback when the sounding occurrence is removed). Do NOT re-add a naive
   // remover here — it would reintroduce the stale-index ghost-audio bug.
 
-  const playPlaylist = useCallback(async (playlistId: string, startItemIndex = 0) => {
+  const playPlaylist = useCallback(async (playlistId: string, startItemIndex = 0): Promise<boolean> => {
     const pl = await getPlaylist(playlistId)
-    if (!pl || pl.items.length === 0) { showError('Playlist empty'); return }
+    if (!pl || pl.items.length === 0) { showError('Playlist empty'); return false }
     const allTracks = await getAllTracks()
     const trackMap = new Map(allTracks.map(t => [t.id, t] as const))
     const resolved: Track[] = []
@@ -81,7 +81,7 @@ export function usePlaylists() {
       const t = trackMap.get(item.trackId)
       if (t) resolved.push(toQueueItem(t, item.id))
     }
-    if (resolved.length === 0) { showError('No tracks found for playlist'); return }
+    if (resolved.length === 0) { showError('No tracks found for playlist'); return false }
     const { setQueue, setOriginalOrder, setCurrentTrackIndex, setPlaying } = usePlayerStore.getState()
     // Clamp start index
     const startIdx = Math.max(0, Math.min(startItemIndex, resolved.length - 1))
@@ -90,6 +90,7 @@ export function usePlaylists() {
     setCurrentTrackIndex(startIdx)
     setPlaying(true)
     addLog(`play playlist "${pl.name}" ${resolved.length} tracks from #${startIdx}`)
+    return true
   }, [])
 
   return { playlists, refresh, createPlaylist, addTracksToPlaylist, deletePlaylist: removePlaylist, playPlaylist }

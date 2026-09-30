@@ -33,7 +33,9 @@ export default function App() {
   const { playlists, createPlaylist, addTracksToPlaylist, deletePlaylist, playPlaylist, refresh: refreshPlaylists } = usePlaylists()
   const { play, pause, remotePauseOrResume, togglePlay, nextTrack, prevTrack, seek, goToTrack, markNextGesture, videoContainerRef } = useAudioEngine()
   const forcePlayPlaylist = useCallback(async (playlistId: string, startItemIndex = 0) => {
-    await playPlaylist(playlistId, startItemIndex)
+    // Only force-reload on success — a failed resolve (empty/missing playlist)
+    // must NOT fall through to playing whatever the queue happens to hold.
+    if (!(await playPlaylist(playlistId, startItemIndex))) return
     // goToTrack forces loadTrack even for same index (fresh reload for dups)
     goToTrack(startItemIndex)
   }, [playPlaylist, goToTrack])
