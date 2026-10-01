@@ -529,7 +529,19 @@ export function useAudioEngine() {
     }
   }, [ensureAnchor, handleTrackEnd, setDuration, setPlaying, setCurrentTime])
 
-  useEffect(() => { const t=queue[currentTrackIndex]; if(!t) return; if (t.mediaType==='video') attachVideo(blobUrlRef.current||''); else detachVideo() }, [currentTrackIndex, queue])
+  // Re-attach video only on a REAL track change (queueKey + type), not on every
+  // queue array identity change: live-append/reorder creates a new array for the
+  // SAME sounding track, and re-attaching resets the video to 0/paused (black
+  // video while audio continues) until the next pause/resume re-seeks it.
+  const queueVideoKeyRef = useRef<string | null>(null)
+  useEffect(() => {
+    const t = queue[currentTrackIndex]; if (!t) return
+    const key = `${queueKey(t)}:${t.mediaType}`
+    if (queueVideoKeyRef.current === key) return
+    queueVideoKeyRef.current = key
+    if (t.mediaType === 'video') attachVideo(blobUrlRef.current || '')
+    else detachVideo()
+  }, [currentTrackIndex, queue, attachVideo, detachVideo])
 
   useEffect(() => {
     const onVis = () => {
