@@ -6,6 +6,7 @@ import { getTrackFile } from '../../lib/idb'
 import { getTrackThumbnail } from '../../lib/thumbnail'
 import { showError } from '../ui/Toast'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
+import { AddTracksSheet } from './AddTracksSheet'
 
 interface Props {
   playlists: Playlist[]
@@ -13,16 +14,18 @@ interface Props {
   onForcePlayPlaylist: (id: string, startIdx?: number) => void
   onDeletePlaylist: (id: string) => void
   onRemoveFromPlaylist?: (playlistId: string, itemIds: string[]) => Promise<void>
+  onAddTracksToPlaylist?: (playlistId: string, tracks: Track[]) => Promise<void>
   currentTrackId?: string | null
   // Phase 3: occurrence-aware highlight — matches the exact queue occurrence
   // (playlist item id), so twin entries no longer light up together.
   currentQueueKey?: string | null
 }
 
-export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist, onDeletePlaylist, onRemoveFromPlaylist, currentTrackId, currentQueueKey }: Props) {
+export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist, onDeletePlaylist, onRemoveFromPlaylist, onAddTracksToPlaylist, currentTrackId, currentQueueKey }: Props) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [activeTracks, setActiveTracks] = useState<Track[]>([])
   const [showCreate, setShowCreate] = useState(false)
+  const [showAddTracks, setShowAddTracks] = useState(false)
   const [newName, setNewName] = useState('')
   const [viewMode, setViewMode] = useState<'tracks' | 'queue'>('tracks')
   const [editMode, setEditMode] = useState(false)
@@ -134,6 +137,9 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
               <p className="text-xs text-slate-400">{active.items.length} tracks {active.items.length !== activeTracks.length ? `(${activeTracks.length} available)` : ''}</p>
             </div>
             <button onClick={() => setEditMode(v => !v)} className={`rounded-lg px-3 py-1.5 text-sm font-medium ${editMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}>{editMode ? 'Done' : 'Edit'}</button>
+            {onAddTracksToPlaylist && (
+              <button onClick={() => setShowAddTracks(true)} className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-200" title="Add tracks from the library">+ Tracks</button>
+            )}
             <button onClick={() => onForcePlayPlaylist(active.id, 0)} className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white">Play</button>
           </div>
           <div className="mt-3 flex items-center justify-between">
@@ -238,6 +244,14 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
         )}
         {!editMode && active.items.length > 0 && isQueue && (
           <div className="border-t border-slate-800 p-3 text-center text-[11px] text-slate-500">Queue shows playlist order. Use Edit to remove tracks (playlist only, library untouched).</div>
+        )}
+        {showAddTracks && onAddTracksToPlaylist && (
+          <AddTracksSheet
+            open={showAddTracks}
+            playlistName={active.name}
+            onClose={() => setShowAddTracks(false)}
+            onAdd={async (tracks) => { await onAddTracksToPlaylist(active.id, tracks) }}
+          />
         )}
       </div>
     )

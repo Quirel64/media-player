@@ -252,3 +252,10 @@ Verified on iPhone 12 (Safari-web + standalone PWA, separate IDB stores) + Windo
 - **3 queue/library split**: `src/lib/queue.ts` (`queueKey`, `toQueueItem`, `isLibraryQueue`, `findQueueIndexByKey`); App dud-filters deleted (~40 lines); occurrence-aware playlist indicator (twins no longer co-light); shared `PlayingIndicator` (playing pulse vs source muted dot); group detail reuses `TrackList` (Select/Add/Delete parity); Select All↔Clear toggle.
 - **Phase 4 (storage health) STRUCK OFF**: needs nothing — deletes free device storage (1.1GB reclaimed), no stacking across 4 upload/delete rounds, per-version stores confirmed separate. `requestPersistentStorage`/probing batches left as-is.
 
+## Playlist Follow-ups — DONE 2026-10-01 (S1–S4 + session bugs)
+- **S1–S3 Library/Playlist UI**: shared `PlayingIndicator` (playing pulse vs source dot), shared selection set across Library queue/group-detail/grid, group detail as thumbnail grid, loud card playing badges, Select All/Clear everywhere.
+- **S4 playlist parity**: Tracks grid selects like Library (keys stay `item.id` = refs-only removal).
+- **Removal migration**: deleting the sounding occurrence moves to next/previous, empty stops; deleting the playing playlist pauses.
+- **Ghost-audio fix**: `loadTrack` clears deferred visible→hidden anchor (pause-then-switch-context played stale src).
+- **Lock mode on reload**: handler registration re-pushes metadata; boot warm-up preloads track 1 paused (it previously never loaded until first tap).
+

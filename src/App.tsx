@@ -286,6 +286,7 @@ export default function App() {
             }}
             currentTrackId={currentTrack?.id ?? null}
             currentQueueKey={currentQueueKey}
+            onAddTracksToPlaylist={addTracksToPlaylist}
           />
         )
       case 'logs':
