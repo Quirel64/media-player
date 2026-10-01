@@ -11,6 +11,7 @@ import { useFolderPicker } from './hooks/useFolderPicker'
 import { usePlayerStore } from './stores/playerStore'
 import { getSetting, saveSetting, saveTracks, getAllTracks, getPlaylist, savePlaylist } from './lib/idb'
 import { queueKey, toQueueItem, isLibraryQueue, findQueueIndexByKey } from './lib/queue'
+import { addLog } from './lib/logger'
 import { ToastContainer } from './components/ui/Toast'
 import { EventLog } from './components/ui/EventLog'
 import { PlaylistsView } from './components/playlist/PlaylistsView'
@@ -173,6 +174,40 @@ export default function App() {
     setActiveTab('playlists')
   }, [])
 
+  // Playlist add that keeps a LIVE playing queue in sync: the queue is a snapshot,
+  // so appending items to the playlist otherwise leaves playback (and shuffle /
+  // repeat-all, which walk the queue) following the stale order until the next
+  // manual tap. If the current queue IS this playlist, append occurrences in
+  // place — position and shuffle cycle undisturbed. Library uploads intentionally
+  // still jump to the new batch (explicit "play the new stuff" intent).
+  const handleAddTracksToPlaylist = useCallback(async (playlistId: string, tracks: Track[]) => {
+    await addTracksToPlaylist(playlistId, tracks)
+    try {
+      const pl = await getPlaylist(playlistId)
+      if (!pl || pl.items.length === 0) return
+      const st = usePlayerStore.getState()
+      if (st.queue.length === 0 || st.queue.length >= pl.items.length) return
+      const curKeys = st.queue.map(queueKey)
+      const prefixMatches = curKeys.every((k, i) => pl.items[i]?.id === k)
+      if (!prefixMatches) return
+      const allTracks = await getAllTracks()
+      const map = new Map(allTracks.map((t) => [t.id, t] as const))
+      const appended: Track[] = []
+      for (let i = curKeys.length; i < pl.items.length; i++) {
+        const t = map.get(pl.items[i].trackId)
+        if (t) appended.push(toQueueItem(t, pl.items[i].id))
+      }
+      if (appended.length === 0) return
+      const base = st.queue.length
+      st.setQueue([...st.queue, ...appended])
+      st.setOriginalOrder([...st.originalOrder, ...appended])
+      if (st.shuffleOn) st.setShuffleOrder([...st.shuffleOrder, ...appended.map((_, j) => base + j)])
+      addLog(`live queue append: +${appended.length} from playlist "${pl.name}" (pos kept)`)
+    } catch (e) {
+      addLog(`live queue append failed: ${e}`)
+    }
+  }, [addTracksToPlaylist])
+
   if (!ready) {
     return (
       <div className="flex h-full items-center justify-center bg-slate-950">
@@ -286,7 +321,7 @@ export default function App() {
             }}
             currentTrackId={currentTrack?.id ?? null}
             currentQueueKey={currentQueueKey}
-            onAddTracksToPlaylist={addTracksToPlaylist}
+            onAddTracksToPlaylist={handleAddTracksToPlaylist}
           />
         )
       case 'logs':
@@ -337,7 +372,7 @@ export default function App() {
         tracks={pendingAddTracks}
         playlists={playlists}
         onClose={handleCloseSheet}
-        onAdd={addTracksToPlaylist}
+        onAdd={handleAddTracksToPlaylist}
         onCreate={async (name, tracks) => { await createPlaylist(name, tracks) }}
         onAfterAdd={handleAfterAdd}
       />
