@@ -232,8 +232,9 @@ All core functionality verified on iOS 26.2 PWA + Windows:
 ## Planned Features
 1. **Skip mode toggle**: Switch between ±10s skip buttons and prev/next track buttons on lock screen. Test app has working implementation — simple `setMode()` toggle between `skip10` and `prevnext`. To integrate into main app settings or as a one-button cycle.
 *done*
-2. **Playlist feature** — *DONE 2026-09-15* ✓
+2. **Playlist feature** — *DONE 2026-09-15, extended 2026-10-01/02* ✓ (see `## Playlist Follow-ups`)
    *base done 2026-09-15*: `PlaylistItem {id, trackId, order, addedAt}` dupes allowed, `Playlist {items}` is ordered refs, `TRACKS_STORE` single source, `OPFS` once, `DB_VERSION 4` migrates legacy `tracks[]` → `items[]` (`src/lib/types.ts:15`, `src/lib/idb.ts:4`). `usePlaylists.ts` create/add/play, `PlaylistsView` `src/components/playlist/PlaylistsView.tsx` + `AddToPlaylistSheet`, `Library` Select → Add to playlist (clears + jumps to Playlists) and Playlists `+ Create` / `Play` per `items` order. Library stays `createdAt` for now.
+   *extended 2026-10-02*: reverse picker `AddTracksSheet` (+ Tracks button inside playlist → library search + forced select → append); `handleAddTracksToPlaylist` live-appends the sounding queue (position/shuffle kept) for BOTH add directions; video re-attach guarded to real track changes (`queueVideoKeyRef`, fixes black video after live-append).
 3. **low prio brother complaints**: addding a value system that influences the fisher yates algorythm based on values given by the user so that a certain track has a higher or lower chance of appearing when using the shuffle.
 4. **low prio complaints2**: adding a stack feature where the user can add a track to a stack on top or below a queue which would play first over the current playlist preferably inside of a playlist so you can isolate each stack.
 5. adding a manual grouping feature where users can sort their ow tracks in cases where auto grouping misses some tracks.

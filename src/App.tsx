@@ -32,7 +32,7 @@ export default function App() {
 
   const { pickFolder, pickFiles, loadSavedTracks, clearAll, removeTracks } = useFolderPicker()
   const { playlists, createPlaylist, addTracksToPlaylist, deletePlaylist, playPlaylist, refresh: refreshPlaylists } = usePlaylists()
-  const { play, pause, remotePauseOrResume, togglePlay, nextTrack, prevTrack, seek, goToTrack, markNextGesture, videoContainerRef } = useAudioEngine()
+  const { play, pause, remotePauseOrResume, togglePlay, nextTrack, prevTrack, seek, goToTrack, reorderQueue, markNextGesture, videoContainerRef } = useAudioEngine()
   const forcePlayPlaylist = useCallback(async (playlistId: string, startItemIndex = 0) => {
     // Only force-reload on success — a failed resolve (empty/missing playlist)
     // must NOT fall through to playing whatever the queue happens to hold.
@@ -173,6 +173,35 @@ export default function App() {
     setPendingAddTracks(null)
     setActiveTab('playlists')
   }, [])
+
+  // #10 reorder: persist the new item order, then live-map the sounding queue
+  // around it (gapless via reorderQueue — audio never restarts). No-ops unless
+  // the queue currently IS this playlist.
+  const handleMovePlaylistItem = useCallback(async (playlistId: string, fromIndex: number, toIndex: number) => {
+    const pl = await getPlaylist(playlistId)
+    if (!pl || fromIndex < 0 || toIndex < 0 || fromIndex >= pl.items.length || toIndex >= pl.items.length) return
+    const [moved] = pl.items.splice(fromIndex, 1)
+    pl.items.splice(toIndex, 0, moved)
+    pl.items.forEach((it, idx) => { it.order = idx })
+    pl.updatedAt = Date.now()
+    await savePlaylist(pl)
+    await refreshPlaylists()
+    const st = usePlayerStore.getState()
+    if (st.queue.length !== pl.items.length) return
+    const newIds = new Set(pl.items.map((it) => it.id))
+    if (!st.queue.every((t) => newIds.has(queueKey(t)))) return
+    const allTracks = await getAllTracks()
+    const map = new Map(allTracks.map((t) => [t.id, t] as const))
+    const newQueue: Track[] = []
+    for (const it of pl.items) {
+      const t = map.get(it.trackId)
+      if (t) newQueue.push(toQueueItem(t, it.id))
+    }
+    if (newQueue.length !== st.queue.length) return
+    const curKey = st.queue[st.currentTrackIndex] ? queueKey(st.queue[st.currentTrackIndex]) : null
+    const newIndex = curKey ? findQueueIndexByKey(newQueue, curKey) : -1
+    reorderQueue(newQueue, newIndex !== -1 ? newIndex : st.currentTrackIndex)
+  }, [refreshPlaylists, reorderQueue])
 
   // Playlist add that keeps a LIVE playing queue in sync: the queue is a snapshot,
   // so appending items to the playlist otherwise leaves playback (and shuffle /
@@ -322,6 +351,7 @@ export default function App() {
             currentTrackId={currentTrack?.id ?? null}
             currentQueueKey={currentQueueKey}
             onAddTracksToPlaylist={handleAddTracksToPlaylist}
+            onMoveItem={handleMovePlaylistItem}
           />
         )
       case 'logs':

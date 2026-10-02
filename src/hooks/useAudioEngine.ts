@@ -1,5 +1,6 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
 import { usePlayerStore } from '../stores/playerStore'
+import type { Track } from '../lib/types'
 import { queueKey } from '../lib/queue'
 import { getTrackFileURL } from '../lib/idb'
 import { showError } from '../components/ui/Toast'
@@ -467,6 +468,38 @@ export function useAudioEngine() {
     setLoadForce(v => v + 1)
   }, [setCurrentTrackIndex, setPlaying, setLoadForce])
 
+  // One-shot guard so reorderQueue's index correction doesn't reload audio.
+  const suppressReloadRef = useRef(false)
+
+  // Gapless reorder: swaps in a new queue order WITHOUT restarting the sounding
+  // track. Mechanism: the load effect below reloads on every index change, so
+  // callers pass the sounding occurrence's NEW index and we swallow that one
+  // effect run. Shuffle positions are remapped through queueKeys (positional
+  // indices would otherwise point at the wrong tracks). The <audio>/<video>
+  // elements are never touched — playback continues mid-frame.
+  const reorderQueue = useCallback((newQueue: Track[], newIndex: number) => {
+    const st = usePlayerStore.getState()
+    const oldQueue = st.queue
+    const keyToNew = new Map(newQueue.map((t, i) => [queueKey(t), i] as const))
+    suppressReloadRef.current = true
+    st.setQueue(newQueue)
+    st.setOriginalOrder(newQueue)
+    if (st.shuffleOn) {
+      const remapped = st.shuffleOrder
+        .map((oldIdx) => {
+          const oldItem = oldQueue[oldIdx]
+          return oldItem ? (keyToNew.get(queueKey(oldItem)) ?? -1) : -1
+        })
+        .filter((i) => i >= 0)
+      // Keep every position exactly once (dropped indices = removed tracks).
+      const seen = new Set(remapped)
+      for (let i = 0; i < newQueue.length; i++) if (!seen.has(i)) remapped.push(i)
+      st.setShuffleOrder(remapped)
+    }
+    st.setCurrentTrackIndex(newIndex)
+    addLog(`queue reordered (${newQueue.length} tracks, sounding kept @${newIndex})`)
+  }, [])
+
   // Permanent element once
   useEffect(() => {
     const media = document.createElement('audio')
@@ -635,7 +668,10 @@ export function useAudioEngine() {
     return () => { document.removeEventListener('visibilitychange', onVis); window.removeEventListener('pageshow', onPageShow as EventListener) }
   }, [activateSource, ensureAnchor, setPlaying])
 
-  useEffect(() => { if (currentTrack && queue.length>0) { void loadTrack(currentTrackIndex); setLoadForce(0) } }, [currentTrackIndex, loadForce])
+  useEffect(() => {
+    if (suppressReloadRef.current) { suppressReloadRef.current = false; setLoadForce(0); return }
+    if (currentTrack && queue.length>0) { void loadTrack(currentTrackIndex); setLoadForce(0) }
+  }, [currentTrackIndex, loadForce])
   // Boot warm-up: the effect above only fires on INDEX change, but boot fills
   // the queue with index already at 0 — so track 1 was never loaded (no src,
   // no metadata/duration, no prebuilt anchor) and its first Play was a cold
@@ -652,5 +688,5 @@ export function useAudioEngine() {
   useEffect(() => { if (mediaRef.current) mediaRef.current.volume = isMuted ? 0 : volume }, [volume, isMuted])
   useEffect(() => () => { if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current) }, [])
 
-  return { play, pause, remotePauseOrResume, togglePlay, seek, seekRelative: (d:number)=>seek(frozenPosRef.current+d), nextTrack, prevTrack, goToTrack, markNextGesture, videoContainerRef }
+  return { play, pause, remotePauseOrResume, togglePlay, seek, seekRelative: (d:number)=>seek(frozenPosRef.current+d), nextTrack, prevTrack, goToTrack, reorderQueue, markNextGesture, videoContainerRef }
 }

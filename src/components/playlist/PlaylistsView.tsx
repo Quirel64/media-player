@@ -15,13 +15,14 @@ interface Props {
   onDeletePlaylist: (id: string) => void
   onRemoveFromPlaylist?: (playlistId: string, itemIds: string[]) => Promise<void>
   onAddTracksToPlaylist?: (playlistId: string, tracks: Track[]) => Promise<void>
+  onMoveItem?: (playlistId: string, fromIndex: number, toIndex: number) => Promise<void>
   currentTrackId?: string | null
   // Phase 3: occurrence-aware highlight — matches the exact queue occurrence
   // (playlist item id), so twin entries no longer light up together.
   currentQueueKey?: string | null
 }
 
-export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist, onDeletePlaylist, onRemoveFromPlaylist, onAddTracksToPlaylist, currentTrackId, currentQueueKey }: Props) {
+export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist, onDeletePlaylist, onRemoveFromPlaylist, onAddTracksToPlaylist, onMoveItem, currentTrackId, currentQueueKey }: Props) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [activeTracks, setActiveTracks] = useState<Track[]>([])
   const [showCreate, setShowCreate] = useState(false)
@@ -29,6 +30,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
   const [newName, setNewName] = useState('')
   const [viewMode, setViewMode] = useState<'tracks' | 'queue'>('tracks')
   const [editMode, setEditMode] = useState(false)
+  const [orderMode, setOrderMode] = useState(false)
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
 
@@ -131,12 +133,21 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
       <div className="flex h-full flex-col">
         <div className="flex-shrink-0 border-b border-slate-800 px-4 py-3">
           <div className="flex items-center gap-3">
-            <button onClick={() => { setActiveId(null); setEditMode(false); setSelectedItemIds(new Set()); setViewMode('tracks') }} className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-200">← Back</button>
+            <button onClick={() => { setActiveId(null); setEditMode(false); setOrderMode(false); setSelectedItemIds(new Set()); setViewMode('tracks') }} className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-200">← Back</button>
             <div className="min-w-0 flex-1">
               <h2 className="truncate text-sm font-semibold text-white">{active.name?.trim() ? active.name : 'Untitled'}</h2>
               <p className="text-xs text-slate-400">{active.items.length} tracks {active.items.length !== activeTracks.length ? `(${activeTracks.length} available)` : ''}</p>
             </div>
-            <button onClick={() => setEditMode(v => !v)} className={`rounded-lg px-3 py-1.5 text-sm font-medium ${editMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}>{editMode ? 'Done' : 'Edit'}</button>
+            <button onClick={() => { setEditMode(v => !v); setOrderMode(false) }} className={`rounded-lg px-3 py-1.5 text-sm font-medium ${editMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}>{editMode ? 'Done' : 'Edit'}</button>
+            {onMoveItem && (
+              <button
+                onClick={() => { if (viewMode !== 'queue') setViewMode('queue'); setOrderMode(v => !v); setEditMode(false) }}
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium ${orderMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}
+                title="Reorder tracks (playback continues)"
+              >
+                {orderMode ? 'Done' : 'Order'}
+              </button>
+            )}
             {onAddTracksToPlaylist && (
               <button onClick={() => setShowAddTracks(true)} className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-200" title="Add tracks from the library">+ Tracks</button>
             )}
@@ -176,9 +187,28 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
                   ? itemId === currentQueueKey
                   : currentTrackId === t.id)
                 return (
-                  <div key={`${itemId}-${idx}`} onClick={() => editMode ? toggleSelect(itemId) : onForcePlayPlaylist(active.id, idx)} className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 ${editMode && isSelected ? 'bg-primary/20' : isPlaying ? 'bg-primary/20 text-primary-light' : 'hover:bg-slate-800/50 text-slate-300'}`}>
+                  <div key={`${itemId}-${idx}`} onClick={() => { if (editMode) toggleSelect(itemId); else if (!orderMode) onForcePlayPlaylist(active.id, idx) }} className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 ${editMode && isSelected ? 'bg-primary/20' : isPlaying ? 'bg-primary/20 text-primary-light' : 'hover:bg-slate-800/50 text-slate-300'}`}>
                     <div className="flex w-8 items-center justify-center">
-                      {editMode ? (
+                      {orderMode && onMoveItem ? (
+                        <div className="flex flex-col items-center gap-0.5">
+                          <button
+                            disabled={idx === 0}
+                            onClick={(e) => { e.stopPropagation(); void onMoveItem(active.id, idx, idx - 1) }}
+                            className="rounded px-1 text-xs leading-none text-slate-400 hover:bg-slate-700 hover:text-white disabled:opacity-20"
+                            title="Move up"
+                          >
+                            ▲
+                          </button>
+                          <button
+                            disabled={idx === active.items.length - 1}
+                            onClick={(e) => { e.stopPropagation(); void onMoveItem(active.id, idx, idx + 1) }}
+                            className="rounded px-1 text-xs leading-none text-slate-400 hover:bg-slate-700 hover:text-white disabled:opacity-20"
+                            title="Move down"
+                          >
+                            ▼
+                          </button>
+                        </div>
+                      ) : editMode ? (
                         <div className={`h-5 w-5 rounded border-2 ${isSelected ? 'border-primary bg-primary' : 'border-slate-600'}`}>{isSelected && <svg viewBox="0 0 16 16" className="h-full w-full text-white" fill="currentColor"><path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z" /></svg>}</div>
                       ) : (
                         <span className="text-xs text-slate-500">{idx + 1}</span>

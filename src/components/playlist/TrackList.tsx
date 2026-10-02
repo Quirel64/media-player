@@ -15,6 +15,10 @@ interface TrackListProps {
   onExternalSelectModeChange?: (v: boolean) => void
   selectAllTrigger?: number
   selectClearTrigger?: number
+  // Reorder mode (#10): chevron column moves rows (reliable on touch, no
+  // drag-vs-scroll fights). Parent owns persistence + live queue mapping.
+  reorderMode?: boolean
+  onMove?: (fromIndex: number, toIndex: number) => void
   // Controlled selection (S1): when provided, selection state lives in the
   // parent so Queue mode and Group detail share ONE set — no loose states.
   // Falls back to internal state when absent.
@@ -37,7 +41,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger, selectClearTrigger, externalSelectedIds, onSelectedIdsChange, currentIsSource }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
+export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger, selectClearTrigger, reorderMode, onMove, externalSelectedIds, onSelectedIdsChange, currentIsSource }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
   const [internalSelectMode, setInternalSelectMode] = useState(false)
   const selectMode = externalSelectMode !== undefined ? externalSelectMode : internalSelectMode
   const setSelectMode = (v: boolean | ((prev: boolean) => boolean)) => {
@@ -202,7 +206,7 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
                 onClick={() => {
                   if (selectMode) {
                     toggleSelect(track.id)
-                  } else {
+                  } else if (!reorderMode) {
                     onSelectTrack(index)
                   }
                 }}
@@ -215,7 +219,26 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
                 }`}
               >
                 <div className="flex w-8 items-center justify-center">
-                  {selectMode ? (
+                  {reorderMode ? (
+                    <div className="flex flex-col items-center gap-0.5">
+                      <button
+                        disabled={index === 0}
+                        onClick={(e) => { e.stopPropagation(); onMove?.(index, index - 1) }}
+                        className="rounded px-1 text-xs leading-none text-slate-400 hover:bg-slate-700 hover:text-white disabled:opacity-20"
+                        title="Move up"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        disabled={index === tracks.length - 1}
+                        onClick={(e) => { e.stopPropagation(); onMove?.(index, index + 1) }}
+                        className="rounded px-1 text-xs leading-none text-slate-400 hover:bg-slate-700 hover:text-white disabled:opacity-20"
+                        title="Move down"
+                      >
+                        ▼
+                      </button>
+                    </div>
+                  ) : selectMode ? (
                     <div
                       className={`h-5 w-5 rounded border-2 transition-colors ${
                         isSelected
