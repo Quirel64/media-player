@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { motion } from 'framer-motion'
+import { Reorder, useDragControls } from 'framer-motion'
 import type { Track, Playlist } from '../../lib/types'
+import { diffIdMove } from '../../lib/queue'
 import { getAllTracks } from '../../lib/idb'
 import { getTrackFile } from '../../lib/idb'
 import { getTrackThumbnail } from '../../lib/thumbnail'
@@ -20,6 +22,46 @@ interface Props {
   // Phase 3: occurrence-aware highlight — matches the exact queue occurrence
   // (playlist item id), so twin entries no longer light up together.
   currentQueueKey?: string | null
+}
+
+// Hold-and-drag queue row (grip-only; scroll + tap-to-play unaffected).
+// Module scope: defining it inside render would remount (and kill the drag)
+// on every parent render.
+function DragPlaylistRow({ itemId, track, isPlaying, onPlay, onCommitMove }: {
+  itemId: string
+  track: Track
+  isPlaying: boolean
+  onPlay: () => void
+  onCommitMove: () => void
+}) {
+  const controls = useDragControls()
+  return (
+    <Reorder.Item
+      value={itemId}
+      dragListener={false}
+      dragControls={controls}
+      onDragEnd={() => onCommitMove()}
+      onClick={onPlay}
+      className={`flex cursor-pointer select-none items-center gap-3 rounded-lg px-3 py-2 ${isPlaying ? 'bg-primary/20 text-primary-light' : 'hover:bg-slate-800/50 text-slate-300'}`}
+    >
+      <div className="flex w-8 items-center justify-center">
+        <span
+          onPointerDown={(e) => controls.start(e)}
+          onClick={(e) => e.stopPropagation()}
+          className="cursor-grab touch-none rounded px-1.5 py-2 text-sm leading-none text-slate-500 hover:bg-slate-700 hover:text-white active:cursor-grabbing"
+          title="Hold and drag to reorder"
+        >
+          ⋮⋮
+        </span>
+      </div>
+      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded bg-slate-800 text-xs">{track.mediaType === 'video' ? '🎬' : '🎵'}</div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm">{track.name}</p>
+        <p className="truncate text-xs text-slate-500">{track.artist !== 'Unknown Artist' ? track.artist : track.folderName}</p>
+      </div>
+      {isPlaying && <PlayingIndicator variant="playing" />}
+    </Reorder.Item>
+  )
 }
 
 export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist, onDeletePlaylist, onRemoveFromPlaylist, onAddTracksToPlaylist, onMoveItem, currentTrackId, currentQueueKey }: Props) {
@@ -119,6 +161,26 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
     })
   }
 
+  // Hold-and-drag for queue rows (same grip-only pattern as TrackList):
+  // local visual order during drag, single onMoveItem commit at drop.
+  const [dragItemIds, setDragItemIds] = useState<string[] | null>(null)
+  useEffect(() => { setDragItemIds(null) }, [orderMode, activeId, playlists])
+  const dragItemIdsRef = useRef<string[] | null>(null)
+  useEffect(() => { dragItemIdsRef.current = dragItemIds }, [dragItemIds])
+  const displayItemIds: string[] | null = useMemo(() => {
+    if (!dragItemIds || !active) return null
+    if (dragItemIds.length !== active.items.length) return null
+    const known = new Set(active.items.map((it) => it.id))
+    if (!dragItemIds.every((id) => known.has(id))) return null
+    return dragItemIds
+  }, [dragItemIds, active])
+  const commitDragMove = () => {
+    const ids = dragItemIdsRef.current
+    if (!ids || !active || !onMoveItem) return
+    const d = diffIdMove(active.items.map((it) => it.id), ids)
+    if (d) void onMoveItem(active.id, d.from, d.to)
+  }
+
   const handleRemoveSelected = async () => {
     if (!active || selectedItemIds.size === 0 || !onRemoveFromPlaylist) return
     await onRemoveFromPlaylist(active.id, Array.from(selectedItemIds))
@@ -178,6 +240,31 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
         ) : isQueue ? (
           <div className="flex flex-1 flex-col overflow-hidden">
             <div className="flex-1 overflow-y-auto p-2">
+              {orderMode && onMoveItem ? (
+                <Reorder.Group
+                  axis="y"
+                  values={displayItemIds ?? active.items.map((it) => it.id)}
+                  onReorder={(ids) => setDragItemIds(ids)}
+                >
+                  {(displayItemIds ?? active.items.map((it) => it.id)).map((iid) => {
+                    const idx = active.items.findIndex((it) => it.id === iid)
+                    const t = activeTracks[idx]
+                    if (idx === -1 || !t) return null
+                    const playing = currentQueueKey != null ? iid === currentQueueKey : currentTrackId === t.id
+                    return (
+                      <DragPlaylistRow
+                        key={iid}
+                        itemId={iid}
+                        track={t}
+                        isPlaying={playing}
+                        onPlay={() => onForcePlayPlaylist(active.id, idx)}
+                        onCommitMove={commitDragMove}
+                      />
+                    )
+                  })}
+                </Reorder.Group>
+              ) : (
+              <>
               {activeTracks.map((t, idx) => {
                 const itemId = active.items[idx]?.id ?? t.id
                 const isSelected = selectedItemIds.has(itemId)
@@ -189,26 +276,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
                 return (
                   <div key={`${itemId}-${idx}`} onClick={() => { if (editMode) toggleSelect(itemId); else onForcePlayPlaylist(active.id, idx) }} className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 ${editMode && isSelected ? 'bg-primary/20' : isPlaying ? 'bg-primary/20 text-primary-light' : 'hover:bg-slate-800/50 text-slate-300'}`}>
                     <div className="flex w-8 items-center justify-center">
-                      {orderMode && onMoveItem ? (
-                        <div className="flex flex-col items-center gap-0.5">
-                          <button
-                            disabled={idx === 0}
-                            onClick={(e) => { e.stopPropagation(); void onMoveItem(active.id, idx, idx - 1) }}
-                            className="rounded px-1 text-xs leading-none text-slate-400 hover:bg-slate-700 hover:text-white disabled:opacity-20"
-                            title="Move up"
-                          >
-                            ▲
-                          </button>
-                          <button
-                            disabled={idx === active.items.length - 1}
-                            onClick={(e) => { e.stopPropagation(); void onMoveItem(active.id, idx, idx + 1) }}
-                            className="rounded px-1 text-xs leading-none text-slate-400 hover:bg-slate-700 hover:text-white disabled:opacity-20"
-                            title="Move down"
-                          >
-                            ▼
-                          </button>
-                        </div>
-                      ) : editMode ? (
+                      {editMode ? (
                         <div className={`h-5 w-5 rounded border-2 ${isSelected ? 'border-primary bg-primary' : 'border-slate-600'}`}>{isSelected && <svg viewBox="0 0 16 16" className="h-full w-full text-white" fill="currentColor"><path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z" /></svg>}</div>
                       ) : (
                         <span className="text-xs text-slate-500">{idx + 1}</span>
@@ -223,6 +291,8 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
                   </div>
                 )
               })}
+              </>
+              )}
             </div>
             {editMode && (
               <div className="border-t border-slate-800 bg-slate-900 px-4 py-3">

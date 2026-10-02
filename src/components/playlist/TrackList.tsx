@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { useState, useEffect, useRef, useMemo } from 'react'
+import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion'
 import type { Track } from '../../lib/types'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
+import { diffIdMove } from '../../lib/queue'
 
 interface TrackListProps {
   tracks: Track[]
@@ -17,6 +18,7 @@ interface TrackListProps {
   selectClearTrigger?: number
   // Reorder mode (#10): chevron column moves rows (reliable on touch, no
   // drag-vs-scroll fights). Parent owns persistence + live queue mapping.
+  // Hold-and-drag on the grip does the same through ONE onMove commit at drop.
   reorderMode?: boolean
   onMove?: (fromIndex: number, toIndex: number) => void
   // Controlled selection (S1): when provided, selection state lives in the
@@ -39,6 +41,58 @@ function formatDuration(seconds: number): string {
 function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// Hold-and-drag row: grip-only dragging (dragListener={false}) so vertical
+// scroll still works everywhere else; select-none stops iOS text selection
+// mid-drag. Drop commits through the shared onMove path.
+function DragTrackRow({ track, isCurrent, currentIsSource, onPlay, onCommitMove }: {
+  track: Track
+  isCurrent: boolean
+  currentIsSource?: boolean
+  onPlay: () => void
+  onCommitMove: () => void
+}) {
+  const controls = useDragControls()
+  return (
+    <Reorder.Item
+      value={track.id}
+      dragListener={false}
+      dragControls={controls}
+      onDragEnd={() => onCommitMove()}
+      onClick={onPlay}
+      className={`group flex cursor-pointer select-none items-center gap-4 rounded-lg px-4 py-3 transition-colors ${
+        isCurrent ? 'bg-primary/20 text-primary-light' : 'text-slate-300 hover:bg-slate-800/50'
+      }`}
+    >
+      <div className="flex w-8 items-center justify-center">
+        <span
+          onPointerDown={(e) => controls.start(e)}
+          onClick={(e) => e.stopPropagation()}
+          className="cursor-grab touch-none rounded px-1.5 py-2 text-sm leading-none text-slate-500 hover:bg-slate-700 hover:text-white active:cursor-grabbing"
+          title="Hold and drag to reorder"
+        >
+          ⋮⋮
+        </span>
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <p className="truncate text-sm font-medium">{track.name}</p>
+          {track.mediaType === 'video' && (
+            <span className="flex-shrink-0 text-xs text-slate-500">🎬</span>
+          )}
+        </div>
+        <p className="truncate text-xs text-slate-500">
+          {track.artist} {track.album !== 'Unknown Album' ? `• ${track.album}` : ''}
+        </p>
+      </div>
+      <span className="text-xs text-slate-600">{formatSize(track.size)}</span>
+      <span className="w-12 text-right text-xs text-slate-500">
+        {formatDuration(track.duration)}
+      </span>
+      {isCurrent && <PlayingIndicator variant={currentIsSource ? 'source' : 'playing'} />}
+    </Reorder.Item>
+  )
 }
 
 export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger, selectClearTrigger, reorderMode, onMove, externalSelectedIds, onSelectedIdsChange, currentIsSource }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
@@ -71,6 +125,34 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
       setSelectedIds(new Set())
     }
   }, [selectClearTrigger])
+
+  // Hold-and-drag: LOCAL visual order during the drag only. Persisting +
+  // live-mapping mid-drag would re-render and fight the animation, so a single
+  // onMove commit fires at drop (same path the chevrons use). Parent updates
+  // flow back through `tracks`, which clears the local order.
+  const [dragIds, setDragIds] = useState<string[] | null>(null)
+  useEffect(() => { setDragIds(null) }, [reorderMode, tracks])
+  const dragIdsRef = useRef<string[] | null>(null)
+  useEffect(() => { dragIdsRef.current = dragIds }, [dragIds])
+  const displayTracks = useMemo(() => {
+    if (!dragIds) return tracks
+    const byId = new Map(tracks.map((t) => [t.id, t] as const))
+    const mapped = dragIds.map((id) => byId.get(id)).filter((t) => t != null)
+    return mapped.length === tracks.length ? mapped : tracks
+  }, [tracks, dragIds])
+  // Highlight follows the track id, so it stays put while rows slide under it.
+  const displayCurrentIdx = (() => {
+    const curId = tracks[currentTrackIndex]?.id
+    if (curId == null) return currentTrackIndex
+    const i = displayTracks.findIndex((t) => t.id === curId)
+    return i === -1 ? currentTrackIndex : i
+  })()
+  const commitDragMove = () => {
+    const ids = dragIdsRef.current
+    if (!ids) return
+    const d = diffIdMove(tracks.map((t) => t.id), ids)
+    if (d) onMove?.(d.from, d.to)
+  }
 
   const toggleSelect = (trackId: string) => {
     setSelectedIds((prev) => {
@@ -193,6 +275,24 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
       )}
 
       <div className="flex-1 overflow-y-auto px-2 py-2">
+        {reorderMode && onMove ? (
+          <Reorder.Group
+            axis="y"
+            values={displayTracks.map((t) => t.id)}
+            onReorder={(ids) => setDragIds(ids)}
+          >
+            {displayTracks.map((track, index) => (
+              <DragTrackRow
+                key={track.id}
+                track={track}
+                isCurrent={index === displayCurrentIdx}
+                currentIsSource={currentIsSource}
+                onPlay={() => onSelectTrack(index)}
+                onCommitMove={commitDragMove}
+              />
+            ))}
+          </Reorder.Group>
+        ) : (
         <AnimatePresence mode="popLayout">
           {tracks.map((track, index) => {
             const isSelected = selectedIds.has(track.id)
@@ -221,26 +321,7 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
                 }`}
               >
                 <div className="flex w-8 items-center justify-center">
-                  {reorderMode ? (
-                    <div className="flex flex-col items-center gap-0.5">
-                      <button
-                        disabled={index === 0}
-                        onClick={(e) => { e.stopPropagation(); onMove?.(index, index - 1) }}
-                        className="rounded px-1 text-xs leading-none text-slate-400 hover:bg-slate-700 hover:text-white disabled:opacity-20"
-                        title="Move up"
-                      >
-                        ▲
-                      </button>
-                      <button
-                        disabled={index === tracks.length - 1}
-                        onClick={(e) => { e.stopPropagation(); onMove?.(index, index + 1) }}
-                        className="rounded px-1 text-xs leading-none text-slate-400 hover:bg-slate-700 hover:text-white disabled:opacity-20"
-                        title="Move down"
-                      >
-                        ▼
-                      </button>
-                    </div>
-                  ) : selectMode ? (
+                  {selectMode ? (
                     <div
                       className={`h-5 w-5 rounded border-2 transition-colors ${
                         isSelected
@@ -281,6 +362,7 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
             )
           })}
         </AnimatePresence>
+        )}
       </div>
 
       {/* Selection action bar */}

@@ -51,3 +51,20 @@ export function findQueueIndexByKey(queue: Track[], key: string | null): number 
   if (key == null) return -1
   return queue.findIndex((t) => queueKey(t) === key)
 }
+
+/**
+ * Diff a drag result (single relocation) into one from/to move for the
+ * chevron-tested onMove path. Returns null when nothing moved.
+ */
+export function diffIdMove(oldIds: string[], newIds: string[]): { from: number; to: number } | null {
+  if (oldIds.length !== newIds.length) return null
+  let firstDiff = -1
+  for (let i = 0; i < oldIds.length; i++) {
+    if (oldIds[i] !== newIds[i]) { firstDiff = i; break }
+  }
+  if (firstDiff === -1) return null
+  const movedId = newIds[firstDiff]
+  const from = oldIds.indexOf(movedId)
+  if (from === -1) return null
+  return { from, to: firstDiff }
+}
