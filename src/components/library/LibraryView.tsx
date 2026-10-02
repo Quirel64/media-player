@@ -4,13 +4,14 @@ import type { Track } from '../../lib/types'
 import { groupTracks } from '../../lib/group'
 import { TrackList } from '../playlist/TrackList'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
+import { usePlayerStore } from '../../stores/playerStore'
+import { queueKey, findQueueIndexByKey } from '../../lib/queue'
 import { getTrackFile } from '../../lib/idb'
 import { getTrackThumbnail } from '../../lib/thumbnail'
 
 interface Props {
   tracks: Track[]
-  currentTrackIndex: number
-  onSelectTrack: (index: number) => void
+  onSelectTrack: (index: number, ordered?: Track[]) => void
   onPickFolder: () => void
   onPickFiles: () => void
   onRemoveTracks?: (tracks: Track[]) => void
@@ -19,9 +20,11 @@ interface Props {
   // group taps still resolve through the same queue helpers.
   queueIsLibrary?: boolean
   currentTrackId?: string | null
+  // Gapless session reorder plumbing from the engine (App passes through).
+  onReorderQueue?: (newQueue: Track[], newIndex: number) => void
 }
 
-export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, queueIsLibrary = true, currentTrackId = null }: Props) {
+export function LibraryView({ tracks, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, queueIsLibrary = true, currentTrackId = null, onReorderQueue }: Props) {
   const [mode, setMode] = useState<'groups' | 'queue'>('groups')
   const [search, setSearch] = useState('')
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
@@ -29,6 +32,21 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
   // group detail, and later the grid) — Back preserves selection, no loose states.
   const [selectMode, setSelectMode] = useState(false)
   const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(new Set())
+  // #10 library session reorder: view-owned display order (ids). Canonical
+  // `tracks` stays the truth for uploads/deletes; a membership mismatch falls
+  // back to canonical automatically. Order mode is queue-only and gated on the
+  // live queue actually being the library (reordering a playlist's queue from
+  // here would clobber it).
+  const [orderOverride, setOrderOverride] = useState<string[] | null>(null)
+  const [orderMode, setOrderMode] = useState(false)
+  const orderedTracks = useMemo(() => {
+    if (!orderOverride || orderOverride.length !== tracks.length) return tracks
+    const byId = new Map(tracks.map((t) => [t.id, t] as const))
+    if (!orderOverride.every((id) => byId.has(id))) return tracks
+    return orderOverride.map((id) => byId.get(id)!)
+  }, [tracks, orderOverride])
+  // Row highlight by track id: correct in canonical AND session order.
+  const queueRowIdx = currentTrackId ? orderedTracks.findIndex((t) => t.id === currentTrackId) : -1
   const [queueSelectAllTrigger, setQueueSelectAllTrigger] = useState(0)
   const [queueSelectClearTrigger, setQueueSelectClearTrigger] = useState(0)
   const [selectAllOn, setSelectAllOn] = useState(false)
@@ -79,7 +97,12 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
   const activeGroup = activeGroupId ? grouped.groups.find((g) => g.id === activeGroupId) ?? null : null
 
   // S2: shared select-mode helpers for the grid (queue mode keeps its triggers).
-  const toggleSelectMode = () => { setSelectMode(v => !v); setSelectAllOn(false) }
+  const toggleSelectMode = () => { setSelectMode(v => !v); setSelectAllOn(false); setOrderMode(false) }
+  // #10: order mode is mutually exclusive with select mode.
+  const toggleOrderMode = () => {
+    if (orderMode) { setOrderMode(false); return }
+    setOrderMode(true); setSelectMode(false); setSelectAllOn(false)
+  }
   const toggleTrackSelected = (id: string) => {
     setSelectedTrackIds(prev => {
       const next = new Set(prev)
@@ -112,12 +135,36 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
   const playingVariant = queueIsLibrary ? 'playing' as const : 'source' as const
 
   const handleSelectInGroup = (track: Track) => {
-    const idx = tracks.findIndex((t) => t.id === track.id)
-    if (idx !== -1) onSelectTrack(idx)
+    // Resolve through the DISPLAY order so session reorders are honored.
+    const idx = orderedTracks.findIndex((t) => t.id === track.id)
+    if (idx !== -1) onSelectTrack(idx, orderedTracks)
+  }
+
+  // Tap in queue rows: same display-order mapping.
+  const handleSelectQueueRow = (displayIdx: number) => {
+    onSelectTrack(displayIdx, orderedTracks)
+  }
+
+  // Session reorder of the library queue: permute the view order, then live-map
+  // the sounding store queue (same membership — toggle is gated on that).
+  const moveQueueTrack = (from: number, to: number) => {
+    const ids = orderedTracks.map((t) => t.id)
+    if (from < 0 || to < 0 || from >= ids.length || to >= ids.length) return
+    const [moved] = ids.splice(from, 1)
+    ids.splice(to, 0, moved)
+    setOrderOverride(ids)
+    if (!onReorderQueue) return
+    const st = usePlayerStore.getState()
+    const byTrackId = new Map(st.queue.map((q) => [q.id, q] as const))
+    const newQueue = ids.map((id) => byTrackId.get(id)).filter((t) => t != null)
+    if (newQueue.length !== st.queue.length) return
+    const cur = st.queue[st.currentTrackIndex]
+    const newIndex = cur ? findQueueIndexByKey(newQueue, queueKey(cur)) : st.currentTrackIndex
+    onReorderQueue(newQueue, newIndex)
   }
 
   if (tracks.length === 0) {
-    return <TrackList tracks={tracks} currentTrackIndex={currentTrackIndex} onSelectTrack={onSelectTrack} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} />
+    return <TrackList tracks={tracks} currentTrackIndex={-1} onSelectTrack={(i) => onSelectTrack(i, tracks)} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} />
   }
 
   // Group detail view — thumbnail grid like the loose cards (per S3 decision):
@@ -228,6 +275,15 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
               </button>
             )}
             <button onClick={toggleSelectMode} className={`rounded-lg px-3 py-1.5 text-xs font-medium ${selectMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}>{selectMode ? 'Done' : 'Select'}</button>
+            {mode === 'queue' && queueIsLibrary && onReorderQueue && (
+              <button
+                onClick={toggleOrderMode}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium ${orderMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}
+                title="Reorder queue (session only — playback continues)"
+              >
+                {orderMode ? 'Done' : 'Order'}
+              </button>
+            )}
             <div className="flex items-center gap-1 rounded-full bg-slate-800 p-1">
               <button onClick={() => setMode('groups')} className={`rounded-full px-3 py-1 text-xs font-medium ${mode === 'groups' ? 'bg-primary text-white' : 'text-slate-400'}`}>Groups</button>
               <button onClick={() => setMode('queue')} className={`rounded-full px-3 py-1 text-xs font-medium ${mode === 'queue' ? 'bg-primary text-white' : 'text-slate-400'}`}>Queue</button>
@@ -251,7 +307,7 @@ export function LibraryView({ tracks, currentTrackIndex, onSelectTrack, onPickFo
 
       {mode === 'queue' ? (
         <div className="flex-1 overflow-hidden">
-          <TrackList tracks={tracks} currentTrackIndex={currentTrackIndex} onSelectTrack={onSelectTrack} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} hideHeader externalSelectMode={selectMode} onExternalSelectModeChange={(v) => { setSelectMode(v); if (!v) setSelectAllOn(false) }} selectAllTrigger={queueSelectAllTrigger} selectClearTrigger={queueSelectClearTrigger} externalSelectedIds={selectedTrackIds} onSelectedIdsChange={setSelectedTrackIds} currentIsSource={!queueIsLibrary} />
+          <TrackList tracks={orderedTracks} currentTrackIndex={queueRowIdx} onSelectTrack={handleSelectQueueRow} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} hideHeader externalSelectMode={selectMode} onExternalSelectModeChange={(v) => { setSelectMode(v); if (!v) setSelectAllOn(false) }} selectAllTrigger={queueSelectAllTrigger} selectClearTrigger={queueSelectClearTrigger} externalSelectedIds={selectedTrackIds} onSelectedIdsChange={setSelectedTrackIds} reorderMode={orderMode} onMove={moveQueueTrack} currentIsSource={!queueIsLibrary} />
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-3">

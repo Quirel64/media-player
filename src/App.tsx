@@ -104,13 +104,17 @@ export default function App() {
   }, [libraryTracks])
 
   const handleSelectTrack = useCallback(
-    (index: number) => {
-      // Universal reset: every tap restarts fresh, even same fileName/instance
+    (index: number, ordered?: Track[]) => {
+      // Universal reset: every tap restarts fresh, even same fileName/instance.
+      // `ordered` is the caller's display order (session reorder); the queue is
+      // always built from exactly what the user sees, never assumed canonical.
       markNextGesture()
-      // If queue is not libraryTracks (e.g., playlist), switch queue to library
-      if (!isLibraryQueue(queue, libraryTracks) && libraryTracks.length > 0) {
+      const list = ordered ?? libraryTracks
+      // If queue is not the displayed list (e.g., playlist, or session order),
+      // switch queue to it with instanceIds.
+      if (!isLibraryQueue(queue, list) && list.length > 0) {
         const { setQueue, setOriginalOrder, setCurrentTrackIndex: setIdx, setPlaying } = usePlayerStore.getState()
-        const withInstance = libraryTracks.map((t) => toQueueItem(t))
+        const withInstance = list.map((t) => toQueueItem(t))
         setQueue(withInstance)
         setOriginalOrder(withInstance)
         setIdx(index)
@@ -257,13 +261,8 @@ export default function App() {
     return <NowPlaying currentTrack={currentTrack} videoContainerRef={videoContainerRef} collapsed={nowCollapsed} onToggleCollapsed={() => setNowCollapsed((v) => !v)} />
   }
 
-  // Library highlight: match by track id (library rows are tracks, twins have distinct ids).
-  // Playlist occurrence highlight uses currentQueueKey below (instanceId-aware).
-  const libraryCurrentIdx = (() => {
-    const cur = queue[currentTrackIndex]
-    if (!cur) return -1
-    return libraryTracks.findIndex((t) => t.id === cur.id)
-  })()
+  // Playlist occurrence highlight (instanceId-aware). Library rows match by
+  // track id inside LibraryView (twins have distinct ids).
   const currentQueueKey = currentTrack ? queueKey(currentTrack) : null
 
   const renderContent = () => {
@@ -274,7 +273,6 @@ export default function App() {
         return (
           <LibraryView
             tracks={libraryTracks}
-            currentTrackIndex={libraryCurrentIdx}
             onSelectTrack={handleSelectTrack}
             onPickFolder={handlePickFolder}
             onPickFiles={handlePickFiles}
@@ -282,6 +280,7 @@ export default function App() {
             onAddToPlaylist={handleAddToPlaylist}
             queueIsLibrary={isLibraryQueue(queue, libraryTracks)}
             currentTrackId={currentTrack?.id ?? null}
+            onReorderQueue={reorderQueue}
           />
         )
       case 'playlists':
