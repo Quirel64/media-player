@@ -114,8 +114,12 @@ export default function App() {
         setQueue(withInstance)
         setOriginalOrder(withInstance)
         setIdx(index)
+        // Manual tap with shuffle on = fresh cycle from here (no mid-order end).
+        usePlayerStore.getState().syncShuffleToQueue(index)
         setPlaying(true)
       } else {
+        // Same: fresh shuffle cycle from the tapped track.
+        usePlayerStore.getState().syncShuffleToQueue(index)
         goToTrack(index)
       }
     },
@@ -230,7 +234,8 @@ export default function App() {
       const base = st.queue.length
       st.setQueue([...st.queue, ...appended])
       st.setOriginalOrder([...st.originalOrder, ...appended])
-      if (st.shuffleOn) st.setShuffleOrder([...st.shuffleOrder, ...appended.map((_, j) => base + j)])
+      // Guard the stale tail too (lengths always match, but never trust it).
+      if (st.shuffleOn) st.setShuffleOrder([...st.shuffleOrder.filter((i) => i < base), ...appended.map((_, j) => base + j)])
       addLog(`live queue append: +${appended.length} from playlist "${pl.name}" (pos kept)`)
     } catch (e) {
       addLog(`live queue append failed: ${e}`)

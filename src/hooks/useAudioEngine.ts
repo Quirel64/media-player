@@ -481,7 +481,12 @@ export function useAudioEngine() {
     const st = usePlayerStore.getState()
     const oldQueue = st.queue
     const keyToNew = new Map(newQueue.map((t, i) => [queueKey(t), i] as const))
-    suppressReloadRef.current = true
+    // Only arm the guard when the index actually moves: same-index reorders
+    // fire NO reload (effect deps unchanged), so a stale flag would survive
+    // and eat the NEXT real load — dot moves, old audio continues, video gets
+    // clobbered with the stale blob (the two-press ghost).
+    if (newIndex !== st.currentTrackIndex) suppressReloadRef.current = true
+    setLoadForce(0)
     st.setQueue(newQueue)
     st.setOriginalOrder(newQueue)
     if (st.shuffleOn) {

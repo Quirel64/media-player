@@ -88,6 +88,8 @@ export function usePlaylists() {
     setQueue(resolved)
     setOriginalOrder(resolved)
     setCurrentTrackIndex(startIdx)
+    // Fresh queue → stale positional shuffleOrder would point out of range.
+    usePlayerStore.getState().syncShuffleToQueue(startIdx)
     setPlaying(true)
     addLog(`play playlist "${pl.name}" ${resolved.length} tracks from #${startIdx}`)
     return true

@@ -194,6 +194,8 @@ async function processFiles(
   setQueue(combined)
   setOriginalOrder(combined)
   setCurrentTrackIndex(canonicalBase.length)
+  // Fresh queue → resync shuffle (fresh cycle from the first new track).
+  usePlayerStore.getState().syncShuffleToQueue(canonicalBase.length)
 
   return tracks
 }
