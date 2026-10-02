@@ -206,7 +206,9 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
                 onClick={() => {
                   if (selectMode) {
                     toggleSelect(track.id)
-                  } else if (!reorderMode) {
+                  } else {
+                    // Order mode included: tapping a row plays it (chevrons
+                    // stopPropagation for moves). Rows are never dead.
                     onSelectTrack(index)
                   }
                 }}

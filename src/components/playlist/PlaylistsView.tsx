@@ -187,7 +187,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
                   ? itemId === currentQueueKey
                   : currentTrackId === t.id)
                 return (
-                  <div key={`${itemId}-${idx}`} onClick={() => { if (editMode) toggleSelect(itemId); else if (!orderMode) onForcePlayPlaylist(active.id, idx) }} className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 ${editMode && isSelected ? 'bg-primary/20' : isPlaying ? 'bg-primary/20 text-primary-light' : 'hover:bg-slate-800/50 text-slate-300'}`}>
+                  <div key={`${itemId}-${idx}`} onClick={() => { if (editMode) toggleSelect(itemId); else onForcePlayPlaylist(active.id, idx) }} className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 ${editMode && isSelected ? 'bg-primary/20' : isPlaying ? 'bg-primary/20 text-primary-light' : 'hover:bg-slate-800/50 text-slate-300'}`}>
                     <div className="flex w-8 items-center justify-center">
                       {orderMode && onMoveItem ? (
                         <div className="flex flex-col items-center gap-0.5">

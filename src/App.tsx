@@ -10,7 +10,7 @@ import { useMediaSession } from './hooks/useMediaSession'
 import { useFolderPicker } from './hooks/useFolderPicker'
 import { usePlayerStore } from './stores/playerStore'
 import { getSetting, saveSetting, saveTracks, getAllTracks, getPlaylist, savePlaylist } from './lib/idb'
-import { queueKey, toQueueItem, isLibraryQueue, findQueueIndexByKey } from './lib/queue'
+import { queueKey, toQueueItem, isLibraryQueue, findQueueIndexByKey, hasSameTracks } from './lib/queue'
 import { addLog } from './lib/logger'
 import { ToastContainer } from './components/ui/Toast'
 import { EventLog } from './components/ui/EventLog'
@@ -278,7 +278,7 @@ export default function App() {
             onPickFiles={handlePickFiles}
             onRemoveTracks={handleRemoveTracks}
             onAddToPlaylist={handleAddToPlaylist}
-            queueIsLibrary={isLibraryQueue(queue, libraryTracks)}
+            libraryMembership={hasSameTracks(queue, libraryTracks)}
             currentTrackId={currentTrack?.id ?? null}
             onReorderQueue={reorderQueue}
           />

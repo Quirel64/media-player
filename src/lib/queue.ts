@@ -28,6 +28,24 @@ export function isLibraryQueue(queue: Track[], libraryTracks: Track[]): boolean 
   return queue.every((t, i) => queueKey(t) === queueKey(libraryTracks[i]))
 }
 
+/**
+ * Membership check: same tracks in ANY order (id multiset). A session-reordered
+ * library queue fails `isLibraryQueue` (order differs) but passes here — that's
+ * the distinction between "same sequence" (tap/index math) and "same library
+ * content" (Order-mode gating, playing-vs-source dots).
+ */
+export function hasSameTracks(a: Track[], b: Track[]): boolean {
+  if (a.length !== b.length) return false
+  const counts = new Map<string, number>()
+  for (const t of a) counts.set(t.id, (counts.get(t.id) ?? 0) + 1)
+  for (const t of b) {
+    const n = counts.get(t.id) ?? 0
+    if (n === 0) return false
+    counts.set(t.id, n - 1)
+  }
+  return true
+}
+
 /** Index of the queue occurrence with the given key, or -1. */
 export function findQueueIndexByKey(queue: Track[], key: string | null): number {
   if (key == null) return -1

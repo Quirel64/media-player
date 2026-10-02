@@ -16,15 +16,15 @@ interface Props {
   onPickFiles: () => void
   onRemoveTracks?: (tracks: Track[]) => void
   onAddToPlaylist?: (tracks: Track[]) => void
-  // False while a playlist is playing: highlights become "source" dots and
-  // group taps still resolve through the same queue helpers.
-  queueIsLibrary?: boolean
+  // Membership (any order): gates Order mode + playing-vs-source dots. Stays
+  // true through session reorders (exact-sequence checks would fail there).
+  libraryMembership?: boolean
   currentTrackId?: string | null
   // Gapless session reorder plumbing from the engine (App passes through).
   onReorderQueue?: (newQueue: Track[], newIndex: number) => void
 }
 
-export function LibraryView({ tracks, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, queueIsLibrary = true, currentTrackId = null, onReorderQueue }: Props) {
+export function LibraryView({ tracks, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, libraryMembership = true, currentTrackId = null, onReorderQueue }: Props) {
   const [mode, setMode] = useState<'groups' | 'queue'>('groups')
   const [search, setSearch] = useState('')
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
@@ -132,7 +132,7 @@ export function LibraryView({ tracks, onSelectTrack, onPickFolder, onPickFiles, 
       setSelectAllOn(true)
     }
   }
-  const playingVariant = queueIsLibrary ? 'playing' as const : 'source' as const
+  const playingVariant = libraryMembership ? 'playing' as const : 'source' as const
 
   const handleSelectInGroup = (track: Track) => {
     // Resolve through the DISPLAY order so session reorders are honored.
@@ -275,7 +275,7 @@ export function LibraryView({ tracks, onSelectTrack, onPickFolder, onPickFiles, 
               </button>
             )}
             <button onClick={toggleSelectMode} className={`rounded-lg px-3 py-1.5 text-xs font-medium ${selectMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}>{selectMode ? 'Done' : 'Select'}</button>
-            {mode === 'queue' && queueIsLibrary && onReorderQueue && (
+            {mode === 'queue' && libraryMembership && onReorderQueue && (
               <button
                 onClick={toggleOrderMode}
                 className={`rounded-lg px-3 py-1.5 text-xs font-medium ${orderMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}
@@ -307,7 +307,7 @@ export function LibraryView({ tracks, onSelectTrack, onPickFolder, onPickFiles, 
 
       {mode === 'queue' ? (
         <div className="flex-1 overflow-hidden">
-          <TrackList tracks={orderedTracks} currentTrackIndex={queueRowIdx} onSelectTrack={handleSelectQueueRow} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} hideHeader externalSelectMode={selectMode} onExternalSelectModeChange={(v) => { setSelectMode(v); if (!v) setSelectAllOn(false) }} selectAllTrigger={queueSelectAllTrigger} selectClearTrigger={queueSelectClearTrigger} externalSelectedIds={selectedTrackIds} onSelectedIdsChange={setSelectedTrackIds} reorderMode={orderMode} onMove={moveQueueTrack} currentIsSource={!queueIsLibrary} />
+          <TrackList tracks={orderedTracks} currentTrackIndex={queueRowIdx} onSelectTrack={handleSelectQueueRow} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} hideHeader externalSelectMode={selectMode} onExternalSelectModeChange={(v) => { setSelectMode(v); if (!v) setSelectAllOn(false) }} selectAllTrigger={queueSelectAllTrigger} selectClearTrigger={queueSelectClearTrigger} externalSelectedIds={selectedTrackIds} onSelectedIdsChange={setSelectedTrackIds} reorderMode={orderMode} onMove={moveQueueTrack} currentIsSource={!libraryMembership} />
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-3">
