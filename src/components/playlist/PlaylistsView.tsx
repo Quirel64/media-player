@@ -162,20 +162,18 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
   }
 
   // Hold-and-drag for queue rows (same grip-only pattern as TrackList):
-  // local visual order during drag, single onMoveItem commit at drop.
-  const [dragItemIds, setDragItemIds] = useState<string[] | null>(null)
-  useEffect(() => { setDragItemIds(null) }, [orderMode, activeId, playlists])
-  const dragItemIdsRef = useRef<string[] | null>(null)
-  useEffect(() => { dragItemIdsRef.current = dragItemIds }, [dragItemIds])
-  const displayItemIds: string[] | null = useMemo(() => {
-    if (!dragItemIds || !active) return null
-    if (dragItemIds.length !== active.items.length) return null
-    const known = new Set(active.items.map((it) => it.id))
-    if (!dragItemIds.every((id) => known.has(id))) return null
-    return dragItemIds
-  }, [dragItemIds, active])
+  // values stay FROZEN during the gesture (order accumulates in a ref, zero
+  // re-renders — live updates back mid-drag cause the one-step snap), single
+  // onMoveItem commit at drop.
+  const orderRef = useRef<string[] | null>(null)
+  useEffect(() => { orderRef.current = null }, [orderMode, activeId, playlists])
+  const rowItemIds: string[] = useMemo(
+    () => (active ? active.items.map((it) => it.id) : []),
+    [active],
+  )
   const commitDragMove = () => {
-    const ids = dragItemIdsRef.current
+    const ids = orderRef.current
+    orderRef.current = null
     if (!ids || !active || !onMoveItem) return
     const d = diffIdMove(active.items.map((it) => it.id), ids)
     if (d) void onMoveItem(active.id, d.from, d.to)
@@ -243,10 +241,10 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
               {orderMode && onMoveItem ? (
                 <Reorder.Group
                   axis="y"
-                  values={displayItemIds ?? active.items.map((it) => it.id)}
-                  onReorder={(ids) => setDragItemIds(ids)}
+                  values={rowItemIds}
+                  onReorder={(ids) => { orderRef.current = ids }}
                 >
-                  {(displayItemIds ?? active.items.map((it) => it.id)).map((iid) => {
+                  {rowItemIds.map((iid) => {
                     const idx = active.items.findIndex((it) => it.id === iid)
                     const t = activeTracks[idx]
                     if (idx === -1 || !t) return null

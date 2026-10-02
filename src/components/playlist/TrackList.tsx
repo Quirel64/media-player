@@ -126,29 +126,18 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
     }
   }, [selectClearTrigger])
 
-  // Hold-and-drag: LOCAL visual order during the drag only. Persisting +
-  // live-mapping mid-drag would re-render and fight the animation, so a single
-  // onMove commit fires at drop (same path the chevrons use). Parent updates
-  // flow back through `tracks`, which clears the local order.
-  const [dragIds, setDragIds] = useState<string[] | null>(null)
-  useEffect(() => { setDragIds(null) }, [reorderMode, tracks])
-  const dragIdsRef = useRef<string[] | null>(null)
-  useEffect(() => { dragIdsRef.current = dragIds }, [dragIds])
-  const displayTracks = useMemo(() => {
-    if (!dragIds) return tracks
-    const byId = new Map(tracks.map((t) => [t.id, t] as const))
-    const mapped = dragIds.map((id) => byId.get(id)).filter((t) => t != null)
-    return mapped.length === tracks.length ? mapped : tracks
-  }, [tracks, dragIds])
-  // Highlight follows the track id, so it stays put while rows slide under it.
-  const displayCurrentIdx = (() => {
-    const curId = tracks[currentTrackIndex]?.id
-    if (curId == null) return currentTrackIndex
-    const i = displayTracks.findIndex((t) => t.id === curId)
-    return i === -1 ? currentTrackIndex : i
-  })()
+  // Hold-and-drag: the gesture owns the order, React doesn't. values stay FROZEN
+  // for the whole drag (order accumulates in a ref, framer animates internally
+  // with zero re-renders) and a single onMove commit fires at drop through the
+  // chevron-tested path. Feeding live updates back mid-drag (onReorder=setState)
+  // makes framer re-lock measurements every frame — the dragged row can then
+  // only displace one neighbor before the world resets under it (one-step snap).
+  const rowIds = useMemo(() => tracks.map((t) => t.id), [tracks])
+  const orderRef = useRef<string[] | null>(null)
+  useEffect(() => { orderRef.current = null }, [reorderMode, tracks])
   const commitDragMove = () => {
-    const ids = dragIdsRef.current
+    const ids = orderRef.current
+    orderRef.current = null
     if (!ids) return
     const d = diffIdMove(tracks.map((t) => t.id), ids)
     if (d) onMove?.(d.from, d.to)
@@ -278,14 +267,14 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
         {reorderMode && onMove ? (
           <Reorder.Group
             axis="y"
-            values={displayTracks.map((t) => t.id)}
-            onReorder={(ids) => setDragIds(ids)}
+            values={rowIds}
+            onReorder={(ids) => { orderRef.current = ids }}
           >
-            {displayTracks.map((track, index) => (
+            {tracks.map((track, index) => (
               <DragTrackRow
                 key={track.id}
                 track={track}
-                isCurrent={index === displayCurrentIdx}
+                isCurrent={index === currentTrackIndex}
                 currentIsSource={currentIsSource}
                 onPlay={() => onSelectTrack(index)}
                 onCommitMove={commitDragMove}
