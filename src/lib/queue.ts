@@ -53,18 +53,17 @@ export function findQueueIndexByKey(queue: Track[], key: string | null): number 
 }
 
 /**
- * Diff a drag result (single relocation) into one from/to move for the
- * chevron-tested onMove path. Returns null when nothing moved.
+ * Apply a drop order: reorder items to match newIds (validated — null when the
+ * id sets differ, e.g. a data change landed mid-drag).
  */
-export function diffIdMove(oldIds: string[], newIds: string[]): { from: number; to: number } | null {
-  if (oldIds.length !== newIds.length) return null
-  let firstDiff = -1
-  for (let i = 0; i < oldIds.length; i++) {
-    if (oldIds[i] !== newIds[i]) { firstDiff = i; break }
+export function orderByIds<T>(items: T[], idOf: (t: T) => string, newIds: string[]): T[] | null {
+  if (newIds.length !== items.length) return null
+  const byId = new Map(items.map((i) => [idOf(i), i] as const))
+  const out: T[] = []
+  for (const id of newIds) {
+    const item = byId.get(id)
+    if (item == null) return null
+    out.push(item)
   }
-  if (firstDiff === -1) return null
-  const movedId = newIds[firstDiff]
-  const from = oldIds.indexOf(movedId)
-  if (from === -1) return null
-  return { from, to: firstDiff }
+  return out
 }

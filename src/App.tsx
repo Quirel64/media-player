@@ -10,7 +10,7 @@ import { useMediaSession } from './hooks/useMediaSession'
 import { useFolderPicker } from './hooks/useFolderPicker'
 import { usePlayerStore } from './stores/playerStore'
 import { getSetting, saveSetting, saveTracks, getAllTracks, getPlaylist, savePlaylist } from './lib/idb'
-import { queueKey, toQueueItem, isLibraryQueue, findQueueIndexByKey, hasSameTracks } from './lib/queue'
+import { queueKey, toQueueItem, isLibraryQueue, findQueueIndexByKey, hasSameTracks, orderByIds } from './lib/queue'
 import { addLog } from './lib/logger'
 import { ToastContainer } from './components/ui/Toast'
 import { EventLog } from './components/ui/EventLog'
@@ -182,14 +182,17 @@ export default function App() {
     setActiveTab('playlists')
   }, [])
 
-  // #10 reorder: persist the new item order, then live-map the sounding queue
-  // around it (gapless via reorderQueue — audio never restarts). No-ops unless
-  // the queue currently IS this playlist.
-  const handleMovePlaylistItem = useCallback(async (playlistId: string, fromIndex: number, toIndex: number) => {
+  // #10 reorder: persist the FULL drop order (single splices collapse multi-step
+  // drags), then live-map the sounding queue around it (gapless via
+  // reorderQueue — audio never restarts). No-ops unless the queue currently IS
+  // this playlist.
+  const handleReorderPlaylistItems = useCallback(async (playlistId: string, newItemIds: string[]) => {
     const pl = await getPlaylist(playlistId)
-    if (!pl || fromIndex < 0 || toIndex < 0 || fromIndex >= pl.items.length || toIndex >= pl.items.length) return
-    const [moved] = pl.items.splice(fromIndex, 1)
-    pl.items.splice(toIndex, 0, moved)
+    if (!pl) return
+    const reordered = orderByIds(pl.items, (it) => it.id, newItemIds)
+    // No-op drops (released where it started) persist nothing.
+    if (!reordered || reordered.every((it, idx) => it.id === pl.items[idx]?.id)) return
+    pl.items = reordered
     pl.items.forEach((it, idx) => { it.order = idx })
     pl.updatedAt = Date.now()
     await savePlaylist(pl)
@@ -355,7 +358,7 @@ export default function App() {
             currentTrackId={currentTrack?.id ?? null}
             currentQueueKey={currentQueueKey}
             onAddTracksToPlaylist={handleAddTracksToPlaylist}
-            onMoveItem={handleMovePlaylistItem}
+            onReorderItems={handleReorderPlaylistItems}
           />
         )
       case 'logs':

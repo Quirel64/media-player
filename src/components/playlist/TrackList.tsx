@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion'
 import type { Track } from '../../lib/types'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
-import { diffIdMove } from '../../lib/queue'
+import { orderByIds } from '../../lib/queue'
 
 interface TrackListProps {
   tracks: Track[]
@@ -16,11 +16,11 @@ interface TrackListProps {
   onExternalSelectModeChange?: (v: boolean) => void
   selectAllTrigger?: number
   selectClearTrigger?: number
-  // Reorder mode (#10): chevron column moves rows (reliable on touch, no
-  // drag-vs-scroll fights). Parent owns persistence + live queue mapping.
-  // Hold-and-drag on the grip does the same through ONE onMove commit at drop.
+  // Reorder mode (#10): hold-and-drag on the grip (scroll + tap-to-play
+  // unaffected). Parent owns persistence + live queue mapping via ONE full-order
+  // commit at drop — never a from/to splice (those collapse multi-step drags).
   reorderMode?: boolean
-  onMove?: (fromIndex: number, toIndex: number) => void
+  onReorderCommit?: (newIds: string[]) => void
   // Controlled selection (S1): when provided, selection state lives in the
   // parent so Queue mode and Group detail share ONE set — no loose states.
   // Falls back to internal state when absent.
@@ -46,10 +46,11 @@ function formatSize(bytes: number): string {
 // Hold-and-drag row: grip-only dragging (dragListener={false}) so vertical
 // scroll still works everywhere else; select-none stops iOS text selection
 // mid-drag. Drop commits through the shared onMove path.
-function DragTrackRow({ track, isCurrent, currentIsSource, onPlay, onCommitMove }: {
+function DragTrackRow({ track, isCurrent, currentIsSource, constraints, onPlay, onCommitMove }: {
   track: Track
   isCurrent: boolean
   currentIsSource?: boolean
+  constraints: React.RefObject<HTMLDivElement | null>
   onPlay: () => void
   onCommitMove: () => void
 }) {
@@ -59,6 +60,7 @@ function DragTrackRow({ track, isCurrent, currentIsSource, onPlay, onCommitMove 
       value={track.id}
       dragListener={false}
       dragControls={controls}
+      dragConstraints={constraints}
       onDragEnd={() => onCommitMove()}
       onClick={onPlay}
       className={`group flex cursor-pointer select-none items-center gap-4 rounded-lg px-4 py-3 transition-colors ${
@@ -95,7 +97,7 @@ function DragTrackRow({ track, isCurrent, currentIsSource, onPlay, onCommitMove 
   )
 }
 
-export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger, selectClearTrigger, reorderMode, onMove, externalSelectedIds, onSelectedIdsChange, currentIsSource }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
+export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger, selectClearTrigger, reorderMode, onReorderCommit, externalSelectedIds, onSelectedIdsChange, currentIsSource }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
   const [internalSelectMode, setInternalSelectMode] = useState(false)
   const selectMode = externalSelectMode !== undefined ? externalSelectMode : internalSelectMode
   const setSelectMode = (v: boolean | ((prev: boolean) => boolean)) => {
@@ -126,21 +128,34 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
     }
   }, [selectClearTrigger])
 
-  // Hold-and-drag: the gesture owns the order, React doesn't. values stay FROZEN
-  // for the whole drag (order accumulates in a ref, framer animates internally
-  // with zero re-renders) and a single onMove commit fires at drop through the
-  // chevron-tested path. Feeding live updates back mid-drag (onReorder=setState)
-  // makes framer re-lock measurements every frame — the dragged row can then
-  // only displace one neighbor before the world resets under it (one-step snap).
+  // Hold-and-drag row: grip-only dragging (dragListener={false}) so vertical
+  // scroll still works everywhere else; select-none stops iOS text selection
+  // mid-drag. Drop commits the FULL order (orderByIds) — single splices
+  // collapse multi-step drags to one step.
   const rowIds = useMemo(() => tracks.map((t) => t.id), [tracks])
-  const orderRef = useRef<string[] | null>(null)
-  useEffect(() => { orderRef.current = null }, [reorderMode, tracks])
+  const [dragIds, setDragIds] = useState<string[] | null>(null)
+  useEffect(() => { setDragIds(null) }, [reorderMode, tracks])
+  const dragIdsRef = useRef<string[] | null>(null)
+  useEffect(() => { dragIdsRef.current = dragIds }, [dragIds])
+  // Bounds the gesture so rows can't be flung off-screen mid-drag.
+  const listRef = useRef<HTMLDivElement | null>(null)
+  const displayTracks = useMemo(() => {
+    const ordered = orderByIds(tracks, (t) => t.id, dragIds ?? rowIds)
+    return ordered ?? tracks
+  }, [tracks, dragIds, rowIds])
+  // Highlight follows the track id, so it stays put while rows slide under it.
+  const displayCurrentIdx = (() => {
+    const curId = tracks[currentTrackIndex]?.id
+    if (curId == null) return currentTrackIndex
+    const i = displayTracks.findIndex((t) => t.id === curId)
+    return i === -1 ? currentTrackIndex : i
+  })()
   const commitDragMove = () => {
-    const ids = orderRef.current
-    orderRef.current = null
+    const ids = dragIdsRef.current
     if (!ids) return
-    const d = diffIdMove(tracks.map((t) => t.id), ids)
-    if (d) onMove?.(d.from, d.to)
+    const ordered = orderByIds(tracks, (t) => t.id, ids)
+    // No-op drops (released where it started) commit nothing.
+    if (ordered && ordered.some((t, i) => t.id !== tracks[i]?.id)) onReorderCommit?.(ids)
   }
 
   const toggleSelect = (trackId: string) => {
@@ -263,18 +278,19 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-2 py-2">
-        {reorderMode && onMove ? (
+      <div className="flex-1 overflow-y-auto px-2 py-2" ref={reorderMode && onReorderCommit ? listRef : undefined}>
+        {reorderMode && onReorderCommit ? (
           <Reorder.Group
             axis="y"
-            values={rowIds}
-            onReorder={(ids) => { orderRef.current = ids }}
+            values={displayTracks.map((t) => t.id)}
+            onReorder={(ids) => setDragIds(ids)}
           >
-            {tracks.map((track, index) => (
+            {displayTracks.map((track, index) => (
               <DragTrackRow
                 key={track.id}
                 track={track}
-                isCurrent={index === currentTrackIndex}
+                isCurrent={index === displayCurrentIdx}
+                constraints={listRef}
                 currentIsSource={currentIsSource}
                 onPlay={() => onSelectTrack(index)}
                 onCommitMove={commitDragMove}

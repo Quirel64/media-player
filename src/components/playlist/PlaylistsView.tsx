@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { Reorder, useDragControls } from 'framer-motion'
 import type { Track, Playlist } from '../../lib/types'
-import { diffIdMove } from '../../lib/queue'
+import { orderByIds } from '../../lib/queue'
 import { getAllTracks } from '../../lib/idb'
 import { getTrackFile } from '../../lib/idb'
 import { getTrackThumbnail } from '../../lib/thumbnail'
@@ -17,7 +17,7 @@ interface Props {
   onDeletePlaylist: (id: string) => void
   onRemoveFromPlaylist?: (playlistId: string, itemIds: string[]) => Promise<void>
   onAddTracksToPlaylist?: (playlistId: string, tracks: Track[]) => Promise<void>
-  onMoveItem?: (playlistId: string, fromIndex: number, toIndex: number) => Promise<void>
+  onReorderItems?: (playlistId: string, newItemIds: string[]) => Promise<void>
   currentTrackId?: string | null
   // Phase 3: occurrence-aware highlight — matches the exact queue occurrence
   // (playlist item id), so twin entries no longer light up together.
@@ -27,10 +27,11 @@ interface Props {
 // Hold-and-drag queue row (grip-only; scroll + tap-to-play unaffected).
 // Module scope: defining it inside render would remount (and kill the drag)
 // on every parent render.
-function DragPlaylistRow({ itemId, track, isPlaying, onPlay, onCommitMove }: {
+function DragPlaylistRow({ itemId, track, isPlaying, constraints, onPlay, onCommitMove }: {
   itemId: string
   track: Track
   isPlaying: boolean
+  constraints: React.RefObject<HTMLDivElement | null>
   onPlay: () => void
   onCommitMove: () => void
 }) {
@@ -40,6 +41,7 @@ function DragPlaylistRow({ itemId, track, isPlaying, onPlay, onCommitMove }: {
       value={itemId}
       dragListener={false}
       dragControls={controls}
+      dragConstraints={constraints}
       onDragEnd={() => onCommitMove()}
       onClick={onPlay}
       className={`flex cursor-pointer select-none items-center gap-3 rounded-lg px-3 py-2 ${isPlaying ? 'bg-primary/20 text-primary-light' : 'hover:bg-slate-800/50 text-slate-300'}`}
@@ -64,7 +66,7 @@ function DragPlaylistRow({ itemId, track, isPlaying, onPlay, onCommitMove }: {
   )
 }
 
-export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist, onDeletePlaylist, onRemoveFromPlaylist, onAddTracksToPlaylist, onMoveItem, currentTrackId, currentQueueKey }: Props) {
+export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist, onDeletePlaylist, onRemoveFromPlaylist, onAddTracksToPlaylist, onReorderItems, currentTrackId, currentQueueKey }: Props) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [activeTracks, setActiveTracks] = useState<Track[]>([])
   const [showCreate, setShowCreate] = useState(false)
@@ -162,21 +164,25 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
   }
 
   // Hold-and-drag for queue rows (same grip-only pattern as TrackList):
-  // values stay FROZEN during the gesture (order accumulates in a ref, zero
-  // re-renders — live updates back mid-drag cause the one-step snap), single
-  // onMoveItem commit at drop.
-  const orderRef = useRef<string[] | null>(null)
-  useEffect(() => { orderRef.current = null }, [orderMode, activeId, playlists])
-  const rowItemIds: string[] = useMemo(
-    () => (active ? active.items.map((it) => it.id) : []),
-    [active],
-  )
+  // LIVE order during the drag (siblings make room across the full travel),
+  // single full-order commit at drop. Never a from/to splice — those collapse
+  // multi-step drags to one step.
+  const [dragItemIds, setDragItemIds] = useState<string[] | null>(null)
+  useEffect(() => { setDragItemIds(null) }, [orderMode, activeId, playlists])
+  const dragItemIdsRef = useRef<string[] | null>(null)
+  useEffect(() => { dragItemIdsRef.current = dragItemIds }, [dragItemIds])
+  const queueListRef = useRef<HTMLDivElement | null>(null)
+  const displayItemIds: string[] = useMemo(() => {
+    if (!active) return []
+    const ordered = orderByIds(active.items, (it) => it.id, dragItemIds ?? [])
+    return (ordered ?? active.items).map((it) => it.id)
+  }, [dragItemIds, active])
   const commitDragMove = () => {
-    const ids = orderRef.current
-    orderRef.current = null
-    if (!ids || !active || !onMoveItem) return
-    const d = diffIdMove(active.items.map((it) => it.id), ids)
-    if (d) void onMoveItem(active.id, d.from, d.to)
+    const ids = dragItemIdsRef.current
+    if (!ids || !active || !onReorderItems) return
+    const ordered = orderByIds(active.items, (it) => it.id, ids)
+    if (!ordered || ordered.every((it, i) => it.id === active.items[i]?.id)) return
+    void onReorderItems(active.id, ids)
   }
 
   const handleRemoveSelected = async () => {
@@ -199,7 +205,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
               <p className="text-xs text-slate-400">{active.items.length} tracks {active.items.length !== activeTracks.length ? `(${activeTracks.length} available)` : ''}</p>
             </div>
             <button onClick={() => { setEditMode(v => !v); setOrderMode(false) }} className={`rounded-lg px-3 py-1.5 text-sm font-medium ${editMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}>{editMode ? 'Done' : 'Edit'}</button>
-            {onMoveItem && (
+            {onReorderItems && (
               <button
                 onClick={() => { if (viewMode !== 'queue') setViewMode('queue'); setOrderMode(v => !v); setEditMode(false) }}
                 className={`rounded-lg px-3 py-1.5 text-sm font-medium ${orderMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}
@@ -237,14 +243,14 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
           </div>
         ) : isQueue ? (
           <div className="flex flex-1 flex-col overflow-hidden">
-            <div className="flex-1 overflow-y-auto p-2">
-              {orderMode && onMoveItem ? (
+            <div className="flex-1 overflow-y-auto p-2" ref={orderMode && onReorderItems ? queueListRef : undefined}>
+              {orderMode && onReorderItems ? (
                 <Reorder.Group
                   axis="y"
-                  values={rowItemIds}
-                  onReorder={(ids) => { orderRef.current = ids }}
+                  values={displayItemIds}
+                  onReorder={(ids) => setDragItemIds(ids)}
                 >
-                  {rowItemIds.map((iid) => {
+                  {displayItemIds.map((iid) => {
                     const idx = active.items.findIndex((it) => it.id === iid)
                     const t = activeTracks[idx]
                     if (idx === -1 || !t) return null
@@ -255,6 +261,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
                         itemId={iid}
                         track={t}
                         isPlaying={playing}
+                        constraints={queueListRef}
                         onPlay={() => onForcePlayPlaylist(active.id, idx)}
                         onCommitMove={commitDragMove}
                       />

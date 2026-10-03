@@ -5,7 +5,7 @@ import { groupTracks } from '../../lib/group'
 import { TrackList } from '../playlist/TrackList'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
 import { usePlayerStore } from '../../stores/playerStore'
-import { queueKey, findQueueIndexByKey } from '../../lib/queue'
+import { queueKey, findQueueIndexByKey, orderByIds } from '../../lib/queue'
 import { getTrackFile } from '../../lib/idb'
 import { getTrackThumbnail } from '../../lib/thumbnail'
 
@@ -145,18 +145,17 @@ export function LibraryView({ tracks, onSelectTrack, onPickFolder, onPickFiles, 
     onSelectTrack(displayIdx, orderedTracks)
   }
 
-  // Session reorder of the library queue: permute the view order, then live-map
-  // the sounding store queue (same membership — toggle is gated on that).
-  const moveQueueTrack = (from: number, to: number) => {
-    const ids = orderedTracks.map((t) => t.id)
-    if (from < 0 || to < 0 || from >= ids.length || to >= ids.length) return
-    const [moved] = ids.splice(from, 1)
-    ids.splice(to, 0, moved)
-    setOrderOverride(ids)
+  // Session reorder of the library queue: apply the FULL drop order (single
+  // splices collapse multi-step drags), then live-map the sounding store queue
+  // (same membership — Order toggle is gated on that).
+  const commitQueueOrder = (newIds: string[]) => {
+    const reordered = orderByIds(orderedTracks, (t) => t.id, newIds)
+    if (!reordered || reordered.every((t, i) => t.id === orderedTracks[i]?.id)) return
+    setOrderOverride(reordered.map((t) => t.id))
     if (!onReorderQueue) return
     const st = usePlayerStore.getState()
     const byTrackId = new Map(st.queue.map((q) => [q.id, q] as const))
-    const newQueue = ids.map((id) => byTrackId.get(id)).filter((t) => t != null)
+    const newQueue = reordered.map((t) => byTrackId.get(t.id)).filter((t) => t != null)
     if (newQueue.length !== st.queue.length) return
     const cur = st.queue[st.currentTrackIndex]
     const newIndex = cur ? findQueueIndexByKey(newQueue, queueKey(cur)) : st.currentTrackIndex
@@ -307,7 +306,7 @@ export function LibraryView({ tracks, onSelectTrack, onPickFolder, onPickFiles, 
 
       {mode === 'queue' ? (
         <div className="flex-1 overflow-hidden">
-          <TrackList tracks={orderedTracks} currentTrackIndex={queueRowIdx} onSelectTrack={handleSelectQueueRow} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} hideHeader externalSelectMode={selectMode} onExternalSelectModeChange={(v) => { setSelectMode(v); if (!v) setSelectAllOn(false) }} selectAllTrigger={queueSelectAllTrigger} selectClearTrigger={queueSelectClearTrigger} externalSelectedIds={selectedTrackIds} onSelectedIdsChange={setSelectedTrackIds} reorderMode={orderMode} onMove={moveQueueTrack} currentIsSource={!libraryMembership} />
+          <TrackList tracks={orderedTracks} currentTrackIndex={queueRowIdx} onSelectTrack={handleSelectQueueRow} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} hideHeader externalSelectMode={selectMode} onExternalSelectModeChange={(v) => { setSelectMode(v); if (!v) setSelectAllOn(false) }} selectAllTrigger={queueSelectAllTrigger} selectClearTrigger={queueSelectClearTrigger} externalSelectedIds={selectedTrackIds} onSelectedIdsChange={setSelectedTrackIds} reorderMode={orderMode} onReorderCommit={commitQueueOrder} currentIsSource={!libraryMembership} />
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-3">
