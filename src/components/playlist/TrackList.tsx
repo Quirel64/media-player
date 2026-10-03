@@ -134,7 +134,10 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
   // collapse multi-step drags to one step.
   const rowIds = useMemo(() => tracks.map((t) => t.id), [tracks])
   const [dragIds, setDragIds] = useState<string[] | null>(null)
-  useEffect(() => { setDragIds(null) }, [reorderMode, tracks])
+  // Cleared on mode/list/track change: a mounted Reorder tree with stale drag
+  // measurements stacks items at the container edge (pile-up bug) — never let
+  // it survive a track change.
+  useEffect(() => { setDragIds(null) }, [reorderMode, tracks, currentTrackIndex])
   const dragIdsRef = useRef<string[] | null>(null)
   useEffect(() => { dragIdsRef.current = dragIds }, [dragIds])
   // Bounds the gesture so rows can't be flung off-screen mid-drag.

@@ -168,7 +168,8 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
   // single full-order commit at drop. Never a from/to splice — those collapse
   // multi-step drags to one step.
   const [dragItemIds, setDragItemIds] = useState<string[] | null>(null)
-  useEffect(() => { setDragItemIds(null) }, [orderMode, activeId, playlists])
+  // Same stale-tree guard as TrackList: never survive a track change.
+  useEffect(() => { setDragItemIds(null) }, [orderMode, activeId, playlists, currentQueueKey, currentTrackId])
   const dragItemIdsRef = useRef<string[] | null>(null)
   useEffect(() => { dragItemIdsRef.current = dragItemIds }, [dragItemIds])
   const queueListRef = useRef<HTMLDivElement | null>(null)
@@ -262,7 +263,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
                         track={t}
                         isPlaying={playing}
                         constraints={queueListRef}
-                        onPlay={() => onForcePlayPlaylist(active.id, idx)}
+                        onPlay={() => { setOrderMode(false); onForcePlayPlaylist(active.id, idx) }}
                         onCommitMove={commitDragMove}
                       />
                     )
