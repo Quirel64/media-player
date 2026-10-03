@@ -153,6 +153,12 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
     const i = displayTracks.findIndex((t) => t.id === curId)
     return i === -1 ? currentTrackIndex : i
   })()
+  // Memoized: a fresh array identity every render would invalidate the
+  // Group's measurements on any unrelated re-render.
+  const groupValues = useMemo(() => displayTracks.map((t) => t.id), [displayTracks])
+  // Sounding track id: remounts the Reorder tree on track change (fresh
+  // measurements, correct positions) instead of reusing a stale snapshot.
+  const soundingId = tracks[currentTrackIndex]?.id ?? 'boot'
   const commitDragMove = () => {
     const ids = dragIdsRef.current
     if (!ids) return
@@ -281,11 +287,12 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-2 py-2" ref={reorderMode && onReorderCommit ? listRef : undefined}>
+      <motion.div layoutScroll className="flex-1 overflow-y-auto px-2 py-2" ref={reorderMode && onReorderCommit ? listRef : undefined}>
         {reorderMode && onReorderCommit ? (
           <Reorder.Group
+            key={soundingId}
             axis="y"
-            values={displayTracks.map((t) => t.id)}
+            values={groupValues}
             onReorder={(ids) => setDragIds(ids)}
           >
             {displayTracks.map((track, index) => (
@@ -371,7 +378,7 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
           })}
         </AnimatePresence>
         )}
-      </div>
+      </motion.div>
 
       {/* Selection action bar */}
       <AnimatePresence>

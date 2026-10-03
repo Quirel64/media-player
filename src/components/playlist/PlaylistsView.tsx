@@ -178,6 +178,9 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
     const ordered = orderByIds(active.items, (it) => it.id, dragItemIds ?? [])
     return (ordered ?? active.items).map((it) => it.id)
   }, [dragItemIds, active])
+  // Remounts the Reorder tree on sounding-track change (fresh measurements —
+  // the rug-free fix for the edge pile-up). Taps stay in Order mode.
+  const soundingKey = currentQueueKey ?? currentTrackId ?? 'boot'
   const commitDragMove = () => {
     const ids = dragItemIdsRef.current
     if (!ids || !active || !onReorderItems) return
@@ -244,9 +247,10 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
           </div>
         ) : isQueue ? (
           <div className="flex flex-1 flex-col overflow-hidden">
-            <div className="flex-1 overflow-y-auto p-2" ref={orderMode && onReorderItems ? queueListRef : undefined}>
+            <motion.div layoutScroll className="flex-1 overflow-y-auto p-2" ref={orderMode && onReorderItems ? queueListRef : undefined}>
               {orderMode && onReorderItems ? (
                 <Reorder.Group
+                  key={soundingKey}
                   axis="y"
                   values={displayItemIds}
                   onReorder={(ids) => setDragItemIds(ids)}
@@ -263,7 +267,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
                         track={t}
                         isPlaying={playing}
                         constraints={queueListRef}
-                        onPlay={() => { setOrderMode(false); onForcePlayPlaylist(active.id, idx) }}
+                        onPlay={() => onForcePlayPlaylist(active.id, idx)}
                         onCommitMove={commitDragMove}
                       />
                     )
@@ -299,7 +303,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
               })}
               </>
               )}
-            </div>
+            </motion.div>
             {editMode && (
               <div className="border-t border-slate-800 bg-slate-900 px-4 py-3">
                 <div className="flex gap-2">

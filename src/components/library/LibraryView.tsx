@@ -136,17 +136,13 @@ export function LibraryView({ tracks, onSelectTrack, onPickFolder, onPickFiles, 
 
   const handleSelectInGroup = (track: Track) => {
     // Resolve through the DISPLAY order so session reorders are honored.
-    // Also ends Order mode for the same stale-tree reason as queue rows.
-    setOrderMode(false)
     const idx = orderedTracks.findIndex((t) => t.id === track.id)
     if (idx !== -1) onSelectTrack(idx, orderedTracks)
   }
 
-  // Tap in queue rows: same display-order mapping. Playing ends Order mode —
-  // the Reorder tree must not stay mounted across a track change (stale drag
-  // measurements pile rows at the container edge).
+  // Tap in queue rows: same display-order mapping. The Reorder tree remounts
+  // itself on track change, so Order mode survives taps (no rug-sweeping).
   const handleSelectQueueRow = (displayIdx: number) => {
-    setOrderMode(false)
     onSelectTrack(displayIdx, orderedTracks)
   }
 
