@@ -287,7 +287,7 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
         </div>
       )}
 
-      <motion.div layoutScroll className="flex-1 overflow-y-auto px-2 py-2" ref={reorderMode && onReorderCommit ? listRef : undefined}>
+      <div className="flex-1 overflow-y-auto px-2 py-2" ref={reorderMode && onReorderCommit ? listRef : undefined}>
         {reorderMode && onReorderCommit ? (
           <Reorder.Group
             key={soundingId}
@@ -378,7 +378,7 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
           })}
         </AnimatePresence>
         )}
-      </motion.div>
+      </div>
 
       {/* Selection action bar */}
       <AnimatePresence>

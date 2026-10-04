@@ -247,7 +247,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
           </div>
         ) : isQueue ? (
           <div className="flex flex-1 flex-col overflow-hidden">
-            <motion.div layoutScroll className="flex-1 overflow-y-auto p-2" ref={orderMode && onReorderItems ? queueListRef : undefined}>
+            <div className="flex-1 overflow-y-auto p-2" ref={orderMode && onReorderItems ? queueListRef : undefined}>
               {orderMode && onReorderItems ? (
                 <Reorder.Group
                   key={soundingKey}
@@ -303,7 +303,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
               })}
               </>
               )}
-            </motion.div>
+            </div>
             {editMode && (
               <div className="border-t border-slate-800 bg-slate-900 px-4 py-3">
                 <div className="flex gap-2">
