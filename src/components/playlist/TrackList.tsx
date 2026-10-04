@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion'
 import type { Track } from '../../lib/types'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
+import { useHoldToDrag } from '../ui/useHoldToDrag'
 import { orderByIds } from '../../lib/queue'
 
 interface TrackListProps {
@@ -55,6 +56,8 @@ function DragTrackRow({ track, isCurrent, currentIsSource, constraints, onPlay, 
   onCommitMove: () => void
 }) {
   const controls = useDragControls()
+  // Long-press anywhere on the row also grabs it (same controls as the grip).
+  const hold = useHoldToDrag(controls)
   return (
     <Reorder.Item
       value={track.id}
@@ -63,6 +66,10 @@ function DragTrackRow({ track, isCurrent, currentIsSource, constraints, onPlay, 
       dragConstraints={constraints}
       onDragEnd={() => onCommitMove()}
       onClick={onPlay}
+      onPointerDown={hold.onPointerDown}
+      onPointerMove={hold.onPointerMove}
+      onPointerUp={hold.onPointerUp}
+      onPointerCancel={hold.onPointerCancel}
       className={`group flex cursor-pointer select-none items-center gap-4 rounded-lg px-4 py-3 transition-colors ${
         isCurrent ? 'bg-primary/20 text-primary-light' : 'text-slate-300 hover:bg-slate-800/50'
       }`}

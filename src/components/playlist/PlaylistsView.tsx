@@ -8,6 +8,7 @@ import { getTrackFile } from '../../lib/idb'
 import { getTrackThumbnail } from '../../lib/thumbnail'
 import { showError } from '../ui/Toast'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
+import { useHoldToDrag } from '../ui/useHoldToDrag'
 import { AddTracksSheet } from './AddTracksSheet'
 
 interface Props {
@@ -36,6 +37,7 @@ function DragPlaylistRow({ itemId, track, isPlaying, constraints, onPlay, onComm
   onCommitMove: () => void
 }) {
   const controls = useDragControls()
+  const hold = useHoldToDrag(controls)
   return (
     <Reorder.Item
       value={itemId}
@@ -44,6 +46,10 @@ function DragPlaylistRow({ itemId, track, isPlaying, constraints, onPlay, onComm
       dragConstraints={constraints}
       onDragEnd={() => onCommitMove()}
       onClick={onPlay}
+      onPointerDown={hold.onPointerDown}
+      onPointerMove={hold.onPointerMove}
+      onPointerUp={hold.onPointerUp}
+      onPointerCancel={hold.onPointerCancel}
       className={`flex cursor-pointer select-none items-center gap-3 rounded-lg px-3 py-2 ${isPlaying ? 'bg-primary/20 text-primary-light' : 'hover:bg-slate-800/50 text-slate-300'}`}
     >
       <div className="flex w-8 items-center justify-center">
