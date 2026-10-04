@@ -8,7 +8,7 @@ import { getTrackFile } from '../../lib/idb'
 import { getTrackThumbnail } from '../../lib/thumbnail'
 import { showError } from '../ui/Toast'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
-import { useHoldToDrag } from '../ui/useHoldToDrag'
+import { useHoldToDrag, useHoldToEnterOrder } from '../ui/useHoldToDrag'
 import { AddTracksSheet } from './AddTracksSheet'
 
 interface Props {
@@ -44,13 +44,16 @@ function DragPlaylistRow({ itemId, track, isPlaying, constraints, onPlay, onComm
       dragListener={false}
       dragControls={controls}
       dragConstraints={constraints}
+      whileDrag={{ scale: 1.04, boxShadow: '0 10px 28px rgba(0,0,0,0.5)' }}
       onDragEnd={() => onCommitMove()}
       onClick={onPlay}
       onPointerDown={hold.onPointerDown}
       onPointerMove={hold.onPointerMove}
       onPointerUp={hold.onPointerUp}
       onPointerCancel={hold.onPointerCancel}
-      className={`flex cursor-pointer select-none items-center gap-3 rounded-lg px-3 py-2 ${isPlaying ? 'bg-primary/20 text-primary-light' : 'hover:bg-slate-800/50 text-slate-300'}`}
+      className={`flex cursor-pointer select-none items-center gap-3 rounded-lg px-3 py-2 ${
+        hold.dragging ? 'touch-none' : 'touch-pan-y'
+      } ${isPlaying ? 'bg-primary/20 text-primary-light' : 'hover:bg-slate-800/50 text-slate-300'}`}
     >
       <div className="flex w-8 items-center justify-center">
         <span
@@ -195,6 +198,11 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
     void onReorderItems(active.id, ids)
   }
 
+  // Long-press a normal queue row enters Order mode (delegated, no per-row hooks).
+  const holdEnter = useHoldToEnterOrder(
+    !orderMode && !editMode && onReorderItems ? () => setOrderMode(true) : undefined,
+  )
+
   const handleRemoveSelected = async () => {
     if (!active || selectedItemIds.size === 0 || !onRemoveFromPlaylist) return
     await onRemoveFromPlaylist(active.id, Array.from(selectedItemIds))
@@ -253,7 +261,14 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
           </div>
         ) : isQueue ? (
           <div className="flex flex-1 flex-col overflow-hidden">
-            <div className="flex-1 overflow-y-auto p-2" ref={orderMode && onReorderItems ? queueListRef : undefined}>
+            <div
+              className="flex-1 overflow-y-auto p-2"
+              ref={orderMode && onReorderItems ? queueListRef : undefined}
+              onPointerDown={holdEnter.onPointerDown}
+              onPointerMove={holdEnter.onPointerMove}
+              onPointerUp={holdEnter.onPointerUp}
+              onPointerCancel={holdEnter.onPointerCancel}
+            >
               {orderMode && onReorderItems ? (
                 <Reorder.Group
                   key={soundingKey}
@@ -290,7 +305,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
                   ? itemId === currentQueueKey
                   : currentTrackId === t.id)
                 return (
-                  <div key={`${itemId}-${idx}`} onClick={() => { if (editMode) toggleSelect(itemId); else onForcePlayPlaylist(active.id, idx) }} className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 ${editMode && isSelected ? 'bg-primary/20' : isPlaying ? 'bg-primary/20 text-primary-light' : 'hover:bg-slate-800/50 text-slate-300'}`}>
+                  <div key={`${itemId}-${idx}`} data-row-id={itemId} onClick={() => { if (editMode) toggleSelect(itemId); else onForcePlayPlaylist(active.id, idx) }} className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 ${editMode && isSelected ? 'bg-primary/20' : isPlaying ? 'bg-primary/20 text-primary-light' : 'hover:bg-slate-800/50 text-slate-300'}`}>
                     <div className="flex w-8 items-center justify-center">
                       {editMode ? (
                         <div className={`h-5 w-5 rounded border-2 ${isSelected ? 'border-primary bg-primary' : 'border-slate-600'}`}>{isSelected && <svg viewBox="0 0 16 16" className="h-full w-full text-white" fill="currentColor"><path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z" /></svg>}</div>

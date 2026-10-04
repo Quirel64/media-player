@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion'
 import type { Track } from '../../lib/types'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
-import { useHoldToDrag } from '../ui/useHoldToDrag'
+import { useHoldToDrag, useHoldToEnterOrder } from '../ui/useHoldToDrag'
 import { orderByIds } from '../../lib/queue'
 
 interface TrackListProps {
@@ -22,6 +22,8 @@ interface TrackListProps {
   // commit at drop — never a from/to splice (those collapse multi-step drags).
   reorderMode?: boolean
   onReorderCommit?: (newIds: string[]) => void
+  // Long-press a normal row to ENTER Order mode (queue lists only).
+  onRequestOrderMode?: () => void
   // Controlled selection (S1): when provided, selection state lives in the
   // parent so Queue mode and Group detail share ONE set — no loose states.
   // Falls back to internal state when absent.
@@ -57,6 +59,8 @@ function DragTrackRow({ track, isCurrent, currentIsSource, constraints, onPlay, 
 }) {
   const controls = useDragControls()
   // Long-press anywhere on the row also grabs it (same controls as the grip).
+  // touch-action flips to none only while held: the flip lands while the finger
+  // is still stationary, so the first move belongs to the drag, not the scroller.
   const hold = useHoldToDrag(controls)
   return (
     <Reorder.Item
@@ -64,6 +68,7 @@ function DragTrackRow({ track, isCurrent, currentIsSource, constraints, onPlay, 
       dragListener={false}
       dragControls={controls}
       dragConstraints={constraints}
+      whileDrag={{ scale: 1.04, boxShadow: '0 10px 28px rgba(0,0,0,0.5)' }}
       onDragEnd={() => onCommitMove()}
       onClick={onPlay}
       onPointerDown={hold.onPointerDown}
@@ -71,6 +76,8 @@ function DragTrackRow({ track, isCurrent, currentIsSource, constraints, onPlay, 
       onPointerUp={hold.onPointerUp}
       onPointerCancel={hold.onPointerCancel}
       className={`group flex cursor-pointer select-none items-center gap-4 rounded-lg px-4 py-3 transition-colors ${
+        hold.dragging ? 'touch-none' : 'touch-pan-y'
+      } ${
         isCurrent ? 'bg-primary/20 text-primary-light' : 'text-slate-300 hover:bg-slate-800/50'
       }`}
     >
@@ -104,7 +111,7 @@ function DragTrackRow({ track, isCurrent, currentIsSource, constraints, onPlay, 
   )
 }
 
-export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger, selectClearTrigger, reorderMode, onReorderCommit, externalSelectedIds, onSelectedIdsChange, currentIsSource }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
+export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger, selectClearTrigger, reorderMode, onReorderCommit, onRequestOrderMode, externalSelectedIds, onSelectedIdsChange, currentIsSource }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
   const [internalSelectMode, setInternalSelectMode] = useState(false)
   const selectMode = externalSelectMode !== undefined ? externalSelectMode : internalSelectMode
   const setSelectMode = (v: boolean | ((prev: boolean) => boolean)) => {
@@ -173,6 +180,10 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
     // No-op drops (released where it started) commit nothing.
     if (ordered && ordered.some((t, i) => t.id !== tracks[i]?.id)) onReorderCommit?.(ids)
   }
+
+  // Long-press a NORMAL row enters Order mode (event delegation via data-row-id
+  // — no per-row hooks). Disabled in select/reorder modes so those gestures win.
+  const holdEnter = useHoldToEnterOrder(!reorderMode && !selectMode ? onRequestOrderMode : undefined)
 
   const toggleSelect = (trackId: string) => {
     setSelectedIds((prev) => {
@@ -294,7 +305,14 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-2 py-2" ref={reorderMode && onReorderCommit ? listRef : undefined}>
+      <div
+        className="flex-1 overflow-y-auto px-2 py-2"
+        ref={reorderMode && onReorderCommit ? listRef : undefined}
+        onPointerDown={holdEnter.onPointerDown}
+        onPointerMove={holdEnter.onPointerMove}
+        onPointerUp={holdEnter.onPointerUp}
+        onPointerCancel={holdEnter.onPointerCancel}
+      >
         {reorderMode && onReorderCommit ? (
           <Reorder.Group
             key={soundingId}
@@ -321,6 +339,7 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
             return (
               <motion.div
                 key={track.id}
+                data-row-id={track.id}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
