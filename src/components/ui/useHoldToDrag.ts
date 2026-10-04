@@ -15,6 +15,24 @@ function buzz() {
   }
 }
 
+// touch-action is decided when the gesture STARTS, so flipping classes at
+// hold-fire arrives too late on iOS: the browser already claimed scrolling and
+// the first move pointercancels the drag. The working fix is a non-passive
+// touchmove preventer installed at fire time (finger still stationary, events
+// still cancelable) — a floating virtual grip would face this exact same wall,
+// since it too can only appear after the hold.
+function blockTouchScroll() {
+  document.addEventListener('touchmove', preventTouchMove, { passive: false })
+}
+
+function unblockTouchScroll() {
+  document.removeEventListener('touchmove', preventTouchMove)
+}
+
+function preventTouchMove(e: TouchEvent) {
+  if (e.cancelable) e.preventDefault()
+}
+
 export function useHoldToDrag(controls: DragControls) {
   const [dragging, setDragging] = useState(false)
   const timer = useRef<number | null>(null)
@@ -28,9 +46,11 @@ export function useHoldToDrag(controls: DragControls) {
   }, [])
 
   useEffect(() => clear, [clear])
+  useEffect(() => unblockTouchScroll, [])
 
   const end = useCallback(() => {
     clear()
+    unblockTouchScroll()
     setDragging(false)
   }, [clear])
 
@@ -45,11 +65,16 @@ export function useHoldToDrag(controls: DragControls) {
         if (!evt) return
         // Finger is still stationary: flip touch-action BEFORE the first move
         // so the browser hands the gesture to the drag, not the scroller.
+        // Plus the non-passive blocker (touch flipping alone arrives too late —
+        // scrollability was decided at gesture start, which the grip avoids by
+        // being touch-none from the first millisecond).
         setDragging(true)
         buzz()
+        if (evt.pointerType === 'touch' || evt.pointerType === 'pen') blockTouchScroll()
         try {
           controls.start(evt)
         } catch {
+          unblockTouchScroll()
           setDragging(false)
         }
       }, HOLD_MS)
