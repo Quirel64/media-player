@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo, useLayoutEffect } from 'react'
 import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion'
 import type { Track } from '../../lib/types'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
-import { useHoldToDrag, useHoldToEnterOrder } from '../ui/useHoldToDrag'
+import { useHoldToDrag, useHoldToEnterOrder, unblockTouchScroll } from '../ui/useHoldToDrag'
 import { orderByIds } from '../../lib/queue'
 
 interface TrackListProps {
@@ -24,6 +24,8 @@ interface TrackListProps {
   onReorderCommit?: (newIds: string[]) => void
   // Long-press a normal row to ENTER Order mode (queue lists only).
   onRequestOrderMode?: (id: string, event: PointerEvent) => void
+  // Fires on every drop (changed or not) so hold-entered sessions can auto-exit.
+  onDropEnd?: () => void
   // Parked hold handoff: set by the parent when entering Order mode from a
   // hold, consumed once by the matching drag row on mount (layout effect, so
   // a release can't slip between commit and effect).
@@ -136,7 +138,7 @@ function DragTrackRow({ track, isCurrent, currentIsSource, constraints, pendingR
   )
 }
 
-export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger, selectClearTrigger, reorderMode, onReorderCommit, onRequestOrderMode, pendingDragRef, showGrips, externalSelectedIds, onSelectedIdsChange, currentIsSource }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
+export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger, selectClearTrigger, reorderMode, onReorderCommit, onRequestOrderMode, pendingDragRef, showGrips, onDropEnd, externalSelectedIds, onSelectedIdsChange, currentIsSource }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
   const [internalSelectMode, setInternalSelectMode] = useState(false)
   const selectMode = externalSelectMode !== undefined ? externalSelectMode : internalSelectMode
   const setSelectMode = (v: boolean | ((prev: boolean) => boolean)) => {
@@ -199,6 +201,10 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
   // measurements, correct positions) instead of reusing a stale snapshot.
   const soundingId = tracks[currentTrackIndex]?.id ?? 'boot'
   const commitDragMove = () => {
+    // The enter-order path blocks scrolling for the whole transfer: always
+    // release it at drop, changed or not.
+    unblockTouchScroll()
+    onDropEnd?.()
     const ids = dragIdsRef.current
     if (!ids) return
     const ordered = orderByIds(tracks, (t) => t.id, ids)
@@ -338,10 +344,12 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
         onPointerUp={(e) => {
           // A release before the handoff mounts cancels the transfer.
           if (pendingDragRef) pendingDragRef.current = null
+          unblockTouchScroll()
           holdEnter.onPointerUp(e)
         }}
         onPointerCancel={(e) => {
           if (pendingDragRef) pendingDragRef.current = null
+          unblockTouchScroll()
           holdEnter.onPointerCancel(e)
         }}
       >

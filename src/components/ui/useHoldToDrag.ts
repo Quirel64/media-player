@@ -21,11 +21,11 @@ function buzz() {
 // touchmove preventer installed at fire time (finger still stationary, events
 // still cancelable) — a floating virtual grip would face this exact same wall,
 // since it too can only appear after the hold.
-function blockTouchScroll() {
+export function blockTouchScroll() {
   document.addEventListener('touchmove', preventTouchMove, { passive: false })
 }
 
-function unblockTouchScroll() {
+export function unblockTouchScroll() {
   document.removeEventListener('touchmove', preventTouchMove)
 }
 
@@ -127,6 +127,9 @@ export function useHoldToEnterOrder(
       timer.current = window.setTimeout(() => {
         timer.current = null
         buzz()
+        // The mode flip remounts the list mid-gesture: block scrolling NOW so
+        // the transfer target inherits a drag-owned gesture, not a scroller.
+        blockTouchScroll()
         onEnter(rowId, liveEvent)
       }, HOLD_MS)
     },

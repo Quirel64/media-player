@@ -8,7 +8,7 @@ import { getTrackFile } from '../../lib/idb'
 import { getTrackThumbnail } from '../../lib/thumbnail'
 import { showError } from '../ui/Toast'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
-import { useHoldToDrag, useHoldToEnterOrder } from '../ui/useHoldToDrag'
+import { useHoldToDrag, useHoldToEnterOrder, unblockTouchScroll } from '../ui/useHoldToDrag'
 import { AddTracksSheet } from './AddTracksSheet'
 
 interface Props {
@@ -211,6 +211,12 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
   // the rug-free fix for the edge pile-up). Taps stay in Order mode.
   const soundingKey = currentQueueKey ?? currentTrackId ?? 'boot'
   const commitDragMove = () => {
+    unblockTouchScroll()
+    // Hold-entered sessions (grips hidden) exit on drop — quick in-and-out.
+    if (!gripsVisible) {
+      setOrderMode(false)
+      setGripsVisible(true)
+    }
     const ids = dragItemIdsRef.current
     if (!ids || !active || !onReorderItems) return
     const ordered = orderByIds(active.items, (it) => it.id, ids)
@@ -294,10 +300,12 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
               onPointerMove={holdEnter.onPointerMove}
               onPointerUp={(e) => {
                 pendingDragRef.current = null
+                unblockTouchScroll()
                 holdEnter.onPointerUp(e)
               }}
               onPointerCancel={(e) => {
                 pendingDragRef.current = null
+                unblockTouchScroll()
                 holdEnter.onPointerCancel(e)
               }}
             >
