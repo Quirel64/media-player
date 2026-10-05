@@ -7,6 +7,7 @@ import { getAllTracks } from '../../lib/idb'
 import { getTrackFile } from '../../lib/idb'
 import { getTrackThumbnail } from '../../lib/thumbnail'
 import { showError } from '../ui/Toast'
+import { addLog } from '../../lib/logger'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
 import { useHoldToDrag, useHoldToEnterOrder, unblockTouchScroll } from '../ui/useHoldToDrag'
 import { AddTracksSheet } from './AddTracksSheet'
@@ -41,8 +42,8 @@ function DragPlaylistRow({ itemId, track, isPlaying, constraints, pendingRef, sh
   const controls = useDragControls()
   const hold = useHoldToDrag(controls)
   // Take over the still-active hold gesture that opened Order mode. Deferred
-  // two frames so the fresh tree measures before the session starts, with a
-  // fresh synthetic event (same live pointer) instead of the stale original.
+  // two frames so the fresh tree measures before the session starts; stored
+  // native event (synthetic ones lose pointerId on iOS — see TrackList).
   useLayoutEffect(() => {
     const p = pendingRef?.current
     if (!p || p.id !== itemId) return
@@ -52,22 +53,10 @@ function DragPlaylistRow({ itemId, track, isPlaying, constraints, pendingRef, sh
         if (pendingRef.current == null) return
         pendingRef.current = null
         try {
-          const fresh = new PointerEvent('pointerdown', {
-            pointerId: p.event.pointerId,
-            clientX: p.event.clientX,
-            clientY: p.event.clientY,
-            pointerType: p.event.pointerType,
-            bubbles: true,
-            cancelable: true,
-            composed: true,
-          })
-          controls.start(fresh)
+          controls.start(p.event)
+          addLog('hold transfer: drag live (playlist)')
         } catch {
-          try {
-            controls.start(p.event)
-          } catch {
-            /* gesture lost — release handler exits the session */
-          }
+          addLog('hold transfer: start failed (playlist)')
         }
       })
     })

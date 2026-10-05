@@ -4,6 +4,7 @@ import type { Track } from '../../lib/types'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
 import { useHoldToDrag, useHoldToEnterOrder, unblockTouchScroll } from '../ui/useHoldToDrag'
 import { orderByIds } from '../../lib/queue'
+import { addLog } from '../../lib/logger'
 
 interface TrackListProps {
   tracks: Track[]
@@ -75,9 +76,11 @@ function DragTrackRow({ track, isCurrent, currentIsSource, constraints, pendingR
 }) {
   const controls = useDragControls()
   // Take over the still-active hold gesture that opened Order mode. Deferred
-  // two frames: starting synchronously inside mount races sibling measurement
-  // (session dies silently = "never lifts"). Fresh synthetic event (same live
-  // pointer + held coordinates) instead of the 600ms-stale original.
+  // two frames so the fresh tree measures before the session starts. Uses the
+  // STORED native event: a constructed PointerEvent drops pointerId on iOS
+  // (falls back to 0 while the finger reports its real id), so every move is
+  // ignored — no lift, no travel, no onDragEnd. The in-mode hold path always
+  // reused the genuine event, which is why only the transfer failed.
   useLayoutEffect(() => {
     const p = pendingRef?.current
     if (!p || p.id !== track.id) return
@@ -87,22 +90,10 @@ function DragTrackRow({ track, isCurrent, currentIsSource, constraints, pendingR
         if (pendingRef.current == null) return
         pendingRef.current = null
         try {
-          const fresh = new PointerEvent('pointerdown', {
-            pointerId: p.event.pointerId,
-            clientX: p.event.clientX,
-            clientY: p.event.clientY,
-            pointerType: p.event.pointerType,
-            bubbles: true,
-            cancelable: true,
-            composed: true,
-          })
-          controls.start(fresh)
+          controls.start(p.event)
+          addLog('hold transfer: drag live (library)')
         } catch {
-          try {
-            controls.start(p.event)
-          } catch {
-            /* gesture lost — release handler exits the session */
-          }
+          addLog('hold transfer: start failed (library)')
         }
       })
     })
