@@ -40,16 +40,40 @@ function DragPlaylistRow({ itemId, track, isPlaying, constraints, pendingRef, sh
 }) {
   const controls = useDragControls()
   const hold = useHoldToDrag(controls)
-  // Take over the still-active hold gesture that opened Order mode.
+  // Take over the still-active hold gesture that opened Order mode. Deferred
+  // two frames so the fresh tree measures before the session starts, with a
+  // fresh synthetic event (same live pointer) instead of the stale original.
   useLayoutEffect(() => {
     const p = pendingRef?.current
-    if (p && p.id === itemId) {
-      pendingRef.current = null
-      try {
-        controls.start(p.event)
-      } catch {
-        /* gesture lost — harmless */
-      }
+    if (!p || p.id !== itemId) return
+    let raf2 = 0
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        if (pendingRef.current == null) return
+        pendingRef.current = null
+        try {
+          const fresh = new PointerEvent('pointerdown', {
+            pointerId: p.event.pointerId,
+            clientX: p.event.clientX,
+            clientY: p.event.clientY,
+            pointerType: p.event.pointerType,
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+          })
+          controls.start(fresh)
+        } catch {
+          try {
+            controls.start(p.event)
+          } catch {
+            /* gesture lost — release handler exits the session */
+          }
+        }
+      })
+    })
+    return () => {
+      cancelAnimationFrame(raf1)
+      cancelAnimationFrame(raf2)
     }
     // Mount-only transfer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -212,6 +236,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
   const soundingKey = currentQueueKey ?? currentTrackId ?? 'boot'
   const commitDragMove = () => {
     unblockTouchScroll()
+    dropCommittedRef.current = true
     // Hold-entered sessions (grips hidden) exit on drop — quick in-and-out.
     if (!gripsVisible) {
       setOrderMode(false)
@@ -222,6 +247,25 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
     const ordered = orderByIds(active.items, (it) => it.id, ids)
     if (!ordered || ordered.every((it, i) => it.id === active.items[i]?.id)) return
     void onReorderItems(active.id, ids)
+  }
+
+  // Release-without-drop exits a hold-entered session (deferred past the
+  // drop commit — unmounting first would eat the reorder).
+  const dropCommittedRef = useRef(false)
+  useEffect(() => {
+    dropCommittedRef.current = false
+  }, [orderMode])
+  const handleReleaseUp = (e: React.PointerEvent) => {
+    pendingDragRef.current = null
+    unblockTouchScroll()
+    holdEnter.onPointerUp(e)
+    window.setTimeout(() => {
+      if (!dropCommittedRef.current && !gripsVisible) {
+        setOrderMode(false)
+        setGripsVisible(true)
+      }
+      dropCommittedRef.current = false
+    }, 0)
   }
 
   // Long-press a normal queue row enters Order mode (delegated, no per-row hooks).
@@ -299,9 +343,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
               onPointerDown={holdEnter.onPointerDown}
               onPointerMove={holdEnter.onPointerMove}
               onPointerUp={(e) => {
-                pendingDragRef.current = null
-                unblockTouchScroll()
-                holdEnter.onPointerUp(e)
+                handleReleaseUp(e)
               }}
               onPointerCancel={(e) => {
                 pendingDragRef.current = null

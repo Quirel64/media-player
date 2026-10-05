@@ -26,6 +26,11 @@ interface TrackListProps {
   onRequestOrderMode?: (id: string, event: PointerEvent) => void
   // Fires on every drop (changed or not) so hold-entered sessions can auto-exit.
   onDropEnd?: () => void
+  // Hold-entered sessions (grips hidden) also exit when the finger lifts WITHOUT
+  // any drop — otherwise a failed transfer strands an empty Order mode. The
+  // check is deferred a tick so a real drop's commit (window-level pointerup
+  // listener) lands first; unmounting before commit would eat the reorder.
+  onReleaseWithoutDrop?: () => void
   // Parked hold handoff: set by the parent when entering Order mode from a
   // hold, consumed once by the matching drag row on mount (layout effect, so
   // a release can't slip between commit and effect).
@@ -69,16 +74,41 @@ function DragTrackRow({ track, isCurrent, currentIsSource, constraints, pendingR
   onCommitMove: () => void
 }) {
   const controls = useDragControls()
-  // Take over the still-active hold gesture that opened Order mode.
+  // Take over the still-active hold gesture that opened Order mode. Deferred
+  // two frames: starting synchronously inside mount races sibling measurement
+  // (session dies silently = "never lifts"). Fresh synthetic event (same live
+  // pointer + held coordinates) instead of the 600ms-stale original.
   useLayoutEffect(() => {
     const p = pendingRef?.current
-    if (p && p.id === track.id) {
-      pendingRef.current = null
-      try {
-        controls.start(p.event)
-      } catch {
-        /* gesture lost — harmless */
-      }
+    if (!p || p.id !== track.id) return
+    let raf2 = 0
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        if (pendingRef.current == null) return
+        pendingRef.current = null
+        try {
+          const fresh = new PointerEvent('pointerdown', {
+            pointerId: p.event.pointerId,
+            clientX: p.event.clientX,
+            clientY: p.event.clientY,
+            pointerType: p.event.pointerType,
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+          })
+          controls.start(fresh)
+        } catch {
+          try {
+            controls.start(p.event)
+          } catch {
+            /* gesture lost — release handler exits the session */
+          }
+        }
+      })
+    })
+    return () => {
+      cancelAnimationFrame(raf1)
+      cancelAnimationFrame(raf2)
     }
     // Mount-only transfer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -138,7 +168,7 @@ function DragTrackRow({ track, isCurrent, currentIsSource, constraints, pendingR
   )
 }
 
-export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger, selectClearTrigger, reorderMode, onReorderCommit, onRequestOrderMode, pendingDragRef, showGrips, onDropEnd, externalSelectedIds, onSelectedIdsChange, currentIsSource }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
+export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger, selectClearTrigger, reorderMode, onReorderCommit, onRequestOrderMode, pendingDragRef, showGrips, onDropEnd, onReleaseWithoutDrop, externalSelectedIds, onSelectedIdsChange, currentIsSource }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
   const [internalSelectMode, setInternalSelectMode] = useState(false)
   const selectMode = externalSelectMode !== undefined ? externalSelectMode : internalSelectMode
   const setSelectMode = (v: boolean | ((prev: boolean) => boolean)) => {
@@ -204,12 +234,30 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
     // The enter-order path blocks scrolling for the whole transfer: always
     // release it at drop, changed or not.
     unblockTouchScroll()
+    dropCommittedRef.current = true
     onDropEnd?.()
     const ids = dragIdsRef.current
     if (!ids) return
     const ordered = orderByIds(tracks, (t) => t.id, ids)
     // No-op drops (released where it started) commit nothing.
     if (ordered && ordered.some((t, i) => t.id !== tracks[i]?.id)) onReorderCommit?.(ids)
+  }
+
+  // Release-without-drop in a hold-entered session exits it (see prop note).
+  // dropCommittedRef distinguishes a real drop (commit ran) from a bare lift.
+  const dropCommittedRef = useRef(false)
+  useEffect(() => {
+    dropCommittedRef.current = false
+  }, [reorderMode])
+  const handleReleaseUp = (e: React.PointerEvent) => {
+    // A release before the handoff mounts cancels the transfer.
+    if (pendingDragRef) pendingDragRef.current = null
+    unblockTouchScroll()
+    holdEnter.onPointerUp(e)
+    window.setTimeout(() => {
+      if (!dropCommittedRef.current) onReleaseWithoutDrop?.()
+      dropCommittedRef.current = false
+    }, 0)
   }
 
   // Long-press a NORMAL row enters Order mode (event delegation via data-row-id
@@ -342,10 +390,7 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
         onPointerDown={holdEnter.onPointerDown}
         onPointerMove={holdEnter.onPointerMove}
         onPointerUp={(e) => {
-          // A release before the handoff mounts cancels the transfer.
-          if (pendingDragRef) pendingDragRef.current = null
-          unblockTouchScroll()
-          holdEnter.onPointerUp(e)
+          handleReleaseUp(e)
         }}
         onPointerCancel={(e) => {
           if (pendingDragRef) pendingDragRef.current = null
