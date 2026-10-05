@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useLayoutEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Reorder, useDragControls } from 'framer-motion'
 import type { Track, Playlist } from '../../lib/types'
@@ -28,16 +28,32 @@ interface Props {
 // Hold-and-drag queue row (grip-only; scroll + tap-to-play unaffected).
 // Module scope: defining it inside render would remount (and kill the drag)
 // on every parent render.
-function DragPlaylistRow({ itemId, track, isPlaying, constraints, onPlay, onCommitMove }: {
+function DragPlaylistRow({ itemId, track, isPlaying, constraints, pendingRef, showGrips, onPlay, onCommitMove }: {
   itemId: string
   track: Track
   isPlaying: boolean
   constraints: React.RefObject<HTMLDivElement | null>
+  pendingRef?: { current: { id: string; event: PointerEvent } | null }
+  showGrips?: boolean
   onPlay: () => void
   onCommitMove: () => void
 }) {
   const controls = useDragControls()
   const hold = useHoldToDrag(controls)
+  // Take over the still-active hold gesture that opened Order mode.
+  useLayoutEffect(() => {
+    const p = pendingRef?.current
+    if (p && p.id === itemId) {
+      pendingRef.current = null
+      try {
+        controls.start(p.event)
+      } catch {
+        /* gesture lost — harmless */
+      }
+    }
+    // Mount-only transfer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   return (
     <Reorder.Item
       value={itemId}
@@ -56,6 +72,7 @@ function DragPlaylistRow({ itemId, track, isPlaying, constraints, onPlay, onComm
       } ${isPlaying ? 'bg-primary/20 text-primary-light' : 'hover:bg-slate-800/50 text-slate-300'}`}
     >
       <div className="flex w-8 items-center justify-center">
+        {showGrips !== false && (
         <span
           onPointerDown={(e) => controls.start(e)}
           onClick={(e) => e.stopPropagation()}
@@ -64,6 +81,7 @@ function DragPlaylistRow({ itemId, track, isPlaying, constraints, onPlay, onComm
         >
           ⋮⋮
         </span>
+        )}
       </div>
       <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded bg-slate-800 text-xs">{track.mediaType === 'video' ? '🎬' : '🎵'}</div>
       <div className="min-w-0 flex-1">
@@ -84,6 +102,8 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
   const [viewMode, setViewMode] = useState<'tracks' | 'queue'>('tracks')
   const [editMode, setEditMode] = useState(false)
   const [orderMode, setOrderMode] = useState(false)
+  const [gripsVisible, setGripsVisible] = useState(true)
+  const pendingDragRef = useRef<{ id: string; event: PointerEvent } | null>(null)
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
 
@@ -200,7 +220,13 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
 
   // Long-press a normal queue row enters Order mode (delegated, no per-row hooks).
   const holdEnter = useHoldToEnterOrder(
-    !orderMode && !editMode && onReorderItems ? () => setOrderMode(true) : undefined,
+    !orderMode && !editMode && onReorderItems
+      ? (id: string, event: PointerEvent) => {
+          pendingDragRef.current = { id, event }
+          setGripsVisible(false)
+          setOrderMode(true)
+        }
+      : undefined,
   )
 
   const handleRemoveSelected = async () => {
@@ -225,7 +251,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
             <button onClick={() => { setEditMode(v => !v); setOrderMode(false) }} className={`rounded-lg px-3 py-1.5 text-sm font-medium ${editMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}>{editMode ? 'Done' : 'Edit'}</button>
             {onReorderItems && (
               <button
-                onClick={() => { if (viewMode !== 'queue') setViewMode('queue'); setOrderMode(v => !v); setEditMode(false) }}
+                onClick={() => { if (viewMode !== 'queue') setViewMode('queue'); setOrderMode(v => !v); setGripsVisible(true); setEditMode(false) }}
                 className={`rounded-lg px-3 py-1.5 text-sm font-medium ${orderMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}
                 title="Reorder tracks (playback continues)"
               >
@@ -266,8 +292,14 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
               ref={orderMode && onReorderItems ? queueListRef : undefined}
               onPointerDown={holdEnter.onPointerDown}
               onPointerMove={holdEnter.onPointerMove}
-              onPointerUp={holdEnter.onPointerUp}
-              onPointerCancel={holdEnter.onPointerCancel}
+              onPointerUp={(e) => {
+                pendingDragRef.current = null
+                holdEnter.onPointerUp(e)
+              }}
+              onPointerCancel={(e) => {
+                pendingDragRef.current = null
+                holdEnter.onPointerCancel(e)
+              }}
             >
               {orderMode && onReorderItems ? (
                 <Reorder.Group
@@ -288,6 +320,8 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
                         track={t}
                         isPlaying={playing}
                         constraints={queueListRef}
+                        pendingRef={pendingDragRef}
+                        showGrips={gripsVisible}
                         onPlay={() => onForcePlayPlaylist(active.id, idx)}
                         onCommitMove={commitDragMove}
                       />

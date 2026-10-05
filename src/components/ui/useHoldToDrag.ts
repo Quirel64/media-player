@@ -94,9 +94,13 @@ export function useHoldToDrag(controls: DragControls) {
 /**
  * Container-level long-press: enters Order mode from a NORMAL row (no per-row
  * hooks — the id comes from the closest [data-row-id]). Movement cancels, so
- * scrolls and taps never trigger it. No-op when onEnter is undefined.
+ * scrolls and taps never trigger it. The LIVE native event is handed over too,
+ * so the newly mounted drag row can take over the SAME still-active gesture.
+ * No-op when onEnter is undefined.
  */
-export function useHoldToEnterOrder(onEnter: (() => void) | undefined) {
+export function useHoldToEnterOrder(
+  onEnter: ((id: string, event: PointerEvent) => void) | undefined,
+) {
   const timer = useRef<number | null>(null)
 
   const clear = useCallback(() => {
@@ -116,23 +120,28 @@ export function useHoldToEnterOrder(onEnter: (() => void) | undefined) {
       if (!onEnter) return
       if (e.pointerType === 'mouse' && e.button !== 0) return
       const el = (e.target as HTMLElement | null)?.closest?.('[data-row-id]')
-      if (!el) return
+      const rowId = el?.getAttribute?.('data-row-id')
+      if (!rowId) return
+      const liveEvent = e.nativeEvent
       clear()
       timer.current = window.setTimeout(() => {
         timer.current = null
         buzz()
-        onEnter()
+        onEnter(rowId, liveEvent)
       }, HOLD_MS)
     },
     [onEnter, clear],
   )
 
   if (!onEnter) {
+    const noop = (_e?: unknown) => {
+      void _e
+    }
     return {
-      onPointerDown: undefined,
-      onPointerMove: undefined,
-      onPointerUp: undefined,
-      onPointerCancel: undefined,
+      onPointerDown: noop,
+      onPointerMove: noop,
+      onPointerUp: noop,
+      onPointerCancel: noop,
     }
   }
   return { onPointerDown, onPointerMove: clear, onPointerUp: clear, onPointerCancel: clear }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useLayoutEffect } from 'react'
 import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion'
 import type { Track } from '../../lib/types'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
@@ -23,7 +23,14 @@ interface TrackListProps {
   reorderMode?: boolean
   onReorderCommit?: (newIds: string[]) => void
   // Long-press a normal row to ENTER Order mode (queue lists only).
-  onRequestOrderMode?: () => void
+  onRequestOrderMode?: (id: string, event: PointerEvent) => void
+  // Parked hold handoff: set by the parent when entering Order mode from a
+  // hold, consumed once by the matching drag row on mount (layout effect, so
+  // a release can't slip between commit and effect).
+  pendingDragRef?: { current: { id: string; event: PointerEvent } | null }
+  // Grips are exclusive to button-entered Order mode (accessibility without
+  // cluttering hold-entered drags, which need no handle).
+  showGrips?: boolean
   // Controlled selection (S1): when provided, selection state lives in the
   // parent so Queue mode and Group detail share ONE set — no loose states.
   // Falls back to internal state when absent.
@@ -49,15 +56,31 @@ function formatSize(bytes: number): string {
 // Hold-and-drag row: grip-only dragging (dragListener={false}) so vertical
 // scroll still works everywhere else; select-none stops iOS text selection
 // mid-drag. Drop commits through the shared onMove path.
-function DragTrackRow({ track, isCurrent, currentIsSource, constraints, onPlay, onCommitMove }: {
+function DragTrackRow({ track, isCurrent, currentIsSource, constraints, pendingRef, showGrips, onPlay, onCommitMove }: {
   track: Track
   isCurrent: boolean
   currentIsSource?: boolean
   constraints: React.RefObject<HTMLDivElement | null>
+  pendingRef?: { current: { id: string; event: PointerEvent } | null }
+  showGrips?: boolean
   onPlay: () => void
   onCommitMove: () => void
 }) {
   const controls = useDragControls()
+  // Take over the still-active hold gesture that opened Order mode.
+  useLayoutEffect(() => {
+    const p = pendingRef?.current
+    if (p && p.id === track.id) {
+      pendingRef.current = null
+      try {
+        controls.start(p.event)
+      } catch {
+        /* gesture lost — harmless */
+      }
+    }
+    // Mount-only transfer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   // Long-press anywhere on the row also grabs it (same controls as the grip).
   // touch-action flips to none only while held: the flip lands while the finger
   // is still stationary, so the first move belongs to the drag, not the scroller.
@@ -82,6 +105,7 @@ function DragTrackRow({ track, isCurrent, currentIsSource, constraints, onPlay, 
       }`}
     >
       <div className="flex w-8 items-center justify-center">
+        {showGrips !== false && (
         <span
           onPointerDown={(e) => controls.start(e)}
           onClick={(e) => e.stopPropagation()}
@@ -90,6 +114,7 @@ function DragTrackRow({ track, isCurrent, currentIsSource, constraints, onPlay, 
         >
           ⋮⋮
         </span>
+        )}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
@@ -111,7 +136,7 @@ function DragTrackRow({ track, isCurrent, currentIsSource, constraints, onPlay, 
   )
 }
 
-export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger, selectClearTrigger, reorderMode, onReorderCommit, onRequestOrderMode, externalSelectedIds, onSelectedIdsChange, currentIsSource }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
+export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger, selectClearTrigger, reorderMode, onReorderCommit, onRequestOrderMode, pendingDragRef, showGrips, externalSelectedIds, onSelectedIdsChange, currentIsSource }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
   const [internalSelectMode, setInternalSelectMode] = useState(false)
   const selectMode = externalSelectMode !== undefined ? externalSelectMode : internalSelectMode
   const setSelectMode = (v: boolean | ((prev: boolean) => boolean)) => {
@@ -310,8 +335,15 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
         ref={reorderMode && onReorderCommit ? listRef : undefined}
         onPointerDown={holdEnter.onPointerDown}
         onPointerMove={holdEnter.onPointerMove}
-        onPointerUp={holdEnter.onPointerUp}
-        onPointerCancel={holdEnter.onPointerCancel}
+        onPointerUp={(e) => {
+          // A release before the handoff mounts cancels the transfer.
+          if (pendingDragRef) pendingDragRef.current = null
+          holdEnter.onPointerUp(e)
+        }}
+        onPointerCancel={(e) => {
+          if (pendingDragRef) pendingDragRef.current = null
+          holdEnter.onPointerCancel(e)
+        }}
       >
         {reorderMode && onReorderCommit ? (
           <Reorder.Group
@@ -326,6 +358,8 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
                 track={track}
                 isCurrent={index === displayCurrentIdx}
                 constraints={listRef}
+                pendingRef={pendingDragRef}
+                showGrips={showGrips}
                 currentIsSource={currentIsSource}
                 onPlay={() => onSelectTrack(index)}
                 onCommitMove={commitDragMove}

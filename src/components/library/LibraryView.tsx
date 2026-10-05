@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import type { Track } from '../../lib/types'
 import { groupTracks } from '../../lib/group'
@@ -39,6 +39,11 @@ export function LibraryView({ tracks, onSelectTrack, onPickFolder, onPickFiles, 
   // here would clobber it).
   const [orderOverride, setOrderOverride] = useState<string[] | null>(null)
   const [orderMode, setOrderMode] = useState(false)
+  // Grips are exclusive to button-entered Order mode (accessibility); hold
+  // entries drag gesturally and need no handle.
+  const [gripsVisible, setGripsVisible] = useState(true)
+  // Parked hold handoff for single-gesture entry (see TrackList pendingRef).
+  const pendingDragRef = useRef<{ id: string; event: PointerEvent } | null>(null)
   const orderedTracks = useMemo(() => {
     if (!orderOverride || orderOverride.length !== tracks.length) return tracks
     const byId = new Map(tracks.map((t) => [t.id, t] as const))
@@ -101,7 +106,16 @@ export function LibraryView({ tracks, onSelectTrack, onPickFolder, onPickFiles, 
   // #10: order mode is mutually exclusive with select mode.
   const toggleOrderMode = () => {
     if (orderMode) { setOrderMode(false); return }
-    setOrderMode(true); setSelectMode(false); setSelectAllOn(false)
+    setOrderMode(true); setGripsVisible(true); setSelectMode(false); setSelectAllOn(false)
+  }
+  // Single-hold entry: park the live gesture, flip the mode; the matching row
+  // takes over on mount. Grips stay hidden — the finger is the handle.
+  const enterOrderForDrag = (id: string, event: PointerEvent) => {
+    pendingDragRef.current = { id, event }
+    setGripsVisible(false)
+    setOrderMode(true)
+    setSelectMode(false)
+    setSelectAllOn(false)
   }
   const toggleTrackSelected = (id: string) => {
     setSelectedTrackIds(prev => {
@@ -307,7 +321,7 @@ export function LibraryView({ tracks, onSelectTrack, onPickFolder, onPickFiles, 
 
       {mode === 'queue' ? (
         <div className="flex-1 overflow-hidden">
-          <TrackList tracks={orderedTracks} currentTrackIndex={queueRowIdx} onSelectTrack={handleSelectQueueRow} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} hideHeader externalSelectMode={selectMode} onExternalSelectModeChange={(v) => { setSelectMode(v); if (!v) setSelectAllOn(false) }} selectAllTrigger={queueSelectAllTrigger} selectClearTrigger={queueSelectClearTrigger} externalSelectedIds={selectedTrackIds} onSelectedIdsChange={setSelectedTrackIds} reorderMode={orderMode} onReorderCommit={commitQueueOrder} onRequestOrderMode={libraryMembership ? () => setOrderMode(true) : undefined} currentIsSource={!libraryMembership} />
+          <TrackList tracks={orderedTracks} currentTrackIndex={queueRowIdx} onSelectTrack={handleSelectQueueRow} onPickFolder={onPickFolder} onPickFiles={onPickFiles} onRemoveTracks={onRemoveTracks} onAddToPlaylist={onAddToPlaylist} hideHeader externalSelectMode={selectMode} onExternalSelectModeChange={(v) => { setSelectMode(v); if (!v) setSelectAllOn(false) }} selectAllTrigger={queueSelectAllTrigger} selectClearTrigger={queueSelectClearTrigger} externalSelectedIds={selectedTrackIds} onSelectedIdsChange={setSelectedTrackIds} reorderMode={orderMode} onReorderCommit={commitQueueOrder} onRequestOrderMode={libraryMembership ? enterOrderForDrag : undefined} pendingDragRef={pendingDragRef} showGrips={gripsVisible} currentIsSource={!libraryMembership} />
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-3">
