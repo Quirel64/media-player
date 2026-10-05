@@ -51,6 +51,13 @@ input, textarea {
   user-select: text;
 }
 
+/* Debug log must stay copyable despite the global no-select rule. */
+.selectable, .selectable * {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+  -webkit-touch-callout: default !important;
+}
+
 ::-webkit-scrollbar {
   width: 6px;
 }

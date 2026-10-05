@@ -47,10 +47,14 @@ function DragPlaylistRow({ itemId, track, isPlaying, constraints, pendingRef, sh
   useLayoutEffect(() => {
     const p = pendingRef?.current
     if (!p || p.id !== itemId) return
+    addLog(`hold transfer: effect matched row ${itemId.slice(0, 4)} (playlist)`)
     let raf2 = 0
     const raf1 = requestAnimationFrame(() => {
       raf2 = requestAnimationFrame(() => {
-        if (pendingRef.current == null) return
+        if (pendingRef.current == null) {
+          addLog('hold transfer: pending gone before start (playlist)')
+          return
+        }
         pendingRef.current = null
         try {
           controls.start(p.event)
@@ -262,6 +266,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
     !orderMode && !editMode && onReorderItems
       ? (id: string, event: PointerEvent) => {
           pendingDragRef.current = { id, event }
+          addLog(`hold enter order: row ${id.slice(0, 4)} (playlist)`)
           setGripsVisible(false)
           setOrderMode(true)
         }

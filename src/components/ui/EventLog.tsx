@@ -67,7 +67,7 @@ export function EventLog() {
           </button>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-3 font-mono text-[11px] leading-relaxed">
+      <div className="flex-1 overflow-y-auto p-3 font-mono text-[11px] leading-relaxed selectable">
         {entries.length === 0 ? (
           <p className="text-slate-600">No events yet — play, pause, or lock the phone to generate logs. Tap "Test Grouping" to preview auto-album grouping.</p>
         ) : (

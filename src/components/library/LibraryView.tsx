@@ -6,6 +6,7 @@ import { TrackList } from '../playlist/TrackList'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
 import { usePlayerStore } from '../../stores/playerStore'
 import { queueKey, findQueueIndexByKey, orderByIds } from '../../lib/queue'
+import { addLog } from '../../lib/logger'
 import { getTrackFile } from '../../lib/idb'
 import { getTrackThumbnail } from '../../lib/thumbnail'
 
@@ -112,6 +113,7 @@ export function LibraryView({ tracks, onSelectTrack, onPickFolder, onPickFiles, 
   // takes over on mount. Grips stay hidden — the finger is the handle.
   const enterOrderForDrag = (id: string, event: PointerEvent) => {
     pendingDragRef.current = { id, event }
+    addLog(`hold enter order: row ${id.slice(0, 4)} (library)`)
     setGripsVisible(false)
     setOrderMode(true)
     setSelectMode(false)

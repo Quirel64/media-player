@@ -84,10 +84,14 @@ function DragTrackRow({ track, isCurrent, currentIsSource, constraints, pendingR
   useLayoutEffect(() => {
     const p = pendingRef?.current
     if (!p || p.id !== track.id) return
+    addLog(`hold transfer: effect matched row ${track.id.slice(0, 4)} (library)`)
     let raf2 = 0
     const raf1 = requestAnimationFrame(() => {
       raf2 = requestAnimationFrame(() => {
-        if (pendingRef.current == null) return
+        if (pendingRef.current == null) {
+          addLog('hold transfer: pending gone before start (library)')
+          return
+        }
         pendingRef.current = null
         try {
           controls.start(p.event)
