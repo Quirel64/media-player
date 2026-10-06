@@ -2,9 +2,8 @@ import { useRef, useEffect, useState, useCallback } from 'react'
 import type { DragControls } from 'framer-motion'
 
 // Hold ~600ms (modern long-press timing — 1.5s feels broken) to start a drag
-// from ANYWHERE on the row. Any pointer movement first means "scroll", so the
-// timer dies and scrolling stays intact. Complements the visible grip (which
-// starts instantly) for users who miss it.
+// on already-live controls. Any pointer movement first means "scroll", so the
+// timer dies and scrolling stays intact.
 const HOLD_MS = 600
 
 function buzz() {
@@ -19,8 +18,7 @@ function buzz() {
 // hold-fire arrives too late on iOS: the browser already claimed scrolling and
 // the first move pointercancels the drag. The working fix is a non-passive
 // touchmove preventer installed at fire time (finger still stationary, events
-// still cancelable) — a floating virtual grip would face this exact same wall,
-// since it too can only appear after the hold.
+// still cancelable) for the rest of that one gesture only.
 export function blockTouchScroll() {
   document.addEventListener('touchmove', preventTouchMove, { passive: false })
 }
@@ -33,10 +31,23 @@ function preventTouchMove(e: TouchEvent) {
   if (e.cancelable) e.preventDefault()
 }
 
-export function useHoldToDrag(controls: DragControls) {
+export function useHoldToDrag(
+  controls: DragControls,
+  opts?: {
+    /** Gate evaluated at fire time (e.g. not in select mode). */
+    shouldStart?: () => boolean
+    /** Runs just before start (e.g. flip visual Order mode — tree is stable). */
+    onStarting?: () => void
+  },
+) {
   const [dragging, setDragging] = useState(false)
   const timer = useRef<number | null>(null)
   const eventRef = useRef<PointerEvent | null>(null)
+  // Latest opts without re-creating the timer callback every render.
+  const fireOpts = useRef(opts)
+  useEffect(() => {
+    fireOpts.current = opts
+  })
 
   const clear = useCallback(() => {
     if (timer.current != null) {
@@ -63,13 +74,16 @@ export function useHoldToDrag(controls: DragControls) {
         timer.current = null
         const evt = eventRef.current
         if (!evt) return
+        if (fireOpts.current?.shouldStart && !fireOpts.current.shouldStart()) return
         // Finger is still stationary: flip touch-action BEFORE the first move
         // so the browser hands the gesture to the drag, not the scroller.
-        // Plus the non-passive blocker (touch flipping alone arrives too late —
-        // scrollability was decided at gesture start, which the grip avoids by
-        // being touch-none from the first millisecond).
         setDragging(true)
         buzz()
+        try {
+          fireOpts.current?.onStarting?.()
+        } catch {
+          /* visual flip is best-effort */
+        }
         if (evt.pointerType === 'touch' || evt.pointerType === 'pen') blockTouchScroll()
         try {
           controls.start(evt)
@@ -89,63 +103,4 @@ export function useHoldToDrag(controls: DragControls) {
     onPointerCancel: end,
     dragging,
   }
-}
-
-/**
- * Container-level long-press: enters Order mode from a NORMAL row (no per-row
- * hooks — the id comes from the closest [data-row-id]). Movement cancels, so
- * scrolls and taps never trigger it. The LIVE native event is handed over too,
- * so the newly mounted drag row can take over the SAME still-active gesture.
- * No-op when onEnter is undefined.
- */
-export function useHoldToEnterOrder(
-  onEnter: ((id: string, event: PointerEvent) => void) | undefined,
-) {
-  const timer = useRef<number | null>(null)
-
-  const clear = useCallback(() => {
-    if (timer.current != null) {
-      clearTimeout(timer.current)
-      timer.current = null
-    }
-  }, [])
-
-  useEffect(() => clear, [clear])
-  useEffect(() => {
-    if (!onEnter) clear()
-  }, [onEnter, clear])
-
-  const onPointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      if (!onEnter) return
-      if (e.pointerType === 'mouse' && e.button !== 0) return
-      const el = (e.target as HTMLElement | null)?.closest?.('[data-row-id]')
-      const rowId = el?.getAttribute?.('data-row-id')
-      if (!rowId) return
-      const liveEvent = e.nativeEvent
-      clear()
-      timer.current = window.setTimeout(() => {
-        timer.current = null
-        buzz()
-        // The mode flip remounts the list mid-gesture: block scrolling NOW so
-        // the transfer target inherits a drag-owned gesture, not a scroller.
-        blockTouchScroll()
-        onEnter(rowId, liveEvent)
-      }, HOLD_MS)
-    },
-    [onEnter, clear],
-  )
-
-  if (!onEnter) {
-    const noop = (_e?: unknown) => {
-      void _e
-    }
-    return {
-      onPointerDown: noop,
-      onPointerMove: noop,
-      onPointerUp: noop,
-      onPointerCancel: noop,
-    }
-  }
-  return { onPointerDown, onPointerMove: clear, onPointerUp: clear, onPointerCancel: clear }
 }

@@ -1,10 +1,9 @@
-import { useState, useEffect, useRef, useMemo, useLayoutEffect } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion'
 import type { Track } from '../../lib/types'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
-import { useHoldToDrag, useHoldToEnterOrder, unblockTouchScroll } from '../ui/useHoldToDrag'
+import { useHoldToDrag, unblockTouchScroll } from '../ui/useHoldToDrag'
 import { orderByIds } from '../../lib/queue'
-import { addLog } from '../../lib/logger'
 
 interface TrackListProps {
   tracks: Track[]
@@ -18,24 +17,23 @@ interface TrackListProps {
   onExternalSelectModeChange?: (v: boolean) => void
   selectAllTrigger?: number
   selectClearTrigger?: number
-  // Reorder mode (#10): hold-and-drag on the grip (scroll + tap-to-play
-  // unaffected). Parent owns persistence + live queue mapping via ONE full-order
-  // commit at drop — never a from/to splice (those collapse multi-step drags).
+  // Reorder mode (#10): hold-and-drag (grip or row hold) with tap-to-play and
+  // select intact. Parent owns persistence + live queue mapping via ONE
+  // full-order commit at drop — never a from/to splice (those collapse
+  // multi-step drags).
   reorderMode?: boolean
   onReorderCommit?: (newIds: string[]) => void
-  // Long-press a normal row to ENTER Order mode (queue lists only).
-  onRequestOrderMode?: (id: string, event: PointerEvent) => void
+  // Row-level hold entry: flips visual Order mode, then the same gesture
+  // starts dragging on the already-live controls (no remount, no transfer).
+  // Undefined = holds do nothing here.
+  onHoldToOrder?: () => void
   // Fires on every drop (changed or not) so hold-entered sessions can auto-exit.
   onDropEnd?: () => void
   // Hold-entered sessions (grips hidden) also exit when the finger lifts WITHOUT
-  // any drop — otherwise a failed transfer strands an empty Order mode. The
+  // any drop — otherwise a failed start strands an empty Order mode. The
   // check is deferred a tick so a real drop's commit (window-level pointerup
   // listener) lands first; unmounting before commit would eat the reorder.
   onReleaseWithoutDrop?: () => void
-  // Parked hold handoff: set by the parent when entering Order mode from a
-  // hold, consumed once by the matching drag row on mount (layout effect, so
-  // a release can't slip between commit and effect).
-  pendingDragRef?: { current: { id: string; event: PointerEvent } | null }
   // Grips are exclusive to button-entered Order mode (accessibility without
   // cluttering hold-entered drags, which need no handle).
   showGrips?: boolean
@@ -61,57 +59,34 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-// Hold-and-drag row: grip-only dragging (dragListener={false}) so vertical
-// scroll still works everywhere else; select-none stops iOS text selection
-// mid-drag. Drop commits through the shared onMove path.
-function DragTrackRow({ track, isCurrent, currentIsSource, constraints, pendingRef, showGrips, onPlay, onCommitMove }: {
+// Hold-and-drag row, ALWAYS mounted: grip-only dragging (dragListener={false})
+// so vertical scroll still works everywhere else; select-none stops iOS text
+// selection mid-drag. One tree before/during/after every gesture — no remount
+// can ever strand a drag (the lesson of the transfer era).
+function DragTrackRow({ track, index, isCurrent, currentIsSource, constraints, selectMode, isSelected, onToggleSelect, showGrip, holdToOrder, onPlay, onCommitMove }: {
   track: Track
+  index: number
   isCurrent: boolean
   currentIsSource?: boolean
   constraints: React.RefObject<HTMLDivElement | null>
-  pendingRef?: { current: { id: string; event: PointerEvent } | null }
-  showGrips?: boolean
+  selectMode: boolean
+  isSelected: boolean
+  onToggleSelect: () => void
+  showGrip: boolean
+  // Row-level hold: starts the drag on these already-live controls and flips
+  // visual Order mode first when needed. Undefined = holds do nothing here.
+  holdToOrder?: () => void
   onPlay: () => void
   onCommitMove: () => void
 }) {
   const controls = useDragControls()
-  // Take over the still-active hold gesture that opened Order mode. Deferred
-  // two frames so the fresh tree measures before the session starts. Uses the
-  // STORED native event: a constructed PointerEvent drops pointerId on iOS
-  // (falls back to 0 while the finger reports its real id), so every move is
-  // ignored — no lift, no travel, no onDragEnd. The in-mode hold path always
-  // reused the genuine event, which is why only the transfer failed.
-  useLayoutEffect(() => {
-    const p = pendingRef?.current
-    if (!p || p.id !== track.id) return
-    addLog(`hold transfer: effect matched row ${track.id.slice(0, 4)} (library)`)
-    let raf2 = 0
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => {
-        if (pendingRef.current == null) {
-          addLog('hold transfer: pending gone before start (library)')
-          return
-        }
-        pendingRef.current = null
-        try {
-          controls.start(p.event)
-          addLog('hold transfer: drag live (library)')
-        } catch {
-          addLog('hold transfer: start failed (library)')
-        }
-      })
-    })
-    return () => {
-      cancelAnimationFrame(raf1)
-      cancelAnimationFrame(raf2)
-    }
-    // Mount-only transfer.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
   // Long-press anywhere on the row also grabs it (same controls as the grip).
   // touch-action flips to none only while held: the flip lands while the finger
   // is still stationary, so the first move belongs to the drag, not the scroller.
-  const hold = useHoldToDrag(controls)
+  const hold = useHoldToDrag(controls, {
+    shouldStart: () => !selectMode && !!holdToOrder,
+    onStarting: () => holdToOrder?.(),
+  })
   return (
     <Reorder.Item
       value={track.id}
@@ -119,8 +94,15 @@ function DragTrackRow({ track, isCurrent, currentIsSource, constraints, pendingR
       dragControls={controls}
       dragConstraints={constraints}
       whileDrag={{ scale: 1.04, boxShadow: '0 10px 28px rgba(0,0,0,0.5)' }}
+      exit={{ opacity: 0 }}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2, delay: Math.min(index * 0.02, 0.4) }}
       onDragEnd={() => onCommitMove()}
-      onClick={onPlay}
+      onClick={() => {
+        if (selectMode) onToggleSelect()
+        else onPlay()
+      }}
       onPointerDown={hold.onPointerDown}
       onPointerMove={hold.onPointerMove}
       onPointerUp={hold.onPointerUp}
@@ -132,7 +114,19 @@ function DragTrackRow({ track, isCurrent, currentIsSource, constraints, pendingR
       }`}
     >
       <div className="flex w-8 items-center justify-center">
-        {showGrips !== false && (
+        {selectMode ? (
+          <div
+            className={`h-5 w-5 rounded border-2 transition-colors ${
+              isSelected ? 'border-primary bg-primary' : 'border-slate-600'
+            }`}
+          >
+            {isSelected && (
+              <svg viewBox="0 0 16 16" className="h-full w-full text-white" fill="currentColor">
+                <path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z" />
+              </svg>
+            )}
+          </div>
+        ) : showGrip ? (
         <span
           onPointerDown={(e) => controls.start(e)}
           onClick={(e) => e.stopPropagation()}
@@ -141,6 +135,10 @@ function DragTrackRow({ track, isCurrent, currentIsSource, constraints, pendingR
         >
           ⋮⋮
         </span>
+        ) : isCurrent ? (
+          <PlayingIndicator variant={currentIsSource ? 'source' : 'playing'} />
+        ) : (
+          <span className="text-sm text-slate-500">{index + 1}</span>
         )}
       </div>
       <div className="min-w-0 flex-1">
@@ -158,12 +156,11 @@ function DragTrackRow({ track, isCurrent, currentIsSource, constraints, pendingR
       <span className="w-12 text-right text-xs text-slate-500">
         {formatDuration(track.duration)}
       </span>
-      {isCurrent && <PlayingIndicator variant={currentIsSource ? 'source' : 'playing'} />}
     </Reorder.Item>
   )
 }
 
-export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger, selectClearTrigger, reorderMode, onReorderCommit, onRequestOrderMode, pendingDragRef, showGrips, onDropEnd, onReleaseWithoutDrop, externalSelectedIds, onSelectedIdsChange, currentIsSource }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
+export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger, selectClearTrigger, reorderMode, onReorderCommit, onHoldToOrder, showGrips, onDropEnd, onReleaseWithoutDrop, externalSelectedIds, onSelectedIdsChange, currentIsSource }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
   const [internalSelectMode, setInternalSelectMode] = useState(false)
   const selectMode = externalSelectMode !== undefined ? externalSelectMode : internalSelectMode
   const setSelectMode = (v: boolean | ((prev: boolean) => boolean)) => {
@@ -194,10 +191,9 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
     }
   }, [selectClearTrigger])
 
-  // Hold-and-drag row: grip-only dragging (dragListener={false}) so vertical
-  // scroll still works everywhere else; select-none stops iOS text selection
-  // mid-drag. Drop commits the FULL order (orderByIds) — single splices
-  // collapse multi-step drags to one step.
+  // Single Reorder tree, always mounted: hold-and-drag (grip or row hold) with
+  // tap-to-play and select intact. Drop commits the FULL order (orderByIds) —
+  // single splices collapse multi-step drags to one step.
   const rowIds = useMemo(() => tracks.map((t) => t.id), [tracks])
   const [dragIds, setDragIds] = useState<string[] | null>(null)
   // Cleared on mode/list/track change: a mounted Reorder tree with stale drag
@@ -226,8 +222,8 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
   // measurements, correct positions) instead of reusing a stale snapshot.
   const soundingId = tracks[currentTrackIndex]?.id ?? 'boot'
   const commitDragMove = () => {
-    // The enter-order path blocks scrolling for the whole transfer: always
-    // release it at drop, changed or not.
+    // The hold path blocks scrolling for the whole gesture: always release it
+    // at drop, changed or not.
     unblockTouchScroll()
     dropCommittedRef.current = true
     onDropEnd?.()
@@ -244,20 +240,16 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
   useEffect(() => {
     dropCommittedRef.current = false
   }, [reorderMode])
-  const handleReleaseUp = (e: React.PointerEvent) => {
-    // A release before the handoff mounts cancels the transfer.
-    if (pendingDragRef) pendingDragRef.current = null
+  const handleReleaseUp = () => {
     unblockTouchScroll()
-    holdEnter.onPointerUp(e)
     window.setTimeout(() => {
       if (!dropCommittedRef.current) onReleaseWithoutDrop?.()
       dropCommittedRef.current = false
     }, 0)
   }
 
-  // Long-press a NORMAL row enters Order mode (event delegation via data-row-id
-  // — no per-row hooks). Disabled in select/reorder modes so those gestures win.
-  const holdEnter = useHoldToEnterOrder(!reorderMode && !selectMode ? onRequestOrderMode : undefined)
+  // Row-level hold entry (no delegation needed — every row owns its controls).
+  const holdToOrder = !selectMode && onHoldToOrder ? () => onHoldToOrder() : undefined
 
   const toggleSelect = (trackId: string) => {
     setSelectedIds((prev) => {
@@ -381,111 +373,40 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
 
       <div
         className="flex-1 overflow-y-auto px-2 py-2"
-        ref={reorderMode && onReorderCommit ? listRef : undefined}
-        onPointerDown={holdEnter.onPointerDown}
-        onPointerMove={holdEnter.onPointerMove}
-        onPointerUp={(e) => {
-          handleReleaseUp(e)
+        ref={listRef}
+        onPointerUp={() => {
+          handleReleaseUp()
         }}
-        onPointerCancel={(e) => {
-          if (pendingDragRef) pendingDragRef.current = null
+        onPointerCancel={() => {
           unblockTouchScroll()
-          holdEnter.onPointerCancel(e)
         }}
       >
-        {reorderMode && onReorderCommit ? (
-          <Reorder.Group
-            key={soundingId}
-            axis="y"
-            values={groupValues}
-            onReorder={(ids) => setDragIds(ids)}
-          >
+        <Reorder.Group
+          key={soundingId}
+          axis="y"
+          values={groupValues}
+          onReorder={(ids) => setDragIds(ids)}
+        >
+          <AnimatePresence initial={false}>
             {displayTracks.map((track, index) => (
               <DragTrackRow
                 key={track.id}
                 track={track}
+                index={index}
                 isCurrent={index === displayCurrentIdx}
-                constraints={listRef}
-                pendingRef={pendingDragRef}
-                showGrips={showGrips}
                 currentIsSource={currentIsSource}
+                constraints={listRef}
+                selectMode={selectMode}
+                isSelected={selectedIds.has(track.id)}
+                onToggleSelect={() => toggleSelect(track.id)}
+                showGrip={!!reorderMode && showGrips !== false}
+                holdToOrder={holdToOrder}
                 onPlay={() => onSelectTrack(index)}
                 onCommitMove={commitDragMove}
               />
             ))}
-          </Reorder.Group>
-        ) : (
-        <AnimatePresence mode="popLayout">
-          {tracks.map((track, index) => {
-            const isSelected = selectedIds.has(track.id)
-            return (
-              <motion.div
-                key={track.id}
-                data-row-id={track.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.2, delay: index * 0.02 }}
-                onClick={() => {
-                  if (selectMode) {
-                    toggleSelect(track.id)
-                  } else {
-                    // Order mode included: tapping a row plays it (chevrons
-                    // stopPropagation for moves). Rows are never dead.
-                    onSelectTrack(index)
-                  }
-                }}
-                className={`group flex cursor-pointer items-center gap-4 rounded-lg px-4 py-3 transition-colors ${
-                  selectMode && isSelected
-                    ? 'bg-primary/20'
-                    : index === currentTrackIndex
-                    ? 'bg-primary/20 text-primary-light'
-                    : 'text-slate-300 hover:bg-slate-800/50'
-                }`}
-              >
-                <div className="flex w-8 items-center justify-center">
-                  {selectMode ? (
-                    <div
-                      className={`h-5 w-5 rounded border-2 transition-colors ${
-                        isSelected
-                          ? 'border-primary bg-primary'
-                          : 'border-slate-600'
-                      }`}
-                    >
-                      {isSelected && (
-                        <svg viewBox="0 0 16 16" className="h-full w-full text-white" fill="currentColor">
-                          <path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z" />
-                        </svg>
-                      )}
-                    </div>
-                  ) : index === currentTrackIndex ? (
-                    <PlayingIndicator variant={currentIsSource ? 'source' : 'playing'} />
-                  ) : (
-                    <span className="text-sm text-slate-500">{index + 1}</span>
-                  )}
-                </div>
-
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <p className="truncate text-sm font-medium">{track.name}</p>
-                    {track.mediaType === 'video' && (
-                      <span className="flex-shrink-0 text-xs text-slate-500">🎬</span>
-                    )}
-                  </div>
-                  <p className="truncate text-xs text-slate-500">
-                    {track.artist} {track.album !== 'Unknown Album' ? `• ${track.album}` : ''}
-                  </p>
-                </div>
-
-                <span className="text-xs text-slate-600">{formatSize(track.size)}</span>
-                <span className="w-12 text-right text-xs text-slate-500">
-                  {formatDuration(track.duration)}
-                </span>
-              </motion.div>
-            )
-          })}
-        </AnimatePresence>
-        )}
+          </AnimatePresence>
+        </Reorder.Group>
       </div>
 
       {/* Selection action bar */}

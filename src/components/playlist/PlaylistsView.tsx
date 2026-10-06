@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useMemo, useLayoutEffect } from 'react'
-import { motion } from 'framer-motion'
+import { useState, useEffect, useRef, useMemo } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { Reorder, useDragControls } from 'framer-motion'
 import type { Track, Playlist } from '../../lib/types'
 import { orderByIds } from '../../lib/queue'
@@ -7,9 +7,8 @@ import { getAllTracks } from '../../lib/idb'
 import { getTrackFile } from '../../lib/idb'
 import { getTrackThumbnail } from '../../lib/thumbnail'
 import { showError } from '../ui/Toast'
-import { addLog } from '../../lib/logger'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
-import { useHoldToDrag, useHoldToEnterOrder, unblockTouchScroll } from '../ui/useHoldToDrag'
+import { useHoldToDrag, unblockTouchScroll } from '../ui/useHoldToDrag'
 import { AddTracksSheet } from './AddTracksSheet'
 
 interface Props {
@@ -26,51 +25,27 @@ interface Props {
   currentQueueKey?: string | null
 }
 
-// Hold-and-drag queue row (grip-only; scroll + tap-to-play unaffected).
-// Module scope: defining it inside render would remount (and kill the drag)
-// on every parent render.
-function DragPlaylistRow({ itemId, track, isPlaying, constraints, pendingRef, showGrips, onPlay, onCommitMove }: {
+// Hold-and-drag queue row, ALWAYS mounted: same single-tree design as
+// TrackList (see it for the full rationale).
+function DragPlaylistRow({ itemId, track, position, isPlaying, constraints, editMode, isSelected, onToggleSelect, showGrip, onHoldToOrder, onPlay, onCommitMove }: {
   itemId: string
   track: Track
+  position: number
   isPlaying: boolean
   constraints: React.RefObject<HTMLDivElement | null>
-  pendingRef?: { current: { id: string; event: PointerEvent } | null }
-  showGrips?: boolean
+  editMode: boolean
+  isSelected: boolean
+  onToggleSelect: () => void
+  showGrip: boolean
+  onHoldToOrder?: () => void
   onPlay: () => void
   onCommitMove: () => void
 }) {
   const controls = useDragControls()
-  const hold = useHoldToDrag(controls)
-  // Take over the still-active hold gesture that opened Order mode. Deferred
-  // two frames so the fresh tree measures before the session starts; stored
-  // native event (synthetic ones lose pointerId on iOS — see TrackList).
-  useLayoutEffect(() => {
-    const p = pendingRef?.current
-    if (!p || p.id !== itemId) return
-    addLog(`hold transfer: effect matched row ${itemId.slice(0, 4)} (playlist)`)
-    let raf2 = 0
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => {
-        if (pendingRef.current == null) {
-          addLog('hold transfer: pending gone before start (playlist)')
-          return
-        }
-        pendingRef.current = null
-        try {
-          controls.start(p.event)
-          addLog('hold transfer: drag live (playlist)')
-        } catch {
-          addLog('hold transfer: start failed (playlist)')
-        }
-      })
-    })
-    return () => {
-      cancelAnimationFrame(raf1)
-      cancelAnimationFrame(raf2)
-    }
-    // Mount-only transfer.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  const hold = useHoldToDrag(controls, {
+    shouldStart: () => !editMode && !!onHoldToOrder,
+    onStarting: () => onHoldToOrder?.(),
+  })
   return (
     <Reorder.Item
       value={itemId}
@@ -78,8 +53,12 @@ function DragPlaylistRow({ itemId, track, isPlaying, constraints, pendingRef, sh
       dragControls={controls}
       dragConstraints={constraints}
       whileDrag={{ scale: 1.04, boxShadow: '0 10px 28px rgba(0,0,0,0.5)' }}
+      exit={{ opacity: 0 }}
       onDragEnd={() => onCommitMove()}
-      onClick={onPlay}
+      onClick={() => {
+        if (editMode) onToggleSelect()
+        else onPlay()
+      }}
       onPointerDown={hold.onPointerDown}
       onPointerMove={hold.onPointerMove}
       onPointerUp={hold.onPointerUp}
@@ -89,7 +68,9 @@ function DragPlaylistRow({ itemId, track, isPlaying, constraints, pendingRef, sh
       } ${isPlaying ? 'bg-primary/20 text-primary-light' : 'hover:bg-slate-800/50 text-slate-300'}`}
     >
       <div className="flex w-8 items-center justify-center">
-        {showGrips !== false && (
+        {editMode ? (
+          <div className={`h-5 w-5 rounded border-2 ${isSelected ? 'border-primary bg-primary' : 'border-slate-600'}`}>{isSelected && <svg viewBox="0 0 16 16" className="h-full w-full text-white" fill="currentColor"><path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z" /></svg>}</div>
+        ) : showGrip ? (
         <span
           onPointerDown={(e) => controls.start(e)}
           onClick={(e) => e.stopPropagation()}
@@ -98,6 +79,8 @@ function DragPlaylistRow({ itemId, track, isPlaying, constraints, pendingRef, sh
         >
           ⋮⋮
         </span>
+        ) : (
+          <span className="text-xs text-slate-500">{position}</span>
         )}
       </div>
       <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded bg-slate-800 text-xs">{track.mediaType === 'video' ? '🎬' : '🎵'}</div>
@@ -120,7 +103,6 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
   const [editMode, setEditMode] = useState(false)
   const [orderMode, setOrderMode] = useState(false)
   const [gripsVisible, setGripsVisible] = useState(true)
-  const pendingDragRef = useRef<{ id: string; event: PointerEvent } | null>(null)
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
 
@@ -209,7 +191,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
     })
   }
 
-  // Hold-and-drag for queue rows (same grip-only pattern as TrackList):
+  // Hold-and-drag for queue rows (same single-tree pattern as TrackList):
   // LIVE order during the drag (siblings make room across the full travel),
   // single full-order commit at drop. Never a from/to splice — those collapse
   // multi-step drags to one step.
@@ -248,10 +230,8 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
   useEffect(() => {
     dropCommittedRef.current = false
   }, [orderMode])
-  const handleReleaseUp = (e: React.PointerEvent) => {
-    pendingDragRef.current = null
+  const handleReleaseUp = () => {
     unblockTouchScroll()
-    holdEnter.onPointerUp(e)
     window.setTimeout(() => {
       if (!dropCommittedRef.current && !gripsVisible) {
         setOrderMode(false)
@@ -261,17 +241,14 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
     }, 0)
   }
 
-  // Long-press a normal queue row enters Order mode (delegated, no per-row hooks).
-  const holdEnter = useHoldToEnterOrder(
+  // Row-level hold entry (no delegation — every row owns its controls).
+  const holdToOrder =
     !orderMode && !editMode && onReorderItems
-      ? (id: string, event: PointerEvent) => {
-          pendingDragRef.current = { id, event }
-          addLog(`hold enter order: row ${id.slice(0, 4)} (playlist)`)
+      ? () => {
           setGripsVisible(false)
           setOrderMode(true)
         }
-      : undefined,
-  )
+      : undefined
 
   const handleRemoveSelected = async () => {
     if (!active || selectedItemIds.size === 0 || !onRemoveFromPlaylist) return
@@ -333,26 +310,22 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
           <div className="flex flex-1 flex-col overflow-hidden">
             <div
               className="flex-1 overflow-y-auto p-2"
-              ref={orderMode && onReorderItems ? queueListRef : undefined}
-              onPointerDown={holdEnter.onPointerDown}
-              onPointerMove={holdEnter.onPointerMove}
-              onPointerUp={(e) => {
-                handleReleaseUp(e)
+              ref={queueListRef}
+              onPointerUp={() => {
+                handleReleaseUp()
               }}
-              onPointerCancel={(e) => {
-                pendingDragRef.current = null
+              onPointerCancel={() => {
                 unblockTouchScroll()
-                holdEnter.onPointerCancel(e)
               }}
             >
-              {orderMode && onReorderItems ? (
-                <Reorder.Group
-                  key={soundingKey}
-                  axis="y"
-                  values={displayItemIds}
-                  onReorder={(ids) => setDragItemIds(ids)}
-                >
-                  {displayItemIds.map((iid) => {
+              <Reorder.Group
+                key={soundingKey}
+                axis="y"
+                values={displayItemIds}
+                onReorder={(ids) => setDragItemIds(ids)}
+              >
+                <AnimatePresence initial={false}>
+                  {displayItemIds.map((iid, pos) => {
                     const idx = active.items.findIndex((it) => it.id === iid)
                     const t = activeTracks[idx]
                     if (idx === -1 || !t) return null
@@ -362,46 +335,21 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
                         key={iid}
                         itemId={iid}
                         track={t}
+                        position={pos + 1}
                         isPlaying={playing}
                         constraints={queueListRef}
-                        pendingRef={pendingDragRef}
-                        showGrips={gripsVisible}
+                        editMode={editMode}
+                        isSelected={selectedItemIds.has(iid)}
+                        onToggleSelect={() => toggleSelect(iid)}
+                        showGrip={orderMode && gripsVisible}
+                        onHoldToOrder={holdToOrder}
                         onPlay={() => onForcePlayPlaylist(active.id, idx)}
                         onCommitMove={commitDragMove}
                       />
                     )
                   })}
-                </Reorder.Group>
-              ) : (
-              <>
-              {activeTracks.map((t, idx) => {
-                const itemId = active.items[idx]?.id ?? t.id
-                const isSelected = selectedItemIds.has(itemId)
-                // Occurrence-aware: only the exact playing occurrence lights up.
-                // Falls back to track-id match when queueKey unavailable (e.g. tests).
-                const isPlaying = !editMode && (currentQueueKey != null
-                  ? itemId === currentQueueKey
-                  : currentTrackId === t.id)
-                return (
-                  <div key={`${itemId}-${idx}`} data-row-id={itemId} onClick={() => { if (editMode) toggleSelect(itemId); else onForcePlayPlaylist(active.id, idx) }} className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 ${editMode && isSelected ? 'bg-primary/20' : isPlaying ? 'bg-primary/20 text-primary-light' : 'hover:bg-slate-800/50 text-slate-300'}`}>
-                    <div className="flex w-8 items-center justify-center">
-                      {editMode ? (
-                        <div className={`h-5 w-5 rounded border-2 ${isSelected ? 'border-primary bg-primary' : 'border-slate-600'}`}>{isSelected && <svg viewBox="0 0 16 16" className="h-full w-full text-white" fill="currentColor"><path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z" /></svg>}</div>
-                      ) : (
-                        <span className="text-xs text-slate-500">{idx + 1}</span>
-                      )}
-                    </div>
-                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded bg-slate-800 text-xs">{t.mediaType === 'video' ? '🎬' : '🎵'}</div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm">{t.name}</p>
-                      <p className="truncate text-xs text-slate-500">{t.artist !== 'Unknown Artist' ? t.artist : t.folderName}</p>
-                    </div>
-                    {isPlaying && <PlayingIndicator variant="playing" />}
-                  </div>
-                )
-              })}
-              </>
-              )}
+                </AnimatePresence>
+              </Reorder.Group>
             </div>
             {editMode && (
               <div className="border-t border-slate-800 bg-slate-900 px-4 py-3">
