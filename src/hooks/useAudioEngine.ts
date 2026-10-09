@@ -55,6 +55,25 @@ function getLockPlaybackState(kind: 'track' | 'anchor'): MediaSessionPlaybackSta
 }
 function delay(ms: number) { return new Promise<void>(r => setTimeout(r, ms)) }
 
+// iOS can leave media.play() unsettled FOREVER after a pipeline wedge
+// (observed: one hung promise held the swap mutex ~40s — every later press
+// collapsed into a queued command, stale audio under new video, unpausable).
+// Bound it: a timeout converts wedge → ordinary failure → guarded retry.
+const PLAY_TIMEOUT_MS = 10000
+async function awaitPlay(p: Promise<void>, what: string): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      p,
+      new Promise<void>((_, rej) => {
+        timer = setTimeout(() => rej(new Error(`${what} timed out after ${PLAY_TIMEOUT_MS}ms`)), PLAY_TIMEOUT_MS)
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
 type SourceKind = 'track' | 'anchor'
 
 export function useAudioEngine() {
@@ -204,7 +223,7 @@ export function useAudioEngine() {
     if (isVideoTrack && v && kind === 'track') { v.muted = true; try { videoPlay = v.play() } catch { /* ignore */ } }
     else if (v && kind === 'anchor') { try { v.pause() } catch {} }
     try {
-      await playPromise
+      await awaitPlay(playPromise, `${kind} play()`)
     } catch (e) {
       // iOS PWA may reject if not in gesture — log and re-throw for retry in caller
       addLog(`${kind} play() rejected: ${e}`)
@@ -319,7 +338,7 @@ export function useAudioEngine() {
         const directPlay = media.play()
         let vPlay: Promise<void> | null = null
         if (isVideoResume && vResume) { vResume.muted = true; try { vPlay = vResume.play() } catch {} }
-        await directPlay
+        await awaitPlay(directPlay, 'direct resume play()')
         if (vPlay) await vPlay.catch(() => addLog('video resume failed'))
         // Baseline 1: no video hardSync
         setOwner('track'); setPlaying(true)
