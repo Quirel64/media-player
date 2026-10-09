@@ -2,8 +2,10 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion'
 import type { Track } from '../../lib/types'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
+import { HoldRing } from '../ui/HoldRing'
 import { useHoldToDrag, unblockTouchScroll } from '../ui/useHoldToDrag'
 import { orderByIds } from '../../lib/queue'
+
 
 interface TrackListProps {
   tracks: Track[]
@@ -114,7 +116,9 @@ function DragTrackRow({ track, index, isCurrent, currentIsSource, constraints, s
       }`}
     >
       <div className="flex w-8 items-center justify-center">
-        {selectMode ? (
+        {hold.holding ? (
+          <HoldRing />
+        ) : selectMode ? (
           <div
             className={`h-5 w-5 rounded border-2 transition-colors ${
               isSelected ? 'border-primary bg-primary' : 'border-slate-600'

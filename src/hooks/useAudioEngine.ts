@@ -71,6 +71,20 @@ export function useAudioEngine() {
   const transitionRef = useRef(false)
   const transitionTokenRef = useRef(0)
   const queuedCommandRef = useRef<'play' | 'pause' | null>(null)
+  // Swap serialization: rapid lock-screen next/prev (<1s apart) used to overlap
+  // src swaps on the one element — each media.load() aborts the previous
+  // play(), blob URLs get revoked mid-flight (NotSupportedError/code 4), and
+  // iOS drops the session. Swaps now queue behind a mutex; superseded requests
+  // skip instead of interleaving.
+  const swapRequestRef = useRef(0)
+  const swapTailRef = useRef<Promise<void>>(Promise.resolve())
+  const lockSwap = useCallback(() => {
+    let release!: () => void
+    const gate = new Promise<void>((res) => { release = res })
+    const prev = swapTailRef.current
+    swapTailRef.current = gate
+    return prev.then(() => release)
+  }, [])
   const commandRunnerRef = useRef<((c: 'play' | 'pause') => void) | null>(null)
   const loadGenRef = useRef(0)
   const prevTrackIdRef = useRef<string | null>(null)
@@ -123,7 +137,7 @@ export function useAudioEngine() {
     if (c) queueMicrotask(() => commandRunnerRef.current?.(c))
   }, [])
 
-  const activateSource = useCallback(async (kind: SourceKind, url: string, position: number) => {
+  const activateSourceInner = useCallback(async (kind: SourceKind, url: string, position: number) => {
     const media = mediaRef.current
     if (!media || !url) throw new Error('media or source missing')
     const token = ++transitionTokenRef.current
@@ -250,6 +264,22 @@ export function useAudioEngine() {
     addLog(`${kind} source active on permanent element @ ${media.currentTime.toFixed(2)}s${isVideoTrack && kind==='track' ? (v && !v.paused ? ' +video playing' : ' +video paused') : ''} owner=${kind}`)
   }, [setOwner, setPlaying])
 
+  const activateSource = useCallback(async (kind: SourceKind, url: string, position: number) => {
+    // Last-wins + serialized: a newer request may arrive while an older one
+    // still holds (or waits for) the mutex — the older one skips on entry.
+    const myReq = ++swapRequestRef.current
+    const release = await lockSwap()
+    try {
+      if (myReq !== swapRequestRef.current) {
+        addLog(`activateSource ${kind} superseded before lock — skipping`)
+        return
+      }
+      return await activateSourceInner(kind, url, position)
+    } finally {
+      release()
+    }
+  }, [activateSourceInner, lockSwap])
+
   const play = useCallback(async () => {
     const state = usePlayerStore.getState()
     const track = state.queue[state.currentTrackIndex] ?? currentTrack
@@ -311,8 +341,19 @@ export function useAudioEngine() {
           if (!fresh) { showError(`File not found: ${track.fileName}`); throw new Error('no url') }
           blobUrlRef.current = fresh; url = fresh
         }
+        // Snapshot the newest request id: a blind retry after AbortError would
+        // otherwise swap a STALE track back over whatever superseded it.
+        const mySwapReq = swapRequestRef.current
         try { await activateSource('track', url, resumePos) } catch (e) {
-          addLog(`track source swap play() failed: ${e}`); await delay(120); await activateSource('track', url, resumePos)
+          addLog(`track source swap play() failed: ${e}`)
+          await delay(120)
+          // Retry only if nothing newer arrived meanwhile — a stale retry
+          // would swap BACK over the newer track (same storm as the bug).
+          if (swapRequestRef.current === mySwapReq) {
+            await activateSource('track', url, resumePos)
+          } else {
+            addLog('track source swap retry skipped (superseded)')
+          }
         }
       }
     } catch (e) { setPlaying(false); setOwner('idle'); addLog(`resume failed: ${e}`) }

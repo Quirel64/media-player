@@ -3,8 +3,9 @@ import type { DragControls } from 'framer-motion'
 
 // Hold ~600ms (modern long-press timing — 1.5s feels broken) to start a drag
 // on already-live controls. Any pointer movement first means "scroll", so the
-// timer dies and scrolling stays intact.
-const HOLD_MS = 600
+// timer dies and scrolling stays intact. Exported so hold-progress UI (ring)
+// can share the exact timing — no magic numbers in two places.
+export const HOLD_MS = 600
 
 function buzz() {
   try {
@@ -41,6 +42,10 @@ export function useHoldToDrag(
   },
 ) {
   const [dragging, setDragging] = useState(false)
+  // True while the hold timer runs (finger down, not yet moved/released).
+  // Row UI reads this to render hold-progress (e.g. a filling ring); it flips
+  // false the moment the drag starts, is cancelled, or the finger lifts.
+  const [holding, setHolding] = useState(false)
   const timer = useRef<number | null>(null)
   const eventRef = useRef<PointerEvent | null>(null)
   // Latest opts without re-creating the timer callback every render.
@@ -54,6 +59,7 @@ export function useHoldToDrag(
       clearTimeout(timer.current)
       timer.current = null
     }
+    setHolding(false)
   }, [])
 
   useEffect(() => clear, [clear])
@@ -70,8 +76,10 @@ export function useHoldToDrag(
       if (e.pointerType === 'mouse' && e.button !== 0) return
       eventRef.current = e.nativeEvent
       clear()
+      setHolding(true)
       timer.current = window.setTimeout(() => {
         timer.current = null
+        setHolding(false)
         const evt = eventRef.current
         if (!evt) return
         if (fireOpts.current?.shouldStart && !fireOpts.current.shouldStart()) return
@@ -102,5 +110,6 @@ export function useHoldToDrag(
     onPointerUp: end,
     onPointerCancel: end,
     dragging,
+    holding,
   }
 }
