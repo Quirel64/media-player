@@ -229,7 +229,13 @@ export function useAudioEngine() {
       addLog(`${kind} play() rejected: ${e}`)
       throw e
     }
-    if (videoPlay) await videoPlay.catch(() => { addLog('video.play failed') })
+    if (videoPlay) {
+      try {
+        await awaitPlay(videoPlay.catch(() => { addLog('video.play failed') }), 'video.play()')
+      } catch (e) {
+        addLog(`video swap play issue: ${e}`)
+      }
+    }
     if (token !== transitionTokenRef.current) {
       // Stale: still ensure lock shows correct final kind for the newer token
       addLog(`activateSource ${kind} stale token ${token} abandoned`)
@@ -248,7 +254,14 @@ export function useAudioEngine() {
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = getLockPlaybackState('track')
       addLog(`post-publish track ${getLockPlaybackState('track')} dur=${postDur.toFixed(1)} pos=${media.currentTime.toFixed(2)} rate=1 state=${getLockPlaybackState('track')}`)
       // Ensure video reflects track state even after token race
-      if (isVideoTrack && v && v.paused) { try { v.muted = true; await v.play() } catch { /* ignore */ } }
+      if (isVideoTrack && v && v.paused) {
+        v.muted = true
+        try {
+          await awaitPlay(v.play(), 'video catch-up play()')
+        } catch (e) {
+          addLog(`video catch-up issue (benign): ${e}`)
+        }
+      }
     } else {
       setPlaying(false);
       const postDur = trackDurationRef.current || media.duration
@@ -339,7 +352,13 @@ export function useAudioEngine() {
         let vPlay: Promise<void> | null = null
         if (isVideoResume && vResume) { vResume.muted = true; try { vPlay = vResume.play() } catch {} }
         await awaitPlay(directPlay, 'direct resume play()')
-        if (vPlay) await vPlay.catch(() => addLog('video resume failed'))
+        if (vPlay) {
+          try {
+            await awaitPlay(vPlay.catch(() => { addLog('video resume failed') }), 'video resume play()')
+          } catch (e) {
+            addLog(`video resume issue (benign): ${e}`)
+          }
+        }
         // Baseline 1: no video hardSync
         setOwner('track'); setPlaying(true)
         publishPosition(media.duration || trackDurationRef.current, media.currentTime, 1)

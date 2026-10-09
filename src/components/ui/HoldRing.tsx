@@ -1,9 +1,9 @@
-import { motion } from "framer-motion";
 import { HOLD_MS } from "./useHoldToDrag"; // adjust path to your hook
 
 const SIZE = 32;          // column width in px
 const STROKE_WIDTH = 3;   // thickness of the ring
 const RADIUS = (SIZE - STROKE_WIDTH) / 2;
+const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 export function HoldRing() {
   return (
@@ -22,10 +22,10 @@ export function HoldRing() {
         strokeWidth={STROKE_WIDTH}
       />
 
-      {/* Animated progress ring: pathLength (0→1) is the framer-supported way
-          to drive SVG circles — raw strokeDashoffset often never animates.
-          rotate(-90) starts the fill at the top like a timer. */}
-      <motion.circle
+      {/* Progress ring via SMIL: neither framer nor CSS animations drive SVG
+          geometry reliably here, but declarative <animate> always runs while
+          mounted (mount = finger down, unmount = release = free reset). */}
+      <circle
         cx={SIZE / 2}
         cy={SIZE / 2}
         r={RADIUS}
@@ -33,14 +33,18 @@ export function HoldRing() {
         stroke="white"
         strokeWidth={STROKE_WIDTH}
         strokeLinecap="round"
+        strokeDasharray={CIRCUMFERENCE}
+        strokeDashoffset={CIRCUMFERENCE}
         transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}
-        initial={{ pathLength: 0 }}
-        animate={{ pathLength: 1 }}
-        transition={{
-          duration: HOLD_MS / 1000,
-          ease: "linear",
-        }}
-      />
+      >
+        <animate
+          attributeName="stroke-dashoffset"
+          from={CIRCUMFERENCE.toString()}
+          to="0"
+          dur={`${HOLD_MS / 1000}s`}
+          fill="freeze"
+        />
+      </circle>
     </svg>
   );
 }
