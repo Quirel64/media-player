@@ -1,11 +1,11 @@
-import { HOLD_MS } from "./useHoldToDrag"; // adjust path to your hook
+import { HOLD_RING_VISIBLE_MS } from "./useHoldToDrag";
 
 const SIZE = 32;          // column width in px
 const STROKE_WIDTH = 3;   // thickness of the ring
 const RADIUS = (SIZE - STROKE_WIDTH) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
-export function HoldRing() {
+export function HoldRing({ durationMs = HOLD_RING_VISIBLE_MS }: { durationMs?: number }) {
   return (
     <svg
       width={SIZE}
@@ -41,7 +41,7 @@ export function HoldRing() {
           attributeName="stroke-dashoffset"
           from={CIRCUMFERENCE.toString()}
           to="0"
-          dur={`${HOLD_MS / 1000}s`}
+          dur={`${durationMs / 1000}s`}
           fill="freeze"
         />
       </circle>

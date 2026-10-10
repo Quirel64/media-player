@@ -69,7 +69,7 @@ function DragPlaylistRow({ itemId, track, position, isPlaying, constraints, edit
       } ${isPlaying ? 'bg-primary/20 text-primary-light' : 'hover:bg-slate-800/50 text-slate-300'}`}
     >
       <div className="flex w-8 items-center justify-center">
-        {hold.holding ? (
+        {hold.holdArmed ? (
           <HoldRing />
         ) : editMode ? (
           <div className={`h-5 w-5 rounded border-2 ${isSelected ? 'border-primary bg-primary' : 'border-slate-600'}`}>{isSelected && <svg viewBox="0 0 16 16" className="h-full w-full text-white" fill="currentColor"><path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z" /></svg>}</div>

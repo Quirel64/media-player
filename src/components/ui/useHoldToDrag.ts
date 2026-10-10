@@ -6,6 +6,10 @@ import type { DragControls } from 'framer-motion'
 // timer dies and scrolling stays intact. Exported so hold-progress UI (ring)
 // can share the exact timing — no magic numbers in two places.
 export const HOLD_MS = 600
+// Ring grace: plain taps (<100ms) never flash UI; the ring then fills in the
+// remaining time so lift still lands exactly at HOLD_MS.
+export const HOLD_RING_DELAY_MS = 100
+export const HOLD_RING_VISIBLE_MS = HOLD_MS - HOLD_RING_DELAY_MS
 
 function buzz() {
   try {
@@ -46,6 +50,9 @@ export function useHoldToDrag(
   // Row UI reads this to render hold-progress (e.g. a filling ring); it flips
   // false the moment the drag starts, is cancelled, or the finger lifts.
   const [holding, setHolding] = useState(false)
+  // Armed a beat after holding starts so plain taps never flash the ring.
+  const [holdArmed, setHoldArmed] = useState(false)
+  const armTimer = useRef<number | null>(null)
   const timer = useRef<number | null>(null)
   const eventRef = useRef<PointerEvent | null>(null)
   // Latest opts without re-creating the timer callback every render.
@@ -59,7 +66,12 @@ export function useHoldToDrag(
       clearTimeout(timer.current)
       timer.current = null
     }
+    if (armTimer.current != null) {
+      clearTimeout(armTimer.current)
+      armTimer.current = null
+    }
     setHolding(false)
+    setHoldArmed(false)
   }, [])
 
   useEffect(() => clear, [clear])
@@ -77,9 +89,14 @@ export function useHoldToDrag(
       eventRef.current = e.nativeEvent
       clear()
       setHolding(true)
+      armTimer.current = window.setTimeout(() => {
+        armTimer.current = null
+        setHoldArmed(true)
+      }, HOLD_RING_DELAY_MS)
       timer.current = window.setTimeout(() => {
         timer.current = null
         setHolding(false)
+        setHoldArmed(false)
         const evt = eventRef.current
         if (!evt) return
         if (fireOpts.current?.shouldStart && !fireOpts.current.shouldStart()) return
@@ -111,5 +128,6 @@ export function useHoldToDrag(
     onPointerCancel: end,
     dragging,
     holding,
+    holdArmed,
   }
 }

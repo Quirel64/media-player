@@ -106,6 +106,16 @@ export function useAudioEngine() {
   }, [])
   const commandRunnerRef = useRef<((c: 'play' | 'pause') => void) | null>(null)
   const loadGenRef = useRef(0)
+  // Navigation coalescing: swaps faster than ~500ms wedge the iOS pipeline
+  // (NotSupported/code-4 storm, dual-audio crash, ghost repeats). The INDEX
+  // always moves (UI stays live) but at most one swap runs per window;
+  // intermediates collapse into a single catch-up load for the final index.
+  // Direct resumes (no src change) and pauses stay unthrottled — instant.
+  const NAV_COALESCE_MS = 500
+  const lastSwapAttemptRef = useRef(0)
+  const loadActiveRef = useRef(false)
+  const pendingNavRef = useRef(false)
+  const settledIndexRef = useRef(-1)
   const prevTrackIdRef = useRef<string | null>(null)
   const prevFileNameRef = useRef<string | null>(null)
   const nextGestureRef = useRef(false)
@@ -123,6 +133,9 @@ export function useAudioEngine() {
     if (!v) {
       v = document.createElement('video')
       v.muted = true; (v as unknown as { defaultMuted: boolean }).defaultMuted = true
+      // Belt and suspenders: the display video must NEVER sound (route changes
+      // on iOS can drop `muted`, which reads as two tracks restarting at once).
+      try { v.volume = 0 } catch { /* ignore */ }
       v.playsInline = true; v.setAttribute('webkit-playsinline','true'); v.setAttribute('x-webkit-airplay','deny'); v.preload='auto'; v.controls=false
       try { (v as unknown as { disableRemotePlayback: boolean }).disableRemotePlayback = true } catch {}
       v.style.width='100%'; v.style.height='100%'; v.style.objectFit='contain'; v.style.background='#000'
@@ -137,6 +150,14 @@ export function useAudioEngine() {
   }, [])
   const detachVideo = useCallback(() => { const v=videoRef.current; if(!v) return; v.pause(); v.removeAttribute('src'); v.load() }, [])
   const cleanupVideo = useCallback(() => { if (videoRef.current) { const v=videoRef.current; v.pause(); v.removeAttribute('src'); v.load(); if(v.parentNode) v.parentNode.removeChild(v); videoRef.current=null } }, [])
+
+  // Re-asserted ~4Hz: iOS route changes (headphone connect/disconnect) can drop
+  // the video element's muted flag, which then sounds as a second restarting
+  // track next to the real audio. Cheap property check, no-op when already set.
+  const assertVideoSilent = useCallback(() => {
+    const vv = videoRef.current
+    if (vv && (!vv.muted || vv.volume !== 0)) { try { vv.muted = true; vv.volume = 0 } catch { /* ignore */ } }
+  }, [])
 
   const setOwner = useCallback((o: 'idle' | 'track' | 'anchor') => { ownerRef.current = o }, [])
 
@@ -487,9 +508,20 @@ export function useAudioEngine() {
     // Seek media element to 0 so onTimeUpdate updates frozenPosRef to 0 (not stale position)
     const m = mediaRef.current
     if (m && !m.paused) { try { m.currentTime = 0 } catch {} }
-    const gen = ++loadGenRef.current
     const { queue: q } = usePlayerStore.getState()
     const track = q[idx]; if (!track) return
+    // Coalesce: a swap is already running and this index isn't settled — move
+    // the index (already done by caller) but let the in-flight owner run a
+    // single catch-up for the final index when it completes.
+    const now = performance.now()
+    if (loadActiveRef.current && now - lastSwapAttemptRef.current < NAV_COALESCE_MS && idx !== settledIndexRef.current) {
+      pendingNavRef.current = true
+      addLog(`swap coalesced [${idx + 1}] (settle in flight)`)
+      return
+    }
+    lastSwapAttemptRef.current = now
+    loadActiveRef.current = true
+    const gen = ++loadGenRef.current
     const prevId = prevTrackIdRef.current
     if (prevId && prevId !== track.id) addLog(`track change ${prevId.slice(0,4)} -> ${track.id.slice(0,4)}: will reset pos to 0`)
 
@@ -503,10 +535,26 @@ export function useAudioEngine() {
 
     // Derive fresh blob URL each time — IndexedDB is async and loses PWA gesture if cached
     const url = await getTrackFileURL(track.fileName)
-    if (gen !== loadGenRef.current) { addLog(`load [${idx+1}] stale gen ${gen} abandoned`); if (url) URL.revokeObjectURL(url); return }
-    if (!url) { showError(`File not found: ${track.fileName}`); return }
+    if (gen !== loadGenRef.current) {
+      // A newer FULL load owns the future — it drains. Just stand down.
+      loadActiveRef.current = false
+      addLog(`load [${idx + 1}] stale gen ${gen} abandoned`)
+      if (url) URL.revokeObjectURL(url)
+      return
+    }
+    if (!url) {
+      loadActiveRef.current = false
+      showError(`File not found: ${track.fileName}`)
+      drainCoalesced(idx, gen)
+      return
+    }
     blobUrlRef.current = url
-    const el = mediaRef.current; if (!el) return
+    const el = mediaRef.current
+    if (!el) {
+      loadActiveRef.current = false
+      drainCoalesced(idx, gen)
+      return
+    }
     const instanceId = queueKey(track)
     // Every tap is fresh — always reset time/duration even for same fileName dupes
     setCurrentTime(0); setDuration(0); trackDurationRef.current = 0
@@ -533,11 +581,33 @@ export function useAudioEngine() {
     nextGestureRef.current = false
     addLog(`load [${idx+1}/${q.length}] ${track.name} autoplay=${shouldAutoplay} (wasPlaying=${wasPlaying})`)
     if (shouldAutoplay) {
-      void play()
+      try {
+        await play()
+      } catch {
+        /* play() logs + guards itself; drain below still settles */
+      }
+      await drainCoalesced(idx, gen)
     } else {
       el.src = url; el.load()
+      loadActiveRef.current = false
+      pendingNavRef.current = false
+      if (gen === loadGenRef.current) settledIndexRef.current = idx
     }
   }, [attachVideo, cleanupVideo, setCurrentTime, setDuration, play])
+
+  // Catch-up drain for coalesced navigation: after a load completes, run once
+  // for the final index if presses landed mid-swap. Gen-guarded so a newer
+  // full load (which owns the future) never double-runs.
+  async function drainCoalesced(finishedIdx: number, finishedGen: number): Promise<void> {
+    loadActiveRef.current = false
+    pendingNavRef.current = false
+    const curIdx = usePlayerStore.getState().currentTrackIndex
+    if (curIdx !== finishedIdx && finishedGen === loadGenRef.current) {
+      addLog(`catch-up load [${curIdx + 1}] (coalesced during [${finishedIdx + 1}])`)
+      return loadTrack(curIdx)
+    }
+    if (finishedGen === loadGenRef.current) settledIndexRef.current = finishedIdx
+  }
 
   // goToTrack defined after loadTrack so same-index tap forces fresh reload via useEffect
   const goToTrack = useCallback((i: number) => {
@@ -566,6 +636,9 @@ export function useAudioEngine() {
     // clobbered with the stale blob (the two-press ghost).
     if (newIndex !== st.currentTrackIndex) suppressReloadRef.current = true
     setLoadForce(0)
+    // The sounding audio is already correct for the new order — mark settled
+    // so a later drain doesn't "catch up" into a redundant reload.
+    settledIndexRef.current = newIndex
     st.setQueue(newQueue)
     st.setOriginalOrder(newQueue)
     if (st.shuffleOn) {
@@ -623,7 +696,7 @@ export function useAudioEngine() {
       addLog(`native pause (${sourceKindRef.current})`)
     }
     const onTimeUpdate = () => {
-      if (sourceKindRef.current==='track') { if (!transitionRef.current) frozenPosRef.current = media.currentTime; setCurrentTime(media.currentTime); publishPosition(media.duration || trackDurationRef.current, media.currentTime, 1); return }
+      if (sourceKindRef.current==='track') { if (!transitionRef.current) frozenPosRef.current = media.currentTime; setCurrentTime(media.currentTime); publishPosition(media.duration || trackDurationRef.current, media.currentTime, 1); assertVideoSilent(); return }
       // Best effort: frozen track pos is authoritative even if anchor bar drifts — threshold 0.35 avoids PC constant rewind loop
       const frozen = frozenPosRef.current
       if (media.currentTime - frozen >= 0.35) { try { media.currentTime = Math.min(frozen, Math.max(0, media.duration - 0.35)) } catch {} }

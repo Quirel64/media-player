@@ -116,7 +116,7 @@ function DragTrackRow({ track, index, isCurrent, currentIsSource, constraints, s
       }`}
     >
       <div className="flex w-8 items-center justify-center">
-        {hold.holding ? (
+        {hold.holdArmed ? (
           <HoldRing />
         ) : selectMode ? (
           <div
