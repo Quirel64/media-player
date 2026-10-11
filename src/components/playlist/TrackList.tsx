@@ -222,9 +222,10 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
   // Memoized: a fresh array identity every render would invalidate the
   // Group's measurements on any unrelated re-render.
   const groupValues = useMemo(() => displayTracks.map((t) => t.id), [displayTracks])
-  // Sounding track id: remounts the Reorder tree on track change (fresh
-  // measurements, correct positions) instead of reusing a stale snapshot.
-  const soundingId = tracks[currentTrackIndex]?.id ?? 'boot'
+  // Sounding track id + modes: remounts the Reorder tree on track change AND
+  // on select/order toggles (fresh measurements, correct positions). Any
+  // structural row change reuses a stale snapshot otherwise — same pile-up.
+  const soundingId = `${tracks[currentTrackIndex]?.id ?? 'boot'}|${reorderMode ? 'o' : ''}|${selectMode ? 's' : ''}`
   const commitDragMove = () => {
     // The hold path blocks scrolling for the whole gesture: always release it
     // at drop, changed or not.

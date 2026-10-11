@@ -209,9 +209,10 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
     const ordered = orderByIds(active.items, (it) => it.id, dragItemIds ?? [])
     return (ordered ?? active.items).map((it) => it.id)
   }, [dragItemIds, active])
-  // Remounts the Reorder tree on sounding-track change (fresh measurements —
-  // the rug-free fix for the edge pile-up). Taps stay in Order mode.
-  const soundingKey = currentQueueKey ?? currentTrackId ?? 'boot'
+  // Remounts the Reorder tree on sounding-track change AND mode toggles
+  // (fresh measurements — the rug-free fix for the edge pile-up, which also
+  // strikes on select/edit toggles). Taps stay in Order mode.
+  const soundingKey = `${currentQueueKey ?? currentTrackId ?? 'boot'}|${orderMode ? 'o' : ''}|${editMode ? 'e' : ''}`
   const commitDragMove = () => {
     unblockTouchScroll()
     dropCommittedRef.current = true

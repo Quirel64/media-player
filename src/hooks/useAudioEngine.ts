@@ -670,7 +670,18 @@ export function useAudioEngine() {
       if (sourceKindRef.current === 'anchor') return
       const d = media.duration; if (!Number.isFinite(d) || d<=0) return
       trackDurationRef.current = d; setDuration(d); publishPosition(d, media.currentTime, 1)
-      ensureAnchor(d)
+      // Deferred prebuild: a synchronous multi-MB WAV synthesis per swap is what
+      // janks the main thread into a wedge under spam (and cooks the phone).
+      // Delay past the coalesce window — spam swaps never pay it; a settled
+      // track still has its anchor ready long before anyone pauses. pause()
+      // itself always ensures on demand, so early pauses are covered too.
+      const builtFor = loadGenRef.current
+      const builtKind: SourceKind = sourceKindRef.current as SourceKind
+      setTimeout(() => {
+        if (loadGenRef.current !== builtFor) return
+        if (sourceKindRef.current !== builtKind || sourceKindRef.current !== 'track') return
+        ensureAnchor(d)
+      }, 800)
     }
     const onPlaying = () => {
       const k = sourceKindRef.current
