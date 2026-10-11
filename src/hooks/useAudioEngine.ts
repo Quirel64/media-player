@@ -248,6 +248,18 @@ export function useAudioEngine() {
     } catch (e) {
       // iOS PWA may reject if not in gesture — log and re-throw for retry in caller
       addLog(`${kind} play() rejected: ${e}`)
+      if (e instanceof DOMException && e.name === 'NotSupportedError') {
+        // Wedged pipeline (error state persists across swaps and eventually
+        // costs the session): hard-reset so the next swap starts clean. The
+        // guarded caller retry re-sets src ~120-500ms later.
+        try {
+          media.removeAttribute('src')
+          media.load()
+        } catch {
+          /* ignore */
+        }
+        addLog('media element hard-reset after NotSupportedError')
+      }
       throw e
     }
     if (videoPlay) {
@@ -405,7 +417,10 @@ export function useAudioEngine() {
         const mySwapReq = swapRequestRef.current
         try { await activateSource('track', url, resumePos) } catch (e) {
           addLog(`track source swap play() failed: ${e}`)
-          await delay(120)
+          // NotSupportedError means a wedged pipeline — give it longer to
+          // settle after the hard-reset above before the single retry.
+          const hardFail = `${e}`.includes('NotSupportedError')
+          await delay(hardFail ? 500 : 120)
           // Retry only if nothing newer arrived meanwhile — a stale retry
           // would swap BACK over the newer track (same storm as the bug).
           if (swapRequestRef.current === mySwapReq) {
