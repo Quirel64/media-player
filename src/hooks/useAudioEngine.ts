@@ -61,7 +61,7 @@ function delay(ms: number) { return new Promise<void>(r => setTimeout(r, ms)) }
 // Bound it: a timeout converts wedge → ordinary failure → guarded retry. 5s:
 // healthy swaps settle in <1s even throttled, so anything slower is already
 // wedged; shorter would false-positive slow-but-legit background loads.
-const PLAY_TIMEOUT_MS = 5000
+const PLAY_TIMEOUT_MS = 500
 async function awaitPlay(p: Promise<void>, what: string): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
