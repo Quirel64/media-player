@@ -44,6 +44,15 @@ export default function App() {
 
   useEffect(() => {
     const init = async () => {
+      // Fast path first: localStorage reads instantly even when a hot/throttled
+      // device takes seconds to open IndexedDB (handlers then apply correctly
+      // on the very first lock). IDB confirms afterwards; both stay in sync.
+      try {
+        const ls = localStorage.getItem('lockScreenMode')
+        if (ls === 'skip10' || ls === 'prevnext') {
+          usePlayerStore.getState().setLockScreenMode(ls as LockScreenMode)
+        }
+      } catch { /* private mode — fall through to IDB */ }
       const savedMode = await getSetting('lockScreenMode') as LockScreenMode | undefined
       if (savedMode === 'skip10' || savedMode === 'prevnext') {
         usePlayerStore.getState().setLockScreenMode(savedMode)
@@ -70,9 +79,12 @@ export default function App() {
     void sync()
   }, [queue.length])
 
-  // Persist lock screen mode
+  // Persist lock screen mode (both stores; localStorage is the fast boot path)
   const lockScreenMode = usePlayerStore((s) => s.lockScreenMode)
   useEffect(() => {
+    try {
+      localStorage.setItem('lockScreenMode', lockScreenMode)
+    } catch { /* private mode — IDB still persists */ }
     saveSetting('lockScreenMode', lockScreenMode)
   }, [lockScreenMode])
 

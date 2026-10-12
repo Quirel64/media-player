@@ -58,9 +58,11 @@ function delay(ms: number) { return new Promise<void>(r => setTimeout(r, ms)) }
 // iOS can leave media.play() unsettled FOREVER after a pipeline wedge
 // (observed: one hung promise held the swap mutex ~40s — every later press
 // collapsed into a queued command, stale audio under new video, unpausable).
-// Bound it: a timeout converts wedge → ordinary failure → guarded retry. 5s:
-// healthy swaps settle in <1s even throttled, so anything slower is already
-// wedged; shorter would false-positive slow-but-legit background loads.
+// Bound it: a timeout converts wedge → ordinary failure → guarded retry. 500ms
+// (device-tested 7/7 clean, no over-correction): healthy swaps settle in <1s
+// even throttled; a false positive costs one extra swap cycle, not breakage —
+// the guarded retry simply re-runs. Watch name-vs-duration on lock screen:
+// a mismatch means audio belongs to the duration's track, still catching up.
 const PLAY_TIMEOUT_MS = 500
 async function awaitPlay(p: Promise<void>, what: string): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -262,6 +264,16 @@ export function useAudioEngine() {
         }
         addLog('media element hard-reset after NotSupportedError')
       }
+      // Three consecutive swap failures = wedged element (only a force-close
+      // used to recover). Rebuild it; the guarded retry then runs fresh.
+      if (++swapFailsRef.current >= 3) {
+        addLog(`${swapFailsRef.current} consecutive swap failures — rebuilding element`)
+        try {
+          rebuildMediaElement()
+        } catch {
+          /* ignore */
+        }
+      }
       throw e
     }
     if (videoPlay) {
@@ -278,6 +290,7 @@ export function useAudioEngine() {
     }
     if (kind === 'anchor') setPosWhenReady()
     setOwner(kind)
+    noteSwapSuccess()
     if (kind === 'track') {
       // Ensure video is seeked to same position as audio (fix: video gets ahead after lock resume)
       if (isVideoTrack && v) {
@@ -675,13 +688,18 @@ export function useAudioEngine() {
   }, [])
 
   // Permanent element once
-  useEffect(() => {
+  const makeMediaElement = useCallback(() => {
     const media = document.createElement('audio')
     media.preload = 'auto'; media.controls = true; media.setAttribute('playsinline','true'); media.setAttribute('webkit-playsinline','true'); media.setAttribute('x-webkit-airplay','allow'); (media as unknown as { dataset: Record<string,string> }).dataset.sessionOwner='permanent'
-    hideOffscreen(media); document.body.appendChild(media); mediaRef.current = media
-    const nav = navigator as Navigator & { standalone?: boolean }
-    const standalone = (nav as unknown as { standalone?: boolean }).standalone === true || window.matchMedia('(display-mode: standalone)').matches
-    addLog(`environment: ${standalone ? 'home-screen standalone PWA' : 'browser tab'}; permanent element ready`)
+    hideOffscreen(media); document.body.appendChild(media)
+    try {
+      const st = usePlayerStore.getState()
+      media.volume = st.isMuted ? 0 : st.volume
+    } catch { /* ignore */ }
+    return media
+  }, [])
+
+  const wireMediaElement = useCallback((media: HTMLAudioElement) => {
 
     const onLoadedMetadata = () => {
       if (sourceKindRef.current === 'anchor') return
@@ -740,12 +758,66 @@ export function useAudioEngine() {
     media.addEventListener('loadedmetadata', onLoadedMetadata); media.addEventListener('durationchange', onLoadedMetadata)
     media.addEventListener('playing', onPlaying); media.addEventListener('pause', onPause)
     media.addEventListener('timeupdate', onTimeUpdate); media.addEventListener('ended', onEnded); media.addEventListener('error', onError)
+  }, [ensureAnchor, handleTrackEnd, setDuration, setPlaying, setCurrentTime])
+
+  // Last-resort recovery: after N consecutive swap failures the element itself
+  // is wedged (error state persists — only a force-close used to help). Rebuild
+  // it fresh in place (same recipe as boot; blob URLs survive, same document),
+  // then reload the current index. Cooldown-guarded against rebuild loops.
+  const rebuildCountRef = useRef(0)
+  const swapFailsRef = useRef(0)
+  const lastRebuildAtRef = useRef(0)
+  const noteSwapSuccess = useCallback(() => { swapFailsRef.current = 0 }, [])
+  const rebuildMediaElement = useCallback(() => {
+    const now = performance.now()
+    if (now - lastRebuildAtRef.current < 30000) {
+      addLog('rebuild skipped (cooldown) — pipeline still failing')
+      return
+    }
+    lastRebuildAtRef.current = now
+    const n = ++rebuildCountRef.current
+    addLog(`rebuilding media element (#${n}) after repeated swap failures`)
+    const old = mediaRef.current
+    try {
+      if (old) {
+        try { old.pause() } catch { /* ignore */ }
+        old.removeAttribute('src')
+        try { old.load() } catch { /* ignore */ }
+        old.remove()
+      }
+    } catch { /* ignore */ }
+    transitionTokenRef.current += 1
+    transitionRef.current = false
+    queuedCommandRef.current = null
+    pendingAnchorPosRef.current = null
+    sourceKindRef.current = 'track'
+    setOwner('idle')
+    swapFailsRef.current = 0
+    const fresh = makeMediaElement()
+    mediaRef.current = fresh
+    wireMediaElement(fresh)
+    setAudioSessionType()
+    const st = usePlayerStore.getState()
+    if (st.queue.length > 0 && st.queue[st.currentTrackIndex]) {
+      // Reload current index fresh on the new element (loadTrack respects
+      // paused vs playing, so no surprise playback).
+      setLoadForce((v) => v + 1)
+    }
+  }, [makeMediaElement, wireMediaElement, setOwner])
+
+  useEffect(() => {
+    const nav = navigator as Navigator & { standalone?: boolean }
+    const standalone = (nav as unknown as { standalone?: boolean }).standalone === true || window.matchMedia('(display-mode: standalone)').matches
+    addLog(`environment: ${standalone ? 'home-screen standalone PWA' : 'browser tab'}; permanent element ready`)
+    const media = makeMediaElement()
+    mediaRef.current = media
+    wireMediaElement(media)
     setAudioSessionType(); addLog('permanent audio element ready (same-element handoff)')
     return () => {
       transitionTokenRef.current+=1; media.pause(); media.removeAttribute('src'); media.load(); media.remove(); mediaRef.current=null
       if (anchorUrlRef.current) URL.revokeObjectURL(anchorUrlRef.current); if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
     }
-  }, [ensureAnchor, handleTrackEnd, setDuration, setPlaying, setCurrentTime])
+  }, [makeMediaElement, wireMediaElement])
 
   // Re-attach video only on a REAL track change (queueKey + type), not on every
   // queue array identity change: live-append/reorder creates a new array for the
