@@ -110,12 +110,13 @@ export function useAudioEngine() {
   }, [])
   const commandRunnerRef = useRef<((c: 'play' | 'pause') => void) | null>(null)
   const loadGenRef = useRef(0)
-  // Navigation coalescing: swaps faster than ~500ms wedge the iOS pipeline
-  // (NotSupported/code-4 storm, dual-audio crash, ghost repeats). The INDEX
-  // always moves (UI stays live) but at most one swap runs per window;
-  // intermediates collapse into a single catch-up load for the final index.
-  // Direct resumes (no src change) and pauses stay unthrottled — instant.
-  const NAV_COALESCE_MS = 500
+  // Navigation coalescing + rate floor: swaps faster than the pipeline
+  // tolerates wedge iOS (NotSupported/code-4 storm, dual-audio crash, session
+  // death) — slow taps at ~1Hz are proven clean, sustained 3Hz+ is not. The
+  // INDEX always moves (UI stays live) but swaps run at most ~1.3Hz; anything
+  // faster collapses into ONE paced catch-up for the final index. Direct
+  // resumes (no src change) and pauses stay unthrottled — instant.
+  const SWAP_FLOOR_MS = 750
   const lastSwapAttemptRef = useRef(0)
   const loadActiveRef = useRef(false)
   const pendingNavRef = useRef(false)
@@ -540,13 +541,26 @@ export function useAudioEngine() {
     if (m && !m.paused) { try { m.currentTime = 0 } catch {} }
     const { queue: q } = usePlayerStore.getState()
     const track = q[idx]; if (!track) return
-    // Coalesce: a swap is already running and this index isn't settled — move
-    // the index (already done by caller) but let the in-flight owner run a
-    // single catch-up for the final index when it completes.
+    // Coalesce: a swap is running, or the last one started less than a floor
+    // interval ago — move the index (already done by caller) but let one paced
+    // catch-up serve the final index. Without the floor, back-to-back swaps
+    // still hammer src at 3Hz+ and WebKit kills the session anyway.
     const now = performance.now()
-    if (loadActiveRef.current && now - lastSwapAttemptRef.current < NAV_COALESCE_MS && idx !== settledIndexRef.current) {
+    const cooling = loadActiveRef.current || now - lastSwapAttemptRef.current < SWAP_FLOOR_MS
+    if (cooling && idx !== settledIndexRef.current) {
       pendingNavRef.current = true
-      addLog(`swap coalesced [${idx + 1}] (settle in flight)`)
+      if (!loadActiveRef.current) {
+        // No owner to drain us — schedule the paced catch-up ourselves.
+        const wait = Math.max(0, SWAP_FLOOR_MS - (now - lastSwapAttemptRef.current))
+        addLog(`swap paced +${Math.round(wait)}ms [${idx + 1}]`)
+        setTimeout(() => {
+          pendingNavRef.current = false
+          const c = usePlayerStore.getState().currentTrackIndex
+          if (c !== settledIndexRef.current) void loadTrack(c)
+        }, wait)
+      } else {
+        addLog(`swap coalesced [${idx + 1}] (settle in flight)`)
+      }
       return
     }
     lastSwapAttemptRef.current = now
@@ -625,18 +639,32 @@ export function useAudioEngine() {
     }
   }, [attachVideo, cleanupVideo, setCurrentTime, setDuration, play])
 
-  // Catch-up drain for coalesced navigation: after a load completes, run once
-  // for the final index if presses landed mid-swap. Gen-guarded so a newer
-  // full load (which owns the future) never double-runs.
+  // Catch-up drain for coalesced navigation: after a load completes, serve the
+  // final index — paced through the same floor (an immediate rerun would
+  // defeat it). Gen-guarded so a newer full load (which owns the future)
+  // never double-runs.
   async function drainCoalesced(finishedIdx: number, finishedGen: number): Promise<void> {
     loadActiveRef.current = false
-    pendingNavRef.current = false
     const curIdx = usePlayerStore.getState().currentTrackIndex
-    if (curIdx !== finishedIdx && finishedGen === loadGenRef.current) {
-      addLog(`catch-up load [${curIdx + 1}] (coalesced during [${finishedIdx + 1}])`)
-      return loadTrack(curIdx)
+    const need = (pendingNavRef.current || curIdx !== finishedIdx) && finishedGen === loadGenRef.current
+    pendingNavRef.current = false
+    if (!need) {
+      if (finishedGen === loadGenRef.current) settledIndexRef.current = finishedIdx
+      return
     }
-    if (finishedGen === loadGenRef.current) settledIndexRef.current = finishedIdx
+    const wait = SWAP_FLOOR_MS - (performance.now() - lastSwapAttemptRef.current)
+    if (wait > 0) {
+      pendingNavRef.current = true
+      addLog(`catch-up paced +${Math.round(wait)}ms (pipeline floor)`)
+      setTimeout(() => {
+        pendingNavRef.current = false
+        const c = usePlayerStore.getState().currentTrackIndex
+        if (c !== settledIndexRef.current) void loadTrack(c)
+      }, wait)
+      return
+    }
+    addLog(`catch-up load [${curIdx + 1}] (coalesced during [${finishedIdx + 1}])`)
+    return loadTrack(curIdx)
   }
 
   // goToTrack defined after loadTrack so same-index tap forces fresh reload via useEffect
