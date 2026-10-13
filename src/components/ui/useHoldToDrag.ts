@@ -8,7 +8,7 @@ import type { DragControls } from 'framer-motion'
 export const HOLD_MS = 600
 // Ring grace: plain taps (<100ms) never flash UI; the ring then fills in the
 // remaining time so lift still lands exactly at HOLD_MS.
-export const HOLD_RING_DELAY_MS = 200
+export const HOLD_RING_DELAY_MS = 100
 export const HOLD_RING_VISIBLE_MS = HOLD_MS - HOLD_RING_DELAY_MS
 
 function buzz() {
