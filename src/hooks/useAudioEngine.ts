@@ -524,7 +524,7 @@ export function useAudioEngine() {
       const m=mediaRef.current; if(m){ frozenPosRef.current=m.currentTime; setPlaying(false); if('mediaSession'in navigator) navigator.mediaSession.playbackState=getLockPlaybackState('anchor'); addLog('end -> frozen keep-alive') } }
   }, [setCurrentTrackIndex, setPlaying, setCurrentTime])
 
-  const loadTrack = useCallback(async (idx: number) => {
+  const loadTrack = useCallback(async (idx: number, opts?: { noAutoplay?: boolean }) => {
     // Every tap is a fresh start — even same fileName/instanceId dupes (simplifies playlist dupes)
     frozenPosRef.current = 0
     setCurrentTime(0)
@@ -621,7 +621,11 @@ export function useAudioEngine() {
     }
     setAudioSessionType()
     const { isPlaying: wasPlaying } = usePlayerStore.getState()
-    const shouldAutoplay = wasPlaying || nextGestureRef.current
+    // Boot warm-up passes noAutoplay: it must ONLY preload (src+metadata) and
+    // never play. Otherwise a user pressing Play mid-warmup fires a second
+    // same-track swap — two concurrent swaps publish fighting positions and
+    // confuse the lock UI, first-track-only, healing at the next track.
+    const shouldAutoplay = !opts?.noAutoplay && (wasPlaying || nextGestureRef.current)
     nextGestureRef.current = false
     addLog(`load [${idx+1}/${q.length}] ${track.name} autoplay=${shouldAutoplay} (wasPlaying=${wasPlaying})`)
     if (shouldAutoplay) {
@@ -967,7 +971,7 @@ export function useAudioEngine() {
     if (!didBootWarmRef.current && queue.length > 0 && currentTrack) {
       didBootWarmRef.current = true
       addLog(`boot warm-up: preloading track 1/${queue.length} (paused)`)
-      void loadTrack(currentTrackIndex)
+      void loadTrack(currentTrackIndex, { noAutoplay: true })
     }
   }, [queue.length])
   useEffect(() => { if (mediaRef.current) mediaRef.current.volume = isMuted ? 0 : volume }, [volume, isMuted])
