@@ -229,7 +229,7 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
   // controls, removes the scroll blocker via unmount cleanup, and hands the
   // gesture to the scroller. Grip visibility swaps keep layout (empty column
   // div persists), so order flips are measurement-safe.
-  const soundingId = `${tracks[currentTrackIndex]?.id ?? 'boot'}|${selectMode ? 's' : ''}`
+  const soundingId = `${tracks[currentTrackIndex]?.id ?? 'boot'}|${selectMode ? 's' : ''}|${selectedIds.size}`
   const commitDragMove = () => {
     // The hold path blocks scrolling for the whole gesture: always release it
     // at drop, changed or not.

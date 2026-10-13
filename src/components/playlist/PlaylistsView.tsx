@@ -214,7 +214,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
   // the order flag: the hold fire flips visual mode in the same tick as
   // controls.start, and a remount there discards the live controls and hands
   // the gesture to the scroller. Taps stay in Order mode.
-  const soundingKey = `${currentQueueKey ?? currentTrackId ?? 'boot'}|${editMode ? 'e' : ''}`
+  const soundingKey = `${currentQueueKey ?? currentTrackId ?? 'boot'}|${editMode ? 'e' : ''}|${selectedItemIds.size}`
   const commitDragMove = () => {
     unblockTouchScroll()
     dropCommittedRef.current = true

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Layout } from './components/layout/Layout'
 import { Sidebar } from './components/layout/Sidebar'
 import { AddView } from './components/layout/AddView'
@@ -40,7 +40,7 @@ export default function App() {
     // goToTrack forces loadTrack even for same index (fresh reload for dups)
     goToTrack(startItemIndex)
   }, [playPlaylist, goToTrack])
-  const { setHandlers } = useMediaSession()
+  const { setHandlers, reapplyHandlers } = useMediaSession()
 
   useEffect(() => {
     const init = async () => {
@@ -98,6 +98,16 @@ export default function App() {
       onSeek: seek,
     })
   }, [play, pause, remotePauseOrResume, prevTrack, nextTrack, seek])
+
+  // Play-start edge: boot-time registrations happen with no live session, and
+  // iOS can ignore the null-ing then (both sets stay registered = wrong
+  // buttons). Re-applying inside an ACTIVE session forces exactly one set.
+  const isPlayingForEdge = usePlayerStore((s) => s.isPlaying)
+  const wasPlayingRef = useRef(false)
+  useEffect(() => {
+    if (isPlayingForEdge && !wasPlayingRef.current) reapplyHandlers()
+    wasPlayingRef.current = isPlayingForEdge
+  }, [isPlayingForEdge, reapplyHandlers])
 
   // Flush libraryTracks to IDB on hide/pagehide — best-effort durability for iOS force-close.
   // libraryTracks is canonical by construction (reconcile + queue helpers), so save as-is.

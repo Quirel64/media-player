@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import { usePlayerStore } from '../stores/playerStore'
+import type { Track, LockScreenMode } from '../lib/types'
 import { getPlayingArtwork } from '../lib/artwork'
 import { addLog } from '../lib/logger'
 
@@ -33,9 +34,12 @@ export function useMediaSession() {
     })
   }, [currentTrack, currentTrack?.id])
 
-  // Button handlers — re-register when mode toggles
-  // Both center buttons route through remote toggle when available (resilient to inverted icon on iOS 26.2 lock screen)
-  useEffect(() => {
+  // Button handlers — re-register when mode toggles.
+  // Both center buttons route through remote toggle when available (resilient to inverted icon on iOS 26.2 lock screen).
+  // Extracted so App can re-apply on play start: boot-time registrations happen
+  // while no session exists, and iOS can ignore null-ing then — re-applying in
+  // an ACTIVE session forces exactly one correct set.
+  const applyHandlers = useCallback((mode: LockScreenMode, track: Track | undefined) => {
     if (!('mediaSession' in navigator)) return
     const safe = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
       try { navigator.mediaSession.setActionHandler(action, handler) } catch { /* ignore */ }
@@ -56,7 +60,7 @@ export function useMediaSession() {
     safe('pause', handlePause)
     safe('seekto', (d) => { if (d.seekTime != null) seekRef.current?.(d.seekTime) })
 
-    if (lockScreenMode === 'skip10') {
+    if (mode === 'skip10') {
       safe('seekbackward', (d) => {
         const { currentTime } = usePlayerStore.getState()
         seekRef.current?.(Math.max(0, currentTime - (d.seekOffset ?? 10)))
@@ -73,29 +77,37 @@ export function useMediaSession() {
       safe('seekbackward', null)
       safe('seekforward', null)
     }
-    addLog(`lockscreen handlers applied: ${lockScreenMode}`)
+    addLog(`lockscreen handlers applied: ${mode}`)
     // iOS builds the lock UI from handlers + metadata together: a boot-time
     // mode restore (skip10 → prevnext before first play) otherwise leaves the
     // stale skip10 UI up until the user toggles twice. Re-push metadata so the
     // fresh handler set takes effect immediately.
-    if (currentTrack) {
+    if (track) {
       const art = getPlayingArtwork()
       try {
         navigator.mediaSession.metadata = new MediaMetadata({
-          title: currentTrack.name,
-          artist: currentTrack.artist || 'Unknown Artist',
-          album: currentTrack.album || 'Unknown Album',
+          title: track.name,
+          artist: track.artist || 'Unknown Artist',
+          album: track.album || 'Unknown Album',
           artwork: [{ src: art, sizes: '300x300', type: 'image/svg+xml' }],
         })
       } catch { /* ignore */ }
     }
+  }, [])
+
+  useEffect(() => {
+    applyHandlers(lockScreenMode, currentTrack)
 
     return () => {
+      if (!('mediaSession' in navigator)) return
+      const safe = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
+        try { navigator.mediaSession.setActionHandler(action, handler) } catch { /* ignore */ }
+      }
       safe('play', null); safe('pause', null); safe('seekto', null)
       safe('seekbackward', null); safe('seekforward', null)
       safe('previoustrack', null); safe('nexttrack', null)
     }
-  }, [lockScreenMode, currentTrack?.id])
+  }, [applyHandlers, lockScreenMode, currentTrack?.id])
 
   const setHandlers = (h: {
     onPlay: () => void
@@ -113,5 +125,11 @@ export function useMediaSession() {
     seekRef.current = h.onSeek
   }
 
-  return { setHandlers }
+  // Re-apply the CURRENT store mode (for App's play-start edge).
+  const reapplyHandlers = useCallback(() => {
+    const st = usePlayerStore.getState()
+    applyHandlers(st.lockScreenMode, st.queue[st.currentTrackIndex] ?? undefined)
+  }, [applyHandlers])
+
+  return { setHandlers, reapplyHandlers }
 }

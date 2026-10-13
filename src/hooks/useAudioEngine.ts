@@ -866,15 +866,31 @@ export function useAudioEngine() {
   }, [currentTrackIndex, queue, attachVideo, detachVideo])
 
   useEffect(() => {
+    // Re-attaches a hidden-detached video to the current track blob (no-op
+    // when already attached). The blob URL stays valid across detach.
+    const ensureVideoAttached = () => {
+      const vv = videoRef.current
+      const url = blobUrlRef.current
+      if (vv && url && !vv.currentSrc) {
+        try {
+          vv.src = url
+          vv.load()
+        } catch { /* ignore */ }
+      }
+      return vv
+    }
     const onVis = () => {
       addLog(`visibility -> ${document.visibilityState} owner=${ownerRef.current} kind=${sourceKindRef.current} pending=${pendingAnchorPosRef.current} lock=${getLockPlaybackState(sourceKindRef.current as 'track'|'anchor')}`)
       if (document.visibilityState==='hidden') {
+        // Detach the video timeline while hidden: a paused-but-attached video
+        // registers a competing frozen position with iOS (the phantom second
+        // bar / seek fighting on the lock screen). Audio is unaffected.
+        detachVideo()
         // Pending in-app pause: do real anchor swap while hidden (hidden-created anchor shows > correctly)
         if (pendingAnchorPosRef.current !== null) {
           const pos = pendingAnchorPosRef.current
           pendingAnchorPosRef.current = null
           addLog(`hidden deferred anchor swap @ ${pos.toFixed(2)}`)
-          const vPend = videoRef.current; if (vPend) try { vPend.pause(); vPend.currentTime = pos } catch {}
           void (async () => {
             transitionRef.current = true
             try {
@@ -886,8 +902,6 @@ export function useAudioEngine() {
           })()
           return
         }
-        const vHidden = videoRef.current
-        if (vHidden) try { vHidden.pause() } catch {}
         const kindHidden = sourceKindRef.current as 'track'|'anchor'
         if (kindHidden === 'anchor') {
           const dur = trackDurationRef.current || 0
@@ -897,7 +911,7 @@ export function useAudioEngine() {
             if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
           } catch {}
           addLog(`hidden anchor refresh paused pos=${pos.toFixed(2)} HOLD_RATE`)
-          if (vHidden && vHidden.src) try { vHidden.currentTime = pos } catch {}
+          // (Video stays detached while hidden — re-attached on visible.)
           // Keep silent anchor playing at HOLD_RATE to keep session (truly paused kills after 30s)
           const mediaHidden = mediaRef.current
           if (mediaHidden && mediaHidden.paused) {
@@ -911,8 +925,7 @@ export function useAudioEngine() {
             if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
           } catch {}
           addLog(`hidden track refresh playing pos=${pos.toFixed(2)}`)
-          // Keep video paused while hidden (audio continues), will seek on visible
-          if (vHidden && !vHidden.paused) try { vHidden.pause() } catch {}
+          // Video already detached above; audio continues alone.
         }
         return
       }
@@ -925,27 +938,34 @@ export function useAudioEngine() {
         setPlaying(true)
         publishPosition(m?.duration || trackDurationRef.current || 0, m?.currentTime || 0, 1)
         try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing' } catch {}
-        if (isVideo && v && v.src) { try { v.currentTime = m?.currentTime || 0 } catch {}; v.muted = true; v.play().catch(() => {}) }
+        if (isVideo) {
+          const vv = ensureVideoAttached()
+          if (vv && vv.src) { try { vv.currentTime = m?.currentTime || 0 } catch {}; vv.muted = true; vv.play().catch(() => {}) }
+        }
         return
       }
       // Anchor must stay paused (fix 2nd lock pause video drift)
       if (sourceKindRef.current === 'anchor' || ownerRef.current === 'anchor') {
-        if (v && !v.paused) try { v.pause() } catch {}
-        if (v && v.src) try { v.currentTime = frozenPosRef.current } catch {}
+        const vv = isVideo ? ensureVideoAttached() : v
+        if (vv && !vv.paused) try { vv.pause() } catch {}
+        if (vv && vv.src) try { vv.currentTime = frozenPosRef.current } catch {}
         publishPosition(trackDurationRef.current || (m?.duration ?? 0), frozenPosRef.current, HOLD_RATE)
         try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = getLockPlaybackState('anchor') } catch {}
         return
       }
       if (ownerRef.current==='track' && m && !m.paused) {
-        // Leave-app recalibration only: video paused while hidden, audio continued.
+        // Leave-app recalibration only: video detached while hidden, audio continued.
         // No continuous sync (VideoSyncController removed — it caused stutter/seek storms).
-        // On return, one drift>0.15 seek re-aligns video to audio; otherwise they stay in sync.
-        if (isVideo && v && v.src) {
-          const drift = Math.abs(v.currentTime - m.currentTime)
-          if (drift > 0.15) {
-            try { v.currentTime = m.currentTime; addLog(`visible video seek to audio ${m.currentTime.toFixed(2)} drift ${drift.toFixed(2)}`) } catch {}
+        // On return, re-attach + one drift>0.15 seek re-aligns video to audio.
+        if (isVideo) {
+          const vv = ensureVideoAttached()
+          if (vv && vv.src) {
+            const drift = Math.abs(vv.currentTime - m.currentTime)
+            if (drift > 0.15) {
+              try { vv.currentTime = m.currentTime; addLog(`visible video seek to audio ${m.currentTime.toFixed(2)} drift ${drift.toFixed(2)}`) } catch {}
+            }
+            if (vv.paused) { vv.muted = true; vv.play().catch(() => addLog('visible video fallback disabled')) }
           }
-          if (v.paused) { v.muted = true; v.play().catch(() => addLog('visible video fallback disabled')) }
         }
         publishPosition(m.duration || trackDurationRef.current, m.currentTime, 1)
         try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = getLockPlaybackState('track') } catch {}
@@ -955,7 +975,7 @@ export function useAudioEngine() {
     const onPageShow = (e: PageTransitionEvent) => { setAudioSessionType(); addLog(`pageshow${(e as unknown as { persisted?: boolean }).persisted?' (bfcache)':''}`) }
     document.addEventListener('visibilitychange', onVis); window.addEventListener('pageshow', onPageShow as EventListener)
     return () => { document.removeEventListener('visibilitychange', onVis); window.removeEventListener('pageshow', onPageShow as EventListener) }
-  }, [activateSource, ensureAnchor, setPlaying])
+  }, [activateSource, ensureAnchor, setPlaying, detachVideo])
 
   useEffect(() => {
     if (suppressReloadRef.current) { suppressReloadRef.current = false; setLoadForce(0); return }
