@@ -1,5 +1,4 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
-import type { DragControls } from 'framer-motion'
 
 // Hold ~600ms (modern long-press timing — 1.5s feels broken) to start a drag
 // on already-live controls. Any pointer movement first means "scroll", so the
@@ -37,12 +36,13 @@ function preventTouchMove(e: TouchEvent) {
 }
 
 export function useHoldToDrag(
-  controls: DragControls,
   opts?: {
     /** Gate evaluated at fire time (e.g. not in select mode). */
     shouldStart?: () => boolean
-    /** Runs just before start (e.g. flip visual Order mode — tree is stable). */
+    /** Runs just before start (e.g. flip visual Order mode). */
     onStarting?: () => void
+    /** Starts the drag on the custom row-drag engine. */
+    onFire?: (e: PointerEvent) => void
   },
 ) {
   const [dragging, setDragging] = useState(false)
@@ -110,15 +110,20 @@ export function useHoldToDrag(
           /* visual flip is best-effort */
         }
         if (evt.pointerType === 'touch' || evt.pointerType === 'pen') blockTouchScroll()
-        try {
-          controls.start(evt)
-        } catch {
+        if (fireOpts.current?.onFire) {
+          try {
+            fireOpts.current.onFire(evt)
+          } catch {
+            unblockTouchScroll()
+            setDragging(false)
+          }
+        } else {
           unblockTouchScroll()
           setDragging(false)
         }
       }, HOLD_MS)
     },
-    [controls, clear],
+    [clear],
   )
 
   return {

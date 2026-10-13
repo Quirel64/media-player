@@ -524,7 +524,7 @@ export function useAudioEngine() {
       const m=mediaRef.current; if(m){ frozenPosRef.current=m.currentTime; setPlaying(false); if('mediaSession'in navigator) navigator.mediaSession.playbackState=getLockPlaybackState('anchor'); addLog('end -> frozen keep-alive') } }
   }, [setCurrentTrackIndex, setPlaying, setCurrentTime])
 
-  const loadTrack = useCallback(async (idx: number, opts?: { noAutoplay?: boolean }) => {
+  const loadTrack = useCallback(async (idx: number) => {
     // Every tap is a fresh start — even same fileName/instanceId dupes (simplifies playlist dupes)
     frozenPosRef.current = 0
     setCurrentTime(0)
@@ -621,11 +621,7 @@ export function useAudioEngine() {
     }
     setAudioSessionType()
     const { isPlaying: wasPlaying } = usePlayerStore.getState()
-    // Boot warm-up passes noAutoplay: it must ONLY preload (src+metadata) and
-    // never play. Otherwise a user pressing Play mid-warmup fires a second
-    // same-track swap — two concurrent swaps publish fighting positions and
-    // confuse the lock UI, first-track-only, healing at the next track.
-    const shouldAutoplay = !opts?.noAutoplay && (wasPlaying || nextGestureRef.current)
+    const shouldAutoplay = wasPlaying || nextGestureRef.current
     nextGestureRef.current = false
     addLog(`load [${idx+1}/${q.length}] ${track.name} autoplay=${shouldAutoplay} (wasPlaying=${wasPlaying})`)
     if (shouldAutoplay) {
@@ -866,31 +862,15 @@ export function useAudioEngine() {
   }, [currentTrackIndex, queue, attachVideo, detachVideo])
 
   useEffect(() => {
-    // Re-attaches a hidden-detached video to the current track blob (no-op
-    // when already attached). The blob URL stays valid across detach.
-    const ensureVideoAttached = () => {
-      const vv = videoRef.current
-      const url = blobUrlRef.current
-      if (vv && url && !vv.currentSrc) {
-        try {
-          vv.src = url
-          vv.load()
-        } catch { /* ignore */ }
-      }
-      return vv
-    }
     const onVis = () => {
       addLog(`visibility -> ${document.visibilityState} owner=${ownerRef.current} kind=${sourceKindRef.current} pending=${pendingAnchorPosRef.current} lock=${getLockPlaybackState(sourceKindRef.current as 'track'|'anchor')}`)
       if (document.visibilityState==='hidden') {
-        // Detach the video timeline while hidden: a paused-but-attached video
-        // registers a competing frozen position with iOS (the phantom second
-        // bar / seek fighting on the lock screen). Audio is unaffected.
-        detachVideo()
         // Pending in-app pause: do real anchor swap while hidden (hidden-created anchor shows > correctly)
         if (pendingAnchorPosRef.current !== null) {
           const pos = pendingAnchorPosRef.current
           pendingAnchorPosRef.current = null
           addLog(`hidden deferred anchor swap @ ${pos.toFixed(2)}`)
+          const vPend = videoRef.current; if (vPend) try { vPend.pause(); vPend.currentTime = pos } catch {}
           void (async () => {
             transitionRef.current = true
             try {
@@ -902,6 +882,8 @@ export function useAudioEngine() {
           })()
           return
         }
+        const vHidden = videoRef.current
+        if (vHidden) try { vHidden.pause() } catch {}
         const kindHidden = sourceKindRef.current as 'track'|'anchor'
         if (kindHidden === 'anchor') {
           const dur = trackDurationRef.current || 0
@@ -911,7 +893,7 @@ export function useAudioEngine() {
             if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
           } catch {}
           addLog(`hidden anchor refresh paused pos=${pos.toFixed(2)} HOLD_RATE`)
-          // (Video stays detached while hidden — re-attached on visible.)
+          if (vHidden && vHidden.src) try { vHidden.currentTime = pos } catch {}
           // Keep silent anchor playing at HOLD_RATE to keep session (truly paused kills after 30s)
           const mediaHidden = mediaRef.current
           if (mediaHidden && mediaHidden.paused) {
@@ -925,7 +907,8 @@ export function useAudioEngine() {
             if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
           } catch {}
           addLog(`hidden track refresh playing pos=${pos.toFixed(2)}`)
-          // Video already detached above; audio continues alone.
+          // Keep video paused while hidden (audio continues), will seek on visible
+          if (vHidden && !vHidden.paused) try { vHidden.pause() } catch {}
         }
         return
       }
@@ -938,34 +921,27 @@ export function useAudioEngine() {
         setPlaying(true)
         publishPosition(m?.duration || trackDurationRef.current || 0, m?.currentTime || 0, 1)
         try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing' } catch {}
-        if (isVideo) {
-          const vv = ensureVideoAttached()
-          if (vv && vv.src) { try { vv.currentTime = m?.currentTime || 0 } catch {}; vv.muted = true; vv.play().catch(() => {}) }
-        }
+        if (isVideo && v && v.src) { try { v.currentTime = m?.currentTime || 0 } catch {}; v.muted = true; v.play().catch(() => {}) }
         return
       }
       // Anchor must stay paused (fix 2nd lock pause video drift)
       if (sourceKindRef.current === 'anchor' || ownerRef.current === 'anchor') {
-        const vv = isVideo ? ensureVideoAttached() : v
-        if (vv && !vv.paused) try { vv.pause() } catch {}
-        if (vv && vv.src) try { vv.currentTime = frozenPosRef.current } catch {}
+        if (v && !v.paused) try { v.pause() } catch {}
+        if (v && v.src) try { v.currentTime = frozenPosRef.current } catch {}
         publishPosition(trackDurationRef.current || (m?.duration ?? 0), frozenPosRef.current, HOLD_RATE)
         try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = getLockPlaybackState('anchor') } catch {}
         return
       }
       if (ownerRef.current==='track' && m && !m.paused) {
-        // Leave-app recalibration only: video detached while hidden, audio continued.
+        // Leave-app recalibration only: video paused while hidden, audio continued.
         // No continuous sync (VideoSyncController removed — it caused stutter/seek storms).
-        // On return, re-attach + one drift>0.15 seek re-aligns video to audio.
-        if (isVideo) {
-          const vv = ensureVideoAttached()
-          if (vv && vv.src) {
-            const drift = Math.abs(vv.currentTime - m.currentTime)
-            if (drift > 0.15) {
-              try { vv.currentTime = m.currentTime; addLog(`visible video seek to audio ${m.currentTime.toFixed(2)} drift ${drift.toFixed(2)}`) } catch {}
-            }
-            if (vv.paused) { vv.muted = true; vv.play().catch(() => addLog('visible video fallback disabled')) }
+        // On return, one drift>0.15 seek re-aligns video to audio; otherwise they stay in sync.
+        if (isVideo && v && v.src) {
+          const drift = Math.abs(v.currentTime - m.currentTime)
+          if (drift > 0.15) {
+            try { v.currentTime = m.currentTime; addLog(`visible video seek to audio ${m.currentTime.toFixed(2)} drift ${drift.toFixed(2)}`) } catch {}
           }
+          if (v.paused) { v.muted = true; v.play().catch(() => addLog('visible video fallback disabled')) }
         }
         publishPosition(m.duration || trackDurationRef.current, m.currentTime, 1)
         try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = getLockPlaybackState('track') } catch {}
@@ -975,23 +951,57 @@ export function useAudioEngine() {
     const onPageShow = (e: PageTransitionEvent) => { setAudioSessionType(); addLog(`pageshow${(e as unknown as { persisted?: boolean }).persisted?' (bfcache)':''}`) }
     document.addEventListener('visibilitychange', onVis); window.addEventListener('pageshow', onPageShow as EventListener)
     return () => { document.removeEventListener('visibilitychange', onVis); window.removeEventListener('pageshow', onPageShow as EventListener) }
-  }, [activateSource, ensureAnchor, setPlaying, detachVideo])
+  }, [activateSource, ensureAnchor, setPlaying])
 
   useEffect(() => {
     if (suppressReloadRef.current) { suppressReloadRef.current = false; setLoadForce(0); return }
     if (currentTrack && queue.length>0) { void loadTrack(currentTrackIndex); setLoadForce(0) }
   }, [currentTrackIndex, loadForce])
-  // Boot warm-up: the effect above only fires on INDEX change, but boot fills
-  // the queue with index already at 0 — so track 1 was never loaded (no src,
-  // no metadata/duration, no prebuilt anchor) and its first Play was a cold
-  // swap that confused the lock UI. Load it paused once so track 1 behaves
-  // exactly like every track selected afterwards. No autoplay: no gesture yet.
+  // Boot probe: the effect above only fires on INDEX change, but boot fills the
+  // queue with index already at 0 — so track 1 has no duration/anchor metadata
+  // when first played. Probe it with a THROWAWAY element: the permanent <audio>
+  // stays untouched (no src), so the first Play takes the exact same full-swap
+  // path as every other track (uniform loading killed the first-track-only
+  // lock-screen seek fighting). No autoplay: no gesture yet.
   const didBootWarmRef = useRef(false)
   useEffect(() => {
     if (!didBootWarmRef.current && queue.length > 0 && currentTrack) {
       didBootWarmRef.current = true
-      addLog(`boot warm-up: preloading track 1/${queue.length} (paused)`)
-      void loadTrack(currentTrackIndex, { noAutoplay: true })
+      const t = currentTrack
+      void (async () => {
+        const url = await getTrackFileURL(t.fileName).catch(() => null)
+        if (!url) return
+        try {
+          const d = await new Promise<number>((resolve) => {
+            const el = t.mediaType === 'video' ? document.createElement('video') : new Audio()
+            el.preload = 'metadata'
+            const done = (v: number) => {
+              URL.revokeObjectURL(url)
+              resolve(v)
+            }
+            const timer = setTimeout(() => done(0), 5000)
+            el.onloadedmetadata = () => {
+              clearTimeout(timer)
+              const dur = el.duration
+              done(Number.isFinite(dur) && dur > 0 ? dur : 0)
+            }
+            el.onerror = () => {
+              clearTimeout(timer)
+              done(0)
+            }
+            el.src = url
+          })
+          if (d > 0) {
+            trackDurationRef.current = d
+            setDuration(d)
+            publishPosition(d, 0, 1)
+            ensureAnchor(d)
+            addLog(`boot probe: track 1/${queue.length} dur=${d.toFixed(1)} (element untouched)`)
+          }
+        } catch {
+          /* best-effort */
+        }
+      })()
     }
   }, [queue.length])
   useEffect(() => { if (mediaRef.current) mediaRef.current.volume = isMuted ? 0 : volume }, [volume, isMuted])

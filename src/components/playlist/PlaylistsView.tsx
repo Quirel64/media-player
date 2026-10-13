@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Reorder, useDragControls } from 'framer-motion'
+import { motion } from 'framer-motion'
 import type { Track, Playlist } from '../../lib/types'
 import { orderByIds } from '../../lib/queue'
+import { useRowDrag } from '../ui/useRowDrag'
 import { getAllTracks } from '../../lib/idb'
 import { getTrackFile } from '../../lib/idb'
 import { getTrackThumbnail } from '../../lib/thumbnail'
@@ -26,37 +26,32 @@ interface Props {
   currentQueueKey?: string | null
 }
 
-// Hold-and-drag queue row, ALWAYS mounted: same single-tree design as
-// TrackList (see it for the full rationale).
-function DragPlaylistRow({ itemId, track, position, isPlaying, constraints, editMode, isSelected, onToggleSelect, showGrip, onHoldToOrder, onPlay, onCommitMove }: {
+// Hold-and-drag queue row: plain motion.div driven by the shared custom
+// engine (same as TrackList — no layout framework, nothing to go stale).
+function DragPlaylistRow({ itemId, track, position, isPlaying, drag, editMode, isSelected, onToggleSelect, showGrip, onHoldToOrder, onPlay }: {
   itemId: string
   track: Track
   position: number
   isPlaying: boolean
-  constraints: React.RefObject<HTMLDivElement | null>
+  drag: ReturnType<typeof useRowDrag>
   editMode: boolean
   isSelected: boolean
   onToggleSelect: () => void
   showGrip: boolean
   onHoldToOrder?: () => void
   onPlay: () => void
-  onCommitMove: () => void
 }) {
-  const controls = useDragControls()
-  const hold = useHoldToDrag(controls, {
+  const hold = useHoldToDrag({
     shouldStart: () => !editMode && !!onHoldToOrder,
     onStarting: () => onHoldToOrder?.(),
+    onFire: (e) => drag.start(itemId, e.clientX),
   })
+  const lifted = drag.dragId === itemId
   return (
-    <Reorder.Item
-      value={itemId}
-      dragListener={false}
-      dragControls={controls}
-      dragConstraints={constraints}
-      whileDrag={{ scale: 1.04, boxShadow: '0 10px 28px rgba(0,0,0,0.5)' }}
-      exit={{ opacity: 0 }}
-      onDragEnd={() => onCommitMove()}
+    <motion.div
+      ref={(el) => drag.registerRow(itemId, el)}
       onClick={() => {
+        if (drag.shouldSuppressClick()) return
         if (editMode) onToggleSelect()
         else onPlay()
       }}
@@ -66,6 +61,8 @@ function DragPlaylistRow({ itemId, track, position, isPlaying, constraints, edit
       onPointerCancel={hold.onPointerCancel}
       className={`flex cursor-pointer select-none items-center gap-3 rounded-lg px-3 py-2 ${
         hold.dragging ? 'touch-none' : 'touch-pan-y'
+      } ${
+        lifted ? 'relative z-10 scale-[1.04] shadow-[0_10px_28px_rgba(0,0,0,0.5)]' : ''
       } ${isPlaying ? 'bg-primary/20 text-primary-light' : 'hover:bg-slate-800/50 text-slate-300'}`}
     >
       <div className="flex w-8 items-center justify-center">
@@ -75,7 +72,7 @@ function DragPlaylistRow({ itemId, track, position, isPlaying, constraints, edit
           <div className={`h-5 w-5 rounded border-2 ${isSelected ? 'border-primary bg-primary' : 'border-slate-600'}`}>{isSelected && <svg viewBox="0 0 16 16" className="h-full w-full text-white" fill="currentColor"><path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z" /></svg>}</div>
         ) : showGrip ? (
         <span
-          onPointerDown={(e) => controls.start(e)}
+          onPointerDown={(e) => { e.stopPropagation(); drag.start(itemId, e.clientY) }}
           onClick={(e) => e.stopPropagation()}
           className="cursor-grab touch-none rounded px-1.5 py-2 text-sm leading-none text-slate-500 hover:bg-slate-700 hover:text-white active:cursor-grabbing"
           title="Hold and drag to reorder"
@@ -92,7 +89,7 @@ function DragPlaylistRow({ itemId, track, position, isPlaying, constraints, edit
         <p className="truncate text-xs text-slate-500">{track.artist !== 'Unknown Artist' ? track.artist : track.folderName}</p>
       </div>
       {isPlaying && <PlayingIndicator variant="playing" />}
-    </Reorder.Item>
+    </motion.div>
   )
 }
 
@@ -194,42 +191,33 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
     })
   }
 
-  // Hold-and-drag for queue rows (same single-tree pattern as TrackList):
-  // LIVE order during the drag (siblings make room across the full travel),
-  // single full-order commit at drop. Never a from/to splice — those collapse
-  // multi-step drags to one step.
-  const [dragItemIds, setDragItemIds] = useState<string[] | null>(null)
-  // Same stale-tree guard as TrackList: never survive a track change.
-  useEffect(() => { setDragItemIds(null) }, [orderMode, activeId, playlists, currentQueueKey, currentTrackId])
-  const dragItemIdsRef = useRef<string[] | null>(null)
-  useEffect(() => { dragItemIdsRef.current = dragItemIds }, [dragItemIds])
+  // Custom row-drag engine (same as TrackList — no layout framework, nothing
+  // to go stale on track changes, checks, tilts, or mode exits).
   const queueListRef = useRef<HTMLDivElement | null>(null)
-  const displayItemIds: string[] = useMemo(() => {
-    if (!active) return []
-    const ordered = orderByIds(active.items, (it) => it.id, dragItemIds ?? [])
-    return (ordered ?? active.items).map((it) => it.id)
-  }, [dragItemIds, active])
-  // Remounts the Reorder tree on sounding-track change AND edit toggle (fresh
-  // measurements — stale snapshots stack rows at the edge). Deliberately NOT
-  // the order flag: the hold fire flips visual mode in the same tick as
-  // controls.start, and a remount there discards the live controls and hands
-  // the gesture to the scroller. Taps stay in Order mode.
-  const soundingKey = `${currentQueueKey ?? currentTrackId ?? 'boot'}|${editMode ? 'e' : ''}|${selectedItemIds.size}`
-  const commitDragMove = () => {
-    unblockTouchScroll()
-    dropCommittedRef.current = true
-    // Hold-entered sessions (grips hidden) exit on drop — quick in-and-out.
-    if (!gripsVisible) {
-      setOrderMode(false)
-      setGripsVisible(true)
-    }
-    const ids = dragItemIdsRef.current
-    if (!ids || !active || !onReorderItems) return
-    const ordered = orderByIds(active.items, (it) => it.id, ids)
-    if (!ordered || ordered.every((it, i) => it.id === active.items[i]?.id)) return
-    void onReorderItems(active.id, ids)
-  }
-
+  const queueItemIds = useMemo(
+    () => (active ? active.items.map((it) => it.id) : []),
+    [active],
+  )
+  const queueDrag = useRowDrag({
+    ids: queueItemIds,
+    onCommit: (newIds) => {
+      // The hold path blocks scrolling for the whole gesture: always release
+      // it at drop, changed or not.
+      unblockTouchScroll()
+      dropCommittedRef.current = true
+      // Hold-entered sessions (grips hidden) exit on drop — quick in-and-out.
+      if (!gripsVisible) {
+        setOrderMode(false)
+        setGripsVisible(true)
+      }
+      if (!active || !onReorderItems) return
+      const ordered = orderByIds(active.items, (it) => it.id, newIds)
+      // No-op drops (released where it started) commit nothing.
+      if (!ordered || ordered.every((it, i) => it.id === active.items[i]?.id)) return
+      void onReorderItems(active.id, newIds)
+    },
+    getScrollEl: () => queueListRef.current,
+  })
   // Release-without-drop exits a hold-entered session (deferred past the
   // drop commit — unmounting first would eat the reorder).
   const dropCommittedRef = useRef(false)
@@ -324,38 +312,27 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
                 unblockTouchScroll()
               }}
             >
-              <Reorder.Group
-                key={soundingKey}
-                axis="y"
-                values={displayItemIds}
-                onReorder={(ids) => setDragItemIds(ids)}
-              >
-                <AnimatePresence initial={false}>
-                  {displayItemIds.map((iid, pos) => {
-                    const idx = active.items.findIndex((it) => it.id === iid)
-                    const t = activeTracks[idx]
-                    if (idx === -1 || !t) return null
-                    const playing = currentQueueKey != null ? iid === currentQueueKey : currentTrackId === t.id
-                    return (
-                      <DragPlaylistRow
-                        key={iid}
-                        itemId={iid}
-                        track={t}
-                        position={pos + 1}
-                        isPlaying={playing}
-                        constraints={queueListRef}
-                        editMode={editMode}
-                        isSelected={selectedItemIds.has(iid)}
-                        onToggleSelect={() => toggleSelect(iid)}
-                        showGrip={orderMode && gripsVisible}
-                        onHoldToOrder={holdToOrder}
-                        onPlay={() => onForcePlayPlaylist(active.id, idx)}
-                        onCommitMove={commitDragMove}
-                      />
-                    )
-                  })}
-                </AnimatePresence>
-              </Reorder.Group>
+              {active.items.map((it, idx) => {
+                const t = activeTracks[idx]
+                if (!t) return null
+                const playing = currentQueueKey != null ? it.id === currentQueueKey : currentTrackId === t.id
+                return (
+                  <DragPlaylistRow
+                    key={it.id}
+                    itemId={it.id}
+                    track={t}
+                    position={idx + 1}
+                    isPlaying={playing}
+                    drag={queueDrag}
+                    editMode={editMode}
+                    isSelected={selectedItemIds.has(it.id)}
+                    onToggleSelect={() => toggleSelect(it.id)}
+                    showGrip={orderMode && gripsVisible}
+                    onHoldToOrder={holdToOrder}
+                    onPlay={() => onForcePlayPlaylist(active.id, idx)}
+                  />
+                )
+              })}
             </div>
             {editMode && (
               <div className="border-t border-slate-800 bg-slate-900 px-4 py-3">
