@@ -222,10 +222,14 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
   // Memoized: a fresh array identity every render would invalidate the
   // Group's measurements on any unrelated re-render.
   const groupValues = useMemo(() => displayTracks.map((t) => t.id), [displayTracks])
-  // Sounding track id + modes: remounts the Reorder tree on track change AND
-  // on select/order toggles (fresh measurements, correct positions). Any
-  // structural row change reuses a stale snapshot otherwise — same pile-up.
-  const soundingId = `${tracks[currentTrackIndex]?.id ?? 'boot'}|${reorderMode ? 'o' : ''}|${selectMode ? 's' : ''}`
+  // Sounding track id + SELECT flag: remounts the Reorder tree on track change
+  // or select toggle (fresh measurements — stale snapshots stack rows at the
+  // edge). Deliberately NOT the order flag: the hold fire flips visual mode in
+  // the same tick as controls.start, and a remount there discards the live
+  // controls, removes the scroll blocker via unmount cleanup, and hands the
+  // gesture to the scroller. Grip visibility swaps keep layout (empty column
+  // div persists), so order flips are measurement-safe.
+  const soundingId = `${tracks[currentTrackIndex]?.id ?? 'boot'}|${selectMode ? 's' : ''}`
   const commitDragMove = () => {
     // The hold path blocks scrolling for the whole gesture: always release it
     // at drop, changed or not.

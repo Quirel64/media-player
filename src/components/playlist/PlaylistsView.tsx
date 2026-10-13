@@ -209,10 +209,12 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
     const ordered = orderByIds(active.items, (it) => it.id, dragItemIds ?? [])
     return (ordered ?? active.items).map((it) => it.id)
   }, [dragItemIds, active])
-  // Remounts the Reorder tree on sounding-track change AND mode toggles
-  // (fresh measurements — the rug-free fix for the edge pile-up, which also
-  // strikes on select/edit toggles). Taps stay in Order mode.
-  const soundingKey = `${currentQueueKey ?? currentTrackId ?? 'boot'}|${orderMode ? 'o' : ''}|${editMode ? 'e' : ''}`
+  // Remounts the Reorder tree on sounding-track change AND edit toggle (fresh
+  // measurements — stale snapshots stack rows at the edge). Deliberately NOT
+  // the order flag: the hold fire flips visual mode in the same tick as
+  // controls.start, and a remount there discards the live controls and hands
+  // the gesture to the scroller. Taps stay in Order mode.
+  const soundingKey = `${currentQueueKey ?? currentTrackId ?? 'boot'}|${editMode ? 'e' : ''}`
   const commitDragMove = () => {
     unblockTouchScroll()
     dropCommittedRef.current = true
