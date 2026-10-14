@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion'
 import type { Track } from '../../lib/types'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
 import { HoldRing } from '../ui/HoldRing'
 import { useHoldToDrag, unblockTouchScroll } from '../ui/useHoldToDrag'
 import { orderByIds } from '../../lib/queue'
-import { useRowDrag } from '../ui/useRowDrag'
 
 
 interface TrackListProps {
@@ -62,40 +61,51 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-// Draggable row: a plain motion.div (opacity only — NO layout engine, so no
-// measurement snapshots can ever go stale). Position comes from document flow;
-// the engine translates elements imperatively mid-gesture and the single
-// commit at drop re-renders canonical order.
-function DragTrackRow({ track, index, isCurrent, currentIsSource, drag, selectMode, isSelected, onToggleSelect, showGrip, holdToOrder, onPlay }: {
+// Draggable row in the single always-mounted Reorder tree: grip-only dragging
+// (dragListener={false}) so scroll works everywhere else; row holds start on
+// the same live controls. select-none stops iOS text selection mid-drag.
+function DragTrackRow({ track, index, isCurrent, currentIsSource, constraints, selectMode, isSelected, onToggleSelect, showGrip, holdToOrder, dropStampRef, onPlay, onCommitMove }: {
   track: Track
   index: number
   isCurrent: boolean
   currentIsSource?: boolean
-  drag: ReturnType<typeof useRowDrag>
+  constraints: React.RefObject<HTMLDivElement | null>
   selectMode: boolean
   isSelected: boolean
   onToggleSelect: () => void
   showGrip: boolean
   // Row-level hold: flips visual Order mode first when needed, then the same
-  // gesture starts on the engine (stable tree — nothing mounts mid-gesture).
+  // gesture starts on these already-live controls (no remount mid-gesture).
   // Undefined = holds do nothing here.
   holdToOrder?: () => void
+  // Stamp of the last drop commit: clicks inside it are the release itself.
+  dropStampRef: React.RefObject<number>
   onPlay: () => void
+  onCommitMove: () => void
 }) {
-  // Long-press anywhere on the row also grabs it. touch-action flips to none
-  // only while held: the flip lands while the finger is still stationary, so
-  // the first move belongs to the drag, not the scroller.
+  const controls = useDragControls()
+  // Long-press anywhere on the row also grabs it (same controls as the grip).
+  // touch-action flips to none only while held: the flip lands while the finger
+  // is still stationary, so the first move belongs to the drag, not the scroller.
   const hold = useHoldToDrag({
     shouldStart: () => !selectMode && !!holdToOrder,
     onStarting: () => holdToOrder?.(),
-    onFire: (e) => drag.start(track.id, e.clientX),
   })
-  const lifted = drag.dragId === track.id
+  const lifted = hold.dragging
   return (
-    <div
-      ref={(el) => drag.registerRow(track.id, el)}
+    <Reorder.Item
+      value={track.id}
+      dragListener={false}
+      dragControls={controls}
+      dragConstraints={constraints}
+      whileDrag={{ scale: 1.04, boxShadow: '0 10px 28px rgba(0,0,0,0.5)' }}
+      exit={{ opacity: 0 }}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2, delay: Math.min(index * 0.02, 0.4) }}
+      onDragEnd={() => onCommitMove()}
       onClick={() => {
-        if (drag.shouldSuppressClick()) return
+        if (Date.now() - dropStampRef.current < 300) return
         if (selectMode) onToggleSelect()
         else onPlay()
       }}
@@ -103,8 +113,7 @@ function DragTrackRow({ track, index, isCurrent, currentIsSource, drag, selectMo
       onPointerMove={hold.onPointerMove}
       onPointerUp={hold.onPointerUp}
       onPointerCancel={hold.onPointerCancel}
-      style={{ animationDelay: `${Math.min(index * 0.02, 0.4)}s` }}
-      className={`row-enter group flex cursor-pointer select-none items-center gap-4 rounded-lg px-4 py-3 transition-colors ${
+      className={`group flex cursor-pointer select-none items-center gap-4 rounded-lg px-4 py-3 transition-colors ${
         hold.dragging ? 'touch-none' : 'touch-pan-y'
       } ${
         lifted ? 'relative z-10 scale-[1.04] shadow-[0_10px_28px_rgba(0,0,0,0.5)]' : ''
@@ -129,7 +138,7 @@ function DragTrackRow({ track, index, isCurrent, currentIsSource, drag, selectMo
           </div>
         ) : showGrip ? (
         <span
-          onPointerDown={(e) => { e.stopPropagation(); drag.start(track.id, e.clientY) }}
+          onPointerDown={(e) => controls.start(e)}
           onClick={(e) => e.stopPropagation()}
           className="cursor-grab touch-none rounded px-1.5 py-2 text-sm leading-none text-slate-500 hover:bg-slate-700 hover:text-white active:cursor-grabbing"
           title="Hold and drag to reorder"
@@ -157,7 +166,7 @@ function DragTrackRow({ track, index, isCurrent, currentIsSource, drag, selectMo
       <span className="w-12 text-right text-xs text-slate-500">
         {formatDuration(track.duration)}
       </span>
-    </div>
+    </Reorder.Item>
   )
 }
 
@@ -192,29 +201,59 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
     }
   }, [selectClearTrigger])
 
-  // Custom row-drag engine (no layout framework — positions are pure document
-  // flow except the actively dragged row, so nothing can go stale on track
-  // changes, select toggles, checks, tilts, or Done-exits).
+  // Single always-mounted Reorder tree: live order during drags, one
+  // full-order commit at drop (orderByIds). Remount key covers track, select,
+  // selection size, AND container geometry (resize/tilt) — order flips excluded
+  // (the hold fire flips visual mode in the same tick as controls.start).
   const listRef = useRef<HTMLDivElement | null>(null)
   const rowIds = useMemo(() => tracks.map((t) => t.id), [tracks])
-  const drag = useRowDrag({
-    ids: rowIds,
-    onCommit: (newIds) => {
-      // The hold path blocks scrolling for the whole gesture: always release
-      // it at drop, changed or not.
-      unblockTouchScroll()
-      dropCommittedRef.current = true
-      onDropEnd?.()
-      const ordered = orderByIds(tracks, (t) => t.id, newIds)
-      // No-op drops (released where it started) commit nothing.
-      if (ordered && ordered.some((t, i) => t.id !== tracks[i]?.id)) onReorderCommit?.(newIds)
-    },
-    getScrollEl: () => listRef.current,
-  })
+  const [dragIds, setDragIds] = useState<string[] | null>(null)
+  useEffect(() => { setDragIds(null) }, [reorderMode, tracks, currentTrackIndex])
+  const dragIdsRef = useRef<string[] | null>(null)
+  useEffect(() => { dragIdsRef.current = dragIds }, [dragIds])
+  const displayTracks = useMemo(() => {
+    const ordered = orderByIds(tracks, (t) => t.id, dragIds ?? rowIds)
+    return ordered ?? tracks
+  }, [tracks, dragIds, rowIds])
+  // Highlight follows the track id, so it stays put while rows slide under it.
+  const displayCurrentIdx = (() => {
+    const curId = tracks[currentTrackIndex]?.id
+    if (curId == null) return currentTrackIndex
+    const i = displayTracks.findIndex((t) => t.id === curId)
+    return i === -1 ? currentTrackIndex : i
+  })()
+  const groupValues = useMemo(() => displayTracks.map((t) => t.id), [displayTracks])
+  const soundingId = `${tracks[currentTrackIndex]?.id ?? 'boot'}|${selectMode ? 's' : ''}|${selectedIds.size}`
+  const [layoutNonce, setLayoutNonce] = useState(0)
+  useEffect(() => {
+    const onResize = () => setLayoutNonce((n) => n + 1)
+    window.addEventListener('resize', onResize)
+    window.addEventListener('orientationchange', onResize)
+    return () => {
+      window.removeEventListener('resize', onResize)
+      window.removeEventListener('orientationchange', onResize)
+    }
+  }, [])
+  const commitDragMove = () => {
+    // The hold path blocks scrolling for the whole gesture: always release it
+    // at drop, changed or not.
+    unblockTouchScroll()
+    dropCommittedRef.current = true
+    dropStampRef.current = Date.now()
+    onDropEnd?.()
+    const ids = dragIdsRef.current
+    if (!ids) return
+    const ordered = orderByIds(tracks, (t) => t.id, ids)
+    // No-op drops (released where it started) commit nothing.
+    if (ordered && ordered.some((t, i) => t.id !== tracks[i]?.id)) onReorderCommit?.(ids)
+  }
 
   // Release-without-drop in a hold-entered session exits it (see prop note).
   // dropCommittedRef distinguishes a real drop (commit ran) from a bare lift.
   const dropCommittedRef = useRef(false)
+  // Timestamp of the last drop commit: row clicks inside 300ms of it are the
+  // release itself, not taps.
+  const dropStampRef = useRef(0)
   useEffect(() => {
     dropCommittedRef.current = false
   }, [reorderMode])
@@ -359,22 +398,33 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
           unblockTouchScroll()
         }}
       >
-        {tracks.map((track, index) => (
-          <DragTrackRow
-            key={track.id}
-            track={track}
-            index={index}
-            isCurrent={index === currentTrackIndex}
-            currentIsSource={currentIsSource}
-            drag={drag}
-            selectMode={selectMode}
-            isSelected={selectedIds.has(track.id)}
-            onToggleSelect={() => toggleSelect(track.id)}
-            showGrip={!!reorderMode && showGrips !== false}
-            holdToOrder={holdToOrder}
-            onPlay={() => onSelectTrack(index)}
-          />
-        ))}
+        <Reorder.Group
+          key={`${soundingId}|${layoutNonce}`}
+          axis="y"
+          values={groupValues}
+          onReorder={(ids) => setDragIds(ids)}
+        >
+          <AnimatePresence initial={false}>
+            {displayTracks.map((track, index) => (
+              <DragTrackRow
+                key={track.id}
+                track={track}
+                index={index}
+                isCurrent={index === displayCurrentIdx}
+                currentIsSource={currentIsSource}
+                constraints={listRef}
+                selectMode={selectMode}
+                isSelected={selectedIds.has(track.id)}
+                onToggleSelect={() => toggleSelect(track.id)}
+                showGrip={!!reorderMode && showGrips !== false}
+                holdToOrder={holdToOrder}
+                dropStampRef={dropStampRef}
+                onPlay={() => onSelectTrack(index)}
+                onCommitMove={commitDragMove}
+              />
+            ))}
+          </AnimatePresence>
+        </Reorder.Group>
       </div>
 
       {/* Selection action bar */}

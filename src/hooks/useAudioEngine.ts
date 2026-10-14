@@ -688,12 +688,13 @@ export function useAudioEngine() {
     const st = usePlayerStore.getState()
     const oldQueue = st.queue
     const keyToNew = new Map(newQueue.map((t, i) => [queueKey(t), i] as const))
-    // Only arm the guard when the index actually moves: same-index reorders
-    // fire NO reload (effect deps unchanged), so a stale flag would survive
-    // and eat the NEXT real load — dot moves, old audio continues, video gets
-    // clobbered with the stale blob (the two-press ghost).
-    if (newIndex !== st.currentTrackIndex) suppressReloadRef.current = true
-    setLoadForce(0)
+    // The effect below ALWAYS fires after this (monotonic force bump), so arm
+    // unconditionally: the sounding audio is already correct for the new order
+    // by construction, and any reload here would restart it audibly.
+    suppressReloadRef.current = true
+    // Monotonic bump (never reset to 0): guarantees exactly one effect run to
+    // consume the guard — never leaked into the next tap, never a double load.
+    setLoadForce((v) => v + 1)
     // The sounding audio is already correct for the new order — mark settled
     // so a later drain doesn't "catch up" into a redundant reload.
     settledIndexRef.current = newIndex
@@ -954,8 +955,11 @@ export function useAudioEngine() {
   }, [activateSource, ensureAnchor, setPlaying])
 
   useEffect(() => {
-    if (suppressReloadRef.current) { suppressReloadRef.current = false; setLoadForce(0); return }
-    if (currentTrack && queue.length>0) { void loadTrack(currentTrackIndex); setLoadForce(0) }
+    // loadForce is a monotonic signal (goToTrack bumps per tap); resetting it
+    // here retriggered this effect (N+1 → 0 is a change) and loaded EVERY tap
+    // twice — the repeat/stutter on all tracks. Never reset; suppress consumes.
+    if (suppressReloadRef.current) { suppressReloadRef.current = false; return }
+    if (currentTrack && queue.length>0) { void loadTrack(currentTrackIndex) }
   }, [currentTrackIndex, loadForce])
   // Boot probe: the effect above only fires on INDEX change, but boot fills the
   // queue with index already at 0 — so track 1 has no duration/anchor metadata
