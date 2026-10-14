@@ -340,7 +340,8 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
           </div>
         ) : isQueue ? (
           <div className="relative flex flex-1 flex-col overflow-hidden">
-            <div
+            <motion.div
+              layoutScroll
               className="flex-1 overflow-y-auto p-2 pb-24"
               ref={queueListRef}
               onPointerUp={() => {
@@ -383,7 +384,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
                   })}
                 </AnimatePresence>
               </Reorder.Group>
-            </div>
+            </motion.div>
             {editMode && (
               <div className="absolute inset-x-0 bottom-0 z-10 border-t border-slate-800 bg-slate-900 px-4 py-3">
                 <div className="flex gap-2">
