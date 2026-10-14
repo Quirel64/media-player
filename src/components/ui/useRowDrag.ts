@@ -22,7 +22,9 @@ import { useRef, useState, useEffect, useCallback } from 'react'
 
 interface DragSession {
   id: string
-  startY: number
+  startContentY: number
+  /** Finger offset inside the row at grab time — preserved so no snap. */
+  grabOffset: number
   pointerId: number
   order: string[]
   startIdx: number
@@ -151,9 +153,15 @@ export function useRowDrag(opts: {
       const draggedEl = els.current.get(id)
       if (!draggedEl) return
       const rowH = draggedEl.offsetHeight || 56
+      // Content-space anchor: viewport dy drifts whenever the container
+      // autoscrolls under the finger (row lags behind it). Content coords
+      // stay glued to the finger regardless of scroll.
+      const cTop = scroller.getBoundingClientRect().top
+      const startContentY = clientY - cTop + scroller.scrollTop
       session.current = {
         id,
-        startY: clientY,
+        startContentY,
+        grabOffset: startContentY - (tops.get(id) ?? startContentY),
         pointerId: pointerId ?? -1,
         order,
         startIdx,
@@ -171,13 +179,17 @@ export function useRowDrag(opts: {
         if (!s) return
         if (s.pointerId !== -1 && e.pointerId !== s.pointerId) return
         lastClientY.current = e.clientY
-        const dy = e.clientY - s.startY
-        const el = els.current.get(s.id)
-        if (el) el.style.transform = `translateY(${dy}px)`
         const sc = live.current.getScrollEl()
         if (!sc) return
         const cTop = sc.getBoundingClientRect().top
-        applyShifts(s, e.clientY - cTop + sc.scrollTop)
+        const contentY = e.clientY - cTop + sc.scrollTop
+        // Clamp the dragged row inside the list so it can't leave the screen.
+        const maxTop = Math.max(0, sc.scrollHeight - s.rowH)
+        const wantTop = Math.max(0, Math.min(contentY - s.grabOffset, maxTop))
+        const dy = wantTop - (s.tops.get(s.id) ?? wantTop)
+        const el = els.current.get(s.id)
+        if (el) el.style.transform = `translateY(${dy}px)`
+        applyShifts(s, contentY)
       }
       const doUp = (e: PointerEvent) => {
         const s = session.current
@@ -195,7 +207,8 @@ export function useRowDrag(opts: {
       window.addEventListener('pointerup', doUp)
       window.addEventListener('pointercancel', doCancel)
 
-      // Edge autoscroll while held near the bounds.
+      // Edge autoscroll while held near the bounds. Gentle on purpose: fast
+      // scrolling plus layout shifts read as the row lagging behind the finger.
       stopScrollTimer()
       scrollTimer.current = window.setInterval(() => {
         const s = session.current
@@ -203,8 +216,8 @@ export function useRowDrag(opts: {
         if (!s || !sc) return
         const r = sc.getBoundingClientRect()
         const y = lastClientY.current
-        const MARGIN = 56
-        const STEP = 14
+        const MARGIN = 64
+        const STEP = 8
         if (y < r.top + MARGIN) sc.scrollTop = Math.max(0, sc.scrollTop - STEP)
         else if (y > r.bottom - MARGIN) sc.scrollTop += STEP
       }, 50)

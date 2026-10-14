@@ -959,10 +959,12 @@ export function useAudioEngine() {
   }, [currentTrackIndex, loadForce])
   // Boot probe: the effect above only fires on INDEX change, but boot fills the
   // queue with index already at 0 — so track 1 has no duration/anchor metadata
-  // when first played. Probe it with a THROWAWAY element: the permanent <audio>
-  // stays untouched (no src), so the first Play takes the exact same full-swap
-  // path as every other track (uniform loading killed the first-track-only
-  // lock-screen seek fighting). No autoplay: no gesture yet.
+  // when first played. Probe it with a THROWAWAY element for metadata, but
+  // stage the real state too (blob URL + file ref + attached paused video):
+  // the permanent <audio> itself stays untouched (no src), so the first Play
+  // takes the exact same full-swap path as every other track. Uniform loading
+  // killed the first-track-only lock-screen seek fighting. No autoplay: no
+  // gesture yet.
   const didBootWarmRef = useRef(false)
   useEffect(() => {
     if (!didBootWarmRef.current && queue.length > 0 && currentTrack) {
@@ -971,36 +973,42 @@ export function useAudioEngine() {
       void (async () => {
         const url = await getTrackFileURL(t.fileName).catch(() => null)
         if (!url) return
-        try {
-          const d = await new Promise<number>((resolve) => {
-            const el = t.mediaType === 'video' ? document.createElement('video') : new Audio()
-            el.preload = 'metadata'
-            const done = (v: number) => {
-              URL.revokeObjectURL(url)
-              resolve(v)
-            }
-            const timer = setTimeout(() => done(0), 5000)
-            el.onloadedmetadata = () => {
-              clearTimeout(timer)
-              const dur = el.duration
-              done(Number.isFinite(dur) && dur > 0 ? dur : 0)
-            }
-            el.onerror = () => {
-              clearTimeout(timer)
-              done(0)
-            }
-            el.src = url
-          })
-          if (d > 0) {
-            trackDurationRef.current = d
-            setDuration(d)
-            publishPosition(d, 0, 1)
-            ensureAnchor(d)
-            addLog(`boot probe: track 1/${queue.length} dur=${d.toFixed(1)} (element untouched)`)
+        const d = await new Promise<number>((resolve) => {
+          const el = t.mediaType === 'video' ? document.createElement('video') : new Audio()
+          el.preload = 'metadata'
+          const done = (v: number) => {
+            resolve(v)
           }
-        } catch {
-          /* best-effort */
+          const timer = setTimeout(() => done(0), 5000)
+          el.onloadedmetadata = () => {
+            clearTimeout(timer)
+            const dur = el.duration
+            done(Number.isFinite(dur) && dur > 0 ? dur : 0)
+          }
+          el.onerror = () => {
+            clearTimeout(timer)
+            done(0)
+          }
+          el.src = url
+        })
+        if (d > 0) {
+          trackDurationRef.current = d
+          setDuration(d)
+          publishPosition(d, 0, 1)
+          ensureAnchor(d)
         }
+        if (t.mediaType === 'video') {
+          // Stage (don't load): first Play reuses the blob without re-deriving
+          // and finds the video already framed — but still runs the full swap.
+          // The URL stays alive exactly like a loadTrack-derived one (revoked
+          // on the next loadTrack, after its element is destroyed first).
+          blobUrlRef.current = url
+          prevFileNameRef.current = t.fileName
+          attachVideo(url)
+        } else {
+          URL.revokeObjectURL(url)
+        }
+        addLog(`boot probe: track 1/${queue.length} staged (element untouched)`)
       })()
     }
   }, [queue.length])

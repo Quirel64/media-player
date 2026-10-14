@@ -36,9 +36,15 @@ export default function App() {
   const forcePlayPlaylist = useCallback(async (playlistId: string, startItemIndex = 0) => {
     // Only force-reload on success — a failed resolve (empty/missing playlist)
     // must NOT fall through to playing whatever the queue happens to hold.
+    const beforeIdx = usePlayerStore.getState().currentTrackIndex
     if (!(await playPlaylist(playlistId, startItemIndex))) return
-    // goToTrack forces loadTrack even for same index (fresh reload for dups)
-    goToTrack(startItemIndex)
+    // playPlaylist sets the index, which already fires the load effect — call
+    // goToTrack (extra force bump) ONLY when the index didn't move, otherwise
+    // the track loads TWICE (audible restart stutter). Same-index taps still
+    // force a fresh load (needed for playlist dupes).
+    if (usePlayerStore.getState().currentTrackIndex === beforeIdx) {
+      goToTrack(startItemIndex)
+    }
   }, [playPlaylist, goToTrack])
   const { setHandlers, reapplyHandlers } = useMediaSession()
 
