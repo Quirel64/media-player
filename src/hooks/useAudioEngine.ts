@@ -156,6 +156,46 @@ export function useAudioEngine() {
   const detachVideo = useCallback(() => { const v=videoRef.current; if(!v) return; v.pause(); v.removeAttribute('src'); v.load() }, [])
   const cleanupVideo = useCallback(() => { if (videoRef.current) { const v=videoRef.current; v.pause(); v.removeAttribute('src'); v.load(); if(v.parentNode) v.parentNode.removeChild(v); videoRef.current=null } }, [])
 
+  // Video starts ONLY when frames are actually available. A stalled v.play()
+  // (contended decoder at boot or under swap churn) leaves a frozen timeline
+  // that iOS merges with the audio on the lock screen — the phantom second bar
+  // / seek fighting (video-only tracks, self-heals when the decoder frees up,
+  // cleared by switching to audio which detaches the video). Fallback is a
+  // paused, seek-framed picture: never a stuck playing timeline.
+  const maybePlayVideo = useCallback((pos: number) => {
+    const v = videoRef.current
+    if (!v || !v.src) return
+    const go = () => {
+      try {
+        if (Math.abs((v.currentTime || 0) - pos) > 0.05) v.currentTime = pos
+      } catch { /* ignore */ }
+      v.muted = true
+      v.play().catch(() => {
+        // Stall: stay paused on the framed position (no competing timeline).
+        try {
+          v.pause()
+          v.currentTime = pos
+        } catch { /* ignore */ }
+        addLog('video start stalled — framed paused instead')
+      })
+    }
+    if (v.readyState >= 3) {
+      go()
+    } else {
+      const timer = setTimeout(() => {
+        v.removeEventListener('canplay', go)
+        try {
+          v.currentTime = pos
+        } catch { /* ignore */ }
+        addLog('video not ready in time — framed paused instead')
+      }, 1500)
+      v.addEventListener('canplay', () => {
+        clearTimeout(timer)
+        go()
+      }, { once: true })
+    }
+  }, [])
+
   // Re-asserted ~4Hz: iOS route changes (headphone connect/disconnect) can drop
   // the video element's muted flag, which then sounds as a second restarting
   // track next to the real audio. Cheap property check, no-op when already set.
@@ -244,9 +284,10 @@ export function useAudioEngine() {
       addLog(`pre-publish track ${getLockPlaybackState('track')} dur=${preDuration.toFixed(1)} pos=${position.toFixed(2)} rate=1`)
     }
     const playPromise = media.play()
-    // Dual-play: muted video plays alongside audio (native 30fps). Keep muted so iOS keeps audio session.
-    let videoPlay: Promise<void> | null = null
-    if (isVideoTrack && v && kind === 'track') { v.muted = true; try { videoPlay = v.play() } catch { /* ignore */ } }
+    // Dual-play only when frames are ready (maybePlayVideo): a stalled video
+    // registers a frozen timeline with iOS = lock-screen seek fighting.
+    // Keep muted so iOS keeps the audio session.
+    if (isVideoTrack && v && kind === 'track') { maybePlayVideo(media.currentTime) }
     else if (v && kind === 'anchor') { try { v.pause() } catch {} }
     try {
       await awaitPlay(playPromise, `${kind} play()`)
@@ -277,13 +318,6 @@ export function useAudioEngine() {
       }
       throw e
     }
-    if (videoPlay) {
-      try {
-        await awaitPlay(videoPlay.catch(() => { addLog('video.play failed') }), 'video.play()')
-      } catch (e) {
-        addLog(`video swap play issue: ${e}`)
-      }
-    }
     if (token !== transitionTokenRef.current) {
       // Stale: still ensure lock shows correct final kind for the newer token
       addLog(`activateSource ${kind} stale token ${token} abandoned`)
@@ -302,15 +336,8 @@ export function useAudioEngine() {
       publishPosition(postDur, media.currentTime, 1)
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = getLockPlaybackState('track')
       addLog(`post-publish track ${getLockPlaybackState('track')} dur=${postDur.toFixed(1)} pos=${media.currentTime.toFixed(2)} rate=1 state=${getLockPlaybackState('track')}`)
-      // Ensure video reflects track state even after token race
-      if (isVideoTrack && v && v.paused) {
-        v.muted = true
-        try {
-          await awaitPlay(v.play(), 'video catch-up play()')
-        } catch (e) {
-          addLog(`video catch-up issue (benign): ${e}`)
-        }
-      }
+      // Video already handled pre-play (maybePlayVideo); no catch-up play here —
+      // a late v.play() is exactly what wedges a frozen competing timeline.
     } else {
       setPlaying(false);
       const postDur = trackDurationRef.current || media.duration
@@ -343,7 +370,7 @@ export function useAudioEngine() {
       }
     }, 500)
     addLog(`${kind} source active on permanent element @ ${media.currentTime.toFixed(2)}s${isVideoTrack && kind==='track' ? (v && !v.paused ? ' +video playing' : ' +video paused') : ''} owner=${kind}`)
-  }, [setOwner, setPlaying])
+  }, [setOwner, setPlaying, maybePlayVideo])
 
   const activateSource = useCallback(async (kind: SourceKind, url: string, position: number) => {
     // Last-wins + serialized: a newer request may arrive while an older one
@@ -398,16 +425,9 @@ export function useAudioEngine() {
         if ('mediaSession' in navigator) navigator.mediaSession.playbackState = getLockPlaybackState('track')
         addLog(`direct resume pre-publish ${getLockPlaybackState('track')} pos=${resumePos.toFixed(2)}`)
         const directPlay = media.play()
-        let vPlay: Promise<void> | null = null
-        if (isVideoResume && vResume) { vResume.muted = true; try { vPlay = vResume.play() } catch {} }
+        // Gated like swaps: a stalled video start wedges a frozen timeline.
+        if (isVideoResume && vResume && vResume.src) { maybePlayVideo(resumePos) }
         await awaitPlay(directPlay, 'direct resume play()')
-        if (vPlay) {
-          try {
-            await awaitPlay(vPlay.catch(() => { addLog('video resume failed') }), 'video resume play()')
-          } catch (e) {
-            addLog(`video resume issue (benign): ${e}`)
-          }
-        }
         // Baseline 1: no video hardSync
         setOwner('track'); setPlaying(true)
         publishPosition(media.duration || trackDurationRef.current, media.currentTime, 1)
@@ -448,7 +468,7 @@ export function useAudioEngine() {
       }
     } catch (e) { setPlaying(false); setOwner('idle'); addLog(`resume failed: ${e}`) }
     finally { transitionRef.current = false; flushQueued() }
-  }, [activateSource, currentTrack, flushQueued, setOwner, setPlaying])
+  }, [activateSource, currentTrack, flushQueued, setOwner, setPlaying, maybePlayVideo])
 
   const pause = useCallback(async () => {
     const media = mediaRef.current
@@ -755,7 +775,7 @@ export function useAudioEngine() {
         // Ensure video reflects playing track (fix: video stuck paused after lock resume)
         const v = videoRef.current
         const isVideoTrack = usePlayerStore.getState().queue[usePlayerStore.getState().currentTrackIndex]?.mediaType === 'video'
-        if (isVideoTrack && v && v.src && v.paused) { v.muted = true; v.play().catch(() => {}) }
+        if (isVideoTrack && v && v.src && v.paused) { maybePlayVideo(media.currentTime) }
       } else {
         setOwner(k); setPlaying(false); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = getLockPlaybackState('anchor')
         publishPosition(trackDurationRef.current || media.duration, frozenPosRef.current, HOLD_RATE)
@@ -922,7 +942,7 @@ export function useAudioEngine() {
         setPlaying(true)
         publishPosition(m?.duration || trackDurationRef.current || 0, m?.currentTime || 0, 1)
         try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing' } catch {}
-        if (isVideo && v && v.src) { try { v.currentTime = m?.currentTime || 0 } catch {}; v.muted = true; v.play().catch(() => {}) }
+        if (isVideo && v && v.src) { maybePlayVideo(m?.currentTime || 0) }
         return
       }
       // Anchor must stay paused (fix 2nd lock pause video drift)
@@ -942,7 +962,7 @@ export function useAudioEngine() {
           if (drift > 0.15) {
             try { v.currentTime = m.currentTime; addLog(`visible video seek to audio ${m.currentTime.toFixed(2)} drift ${drift.toFixed(2)}`) } catch {}
           }
-          if (v.paused) { v.muted = true; v.play().catch(() => addLog('visible video fallback disabled')) }
+          if (v.paused) { maybePlayVideo(m.currentTime) }
         }
         publishPosition(m.duration || trackDurationRef.current, m.currentTime, 1)
         try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = getLockPlaybackState('track') } catch {}
@@ -952,7 +972,7 @@ export function useAudioEngine() {
     const onPageShow = (e: PageTransitionEvent) => { setAudioSessionType(); addLog(`pageshow${(e as unknown as { persisted?: boolean }).persisted?' (bfcache)':''}`) }
     document.addEventListener('visibilitychange', onVis); window.addEventListener('pageshow', onPageShow as EventListener)
     return () => { document.removeEventListener('visibilitychange', onVis); window.removeEventListener('pageshow', onPageShow as EventListener) }
-  }, [activateSource, ensureAnchor, setPlaying])
+  }, [activateSource, ensureAnchor, setPlaying, maybePlayVideo])
 
   useEffect(() => {
     // loadForce is a monotonic signal (goToTrack bumps per tap); resetting it
