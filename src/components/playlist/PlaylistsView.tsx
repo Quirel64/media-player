@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion'
 import type { Track, Playlist } from '../../lib/types'
+import { usePlayerStore } from '../../stores/playerStore'
 import { orderByIds } from '../../lib/queue'
 import { getAllTracks } from '../../lib/idb'
 import { getTrackFile } from '../../lib/idb'
@@ -144,7 +145,9 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
     return () => { cancelled = true }
   }, [active])
 
-  // Thumbnails for active detail and grid
+  // Thumbnails for active detail and grid. Parked probes (~3.5s video seeks)
+  // compete with the lock screen — probing pauses while audio plays.
+  const isPlayingProbe = usePlayerStore((s) => s.isPlaying)
   useEffect(() => {
     let cancelled = false
     const toLoad: { fileName: string, track: Track }[] = []
@@ -154,7 +157,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
       if (toLoad.length === 0) return
       ;(async () => {
         for (const { track } of toLoad) {
-          if (cancelled) break
+          if (cancelled || usePlayerStore.getState().isPlaying) break
           try {
             const file = await getTrackFile(track.fileName)
             if (!file || cancelled) continue
@@ -165,9 +168,10 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
       })()
     }
     return () => { cancelled = true }
-  }, [active, activeTracks, viewMode, thumbs])
+  }, [active, activeTracks, viewMode, thumbs, isPlayingProbe])
 
-  // Grid thumbnails for playlist overview (first 4 per playlist)
+  // Grid thumbnails for playlist overview (first 4 per playlist). Same
+  // probe-hygiene as above: never while audio plays.
   useEffect(() => {
     if (active) return
     let cancelled = false
@@ -182,7 +186,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
         }
       }
       for (const t of toLoad) {
-        if (cancelled) break
+        if (cancelled || usePlayerStore.getState().isPlaying) break
         try {
           const file = await getTrackFile(t.fileName)
           if (!file || cancelled) continue
@@ -192,7 +196,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
       }
     })()
     return () => { cancelled = true }
-  }, [playlists, active, thumbs])
+  }, [playlists, active, thumbs, isPlayingProbe])
 
   const handleCreate = async () => {
     const name = newName.trim()

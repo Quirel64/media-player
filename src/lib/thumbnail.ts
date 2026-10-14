@@ -21,8 +21,21 @@ async function getVideoThumbnail(file: File, seekSec = 3.5): Promise<string | nu
     try {
       const url = URL.createObjectURL(file)
       const video = document.createElement('video')
+      // Probe hygiene: this element screenshots ONE frame and must never
+      // surface anywhere — muted, non-remote, inline, zero volume. A parked
+      // probe (~3.5s seek) otherwise registers a competing lock-screen
+      // timeline: the phantom 4s seek bar that fights the real one.
       video.muted = true
+      ;(video as unknown as { defaultMuted: boolean }).defaultMuted = true
+      try {
+        video.volume = 0
+      } catch { /* ignore */ }
+      try {
+        ;(video as unknown as { disableRemotePlayback: boolean }).disableRemotePlayback = true
+      } catch { /* ignore */ }
       video.playsInline = true
+      video.setAttribute('webkit-playsinline', 'true')
+      video.setAttribute('x-webkit-airplay', 'deny')
       video.preload = 'metadata'
       video.src = url
 

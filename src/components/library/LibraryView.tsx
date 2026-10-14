@@ -59,6 +59,9 @@ export function LibraryView({ tracks, onSelectTrack, onPickFolder, onPickFiles, 
 
   // Lazy thumbnails: first 4 per group + visible loose (limit 24 total) to avoid IndexedDB churn on iOS.
   // S3: when a group is open, load ALL its members (cap 40) so detail rows show thumbs too.
+  // Probing pauses while audio plays: a parked probe video (~3.5s seek) registers
+  // a competing lock-screen timeline (phantom 4s seek fight). Resumes on pause.
+  const isPlayingProbe = usePlayerStore((s) => s.isPlaying)
   useEffect(() => {
     let cancelled = false
     const toLoad: Track[] = []
@@ -74,7 +77,7 @@ export function LibraryView({ tracks, onSelectTrack, onPickFolder, onPickFiles, 
     if (missing.length === 0) return
     ;(async () => {
       for (const t of missing) {
-        if (cancelled) break
+        if (cancelled || usePlayerStore.getState().isPlaying) break
         try {
           const file = await getTrackFile(t.fileName)
           if (!file || cancelled) continue
@@ -84,7 +87,7 @@ export function LibraryView({ tracks, onSelectTrack, onPickFolder, onPickFiles, 
       }
     })()
     return () => { cancelled = true }
-  }, [grouped.groups, grouped.loose, activeGroupId])
+  }, [grouped.groups, grouped.loose, activeGroupId, isPlayingProbe])
   const query = search.trim().toLowerCase()
 
   const filteredGroups = useMemo(() => {
