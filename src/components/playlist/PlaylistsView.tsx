@@ -6,6 +6,7 @@ import { getAllTracks } from '../../lib/idb'
 import { getTrackFile } from '../../lib/idb'
 import { getTrackThumbnail } from '../../lib/thumbnail'
 import { showError } from '../ui/Toast'
+import { addLog } from '../../lib/logger'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
 import { HoldRing } from '../ui/HoldRing'
 import { useHoldToDrag, unblockTouchScroll } from '../ui/useHoldToDrag'
@@ -47,6 +48,16 @@ function DragPlaylistRow({ itemId, track, position, isPlaying, constraints, edit
   const hold = useHoldToDrag({
     shouldStart: () => !editMode && !!onHoldToOrder,
     onStarting: () => onHoldToOrder?.(),
+    onFire: (e) => {
+      try {
+        controls.start(e)
+        // TEMP-TELEMETRY (hold-drag diagnosis — remove once green)
+        addLog('hold fire: drag live (playlist)')
+      } catch {
+        // TEMP-TELEMETRY (hold-drag diagnosis — remove once green)
+        addLog('hold fire: start threw (playlist)')
+      }
+    },
   })
   const lifted = hold.dragging
   return (
@@ -328,9 +339,9 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
             </div>
           </div>
         ) : isQueue ? (
-          <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="relative flex flex-1 flex-col overflow-hidden">
             <div
-              className="flex-1 overflow-y-auto p-2"
+              className="flex-1 overflow-y-auto p-2 pb-24"
               ref={queueListRef}
               onPointerUp={() => {
                 handleReleaseUp()
@@ -374,7 +385,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
               </Reorder.Group>
             </div>
             {editMode && (
-              <div className="border-t border-slate-800 bg-slate-900 px-4 py-3">
+              <div className="absolute inset-x-0 bottom-0 z-10 border-t border-slate-800 bg-slate-900 px-4 py-3">
                 <div className="flex gap-2">
                   <button onClick={handleRemoveSelected} disabled={selectedItemIds.size === 0} className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">Remove from playlist ({selectedItemIds.size})</button>
                   <button onClick={() => onDeletePlaylist(active.id)} className="rounded-lg bg-red-900/30 px-3 py-2 text-sm text-red-300">Delete playlist</button>

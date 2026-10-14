@@ -5,6 +5,7 @@ import { PlayingIndicator } from '../ui/PlayingIndicator'
 import { HoldRing } from '../ui/HoldRing'
 import { useHoldToDrag, unblockTouchScroll } from '../ui/useHoldToDrag'
 import { orderByIds } from '../../lib/queue'
+import { addLog } from '../../lib/logger'
 
 
 interface TrackListProps {
@@ -90,6 +91,16 @@ function DragTrackRow({ track, index, isCurrent, currentIsSource, constraints, s
   const hold = useHoldToDrag({
     shouldStart: () => !selectMode && !!holdToOrder,
     onStarting: () => holdToOrder?.(),
+    onFire: (e) => {
+      try {
+        controls.start(e)
+        // TEMP-TELEMETRY (hold-drag diagnosis — remove once green)
+        addLog('hold fire: drag live (library)')
+      } catch {
+        // TEMP-TELEMETRY (hold-drag diagnosis — remove once green)
+        addLog('hold fire: start threw (library)')
+      }
+    },
   })
   const lifted = hold.dragging
   return (
@@ -335,7 +346,7 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
       {!hideHeader && (
         <div className="flex items-center justify-between border-b border-slate-800 px-6 py-4">
           <div>
@@ -389,7 +400,7 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
       )}
 
       <div
-        className="flex-1 overflow-y-auto px-2 py-2"
+        className="flex-1 overflow-y-auto px-2 pb-24 pt-2"
         ref={listRef}
         onPointerUp={() => {
           handleReleaseUp()
@@ -427,14 +438,17 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
         </Reorder.Group>
       </div>
 
-      {/* Selection action bar */}
+      {/* Selection action bar — absolute overlay: mounting/unmounting must
+          never change the list geometry (container shifts invalidate the drag
+          tree's measurements = edge pile-ups). Permanent bottom padding above
+          reserves its space. */}
       <AnimatePresence>
         {selectMode && selectedIds.size > 0 && (
           <motion.div
             initial={{ y: 60 }}
             animate={{ y: 0 }}
             exit={{ y: 60 }}
-            className="flex-shrink-0 border-t border-slate-800 bg-slate-900 px-4 py-3"
+            className="absolute inset-x-0 bottom-0 z-10 border-t border-slate-800 bg-slate-900 px-4 py-3"
           >
             <div className="flex items-center justify-center gap-3">
               {onAddToPlaylist && (
