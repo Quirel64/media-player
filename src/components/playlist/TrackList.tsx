@@ -92,11 +92,8 @@ function DragTrackRow({ track, index, isCurrent, currentIsSource, drag, selectMo
   })
   const lifted = drag.dragId === track.id
   return (
-    <motion.div
+    <div
       ref={(el) => drag.registerRow(track.id, el)}
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2, delay: Math.min(index * 0.02, 0.4) }}
       onClick={() => {
         if (drag.shouldSuppressClick()) return
         if (selectMode) onToggleSelect()
@@ -106,7 +103,8 @@ function DragTrackRow({ track, index, isCurrent, currentIsSource, drag, selectMo
       onPointerMove={hold.onPointerMove}
       onPointerUp={hold.onPointerUp}
       onPointerCancel={hold.onPointerCancel}
-      className={`group flex cursor-pointer select-none items-center gap-4 rounded-lg px-4 py-3 transition-colors ${
+      style={{ animationDelay: `${Math.min(index * 0.02, 0.4)}s` }}
+      className={`row-enter group flex cursor-pointer select-none items-center gap-4 rounded-lg px-4 py-3 transition-colors ${
         hold.dragging ? 'touch-none' : 'touch-pan-y'
       } ${
         lifted ? 'relative z-10 scale-[1.04] shadow-[0_10px_28px_rgba(0,0,0,0.5)]' : ''
@@ -159,7 +157,7 @@ function DragTrackRow({ track, index, isCurrent, currentIsSource, drag, selectMo
       <span className="w-12 text-right text-xs text-slate-500">
         {formatDuration(track.duration)}
       </span>
-    </motion.div>
+    </div>
   )
 }
 

@@ -74,3 +74,20 @@ input, textarea {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-slate-600);
 }
+
+/* Row enter animation (CSS only — framer-motion also writes `transform`, which
+   would clobber the drag engine's inline translateY mid-gesture). */
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.row-enter {
+  animation: row-in 0.2s ease both;
+}

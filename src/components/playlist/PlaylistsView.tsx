@@ -48,7 +48,7 @@ function DragPlaylistRow({ itemId, track, position, isPlaying, drag, editMode, i
   })
   const lifted = drag.dragId === itemId
   return (
-    <motion.div
+    <div
       ref={(el) => drag.registerRow(itemId, el)}
       onClick={() => {
         if (drag.shouldSuppressClick()) return
@@ -89,7 +89,7 @@ function DragPlaylistRow({ itemId, track, position, isPlaying, drag, editMode, i
         <p className="truncate text-xs text-slate-500">{track.artist !== 'Unknown Artist' ? track.artist : track.folderName}</p>
       </div>
       {isPlaying && <PlayingIndicator variant="playing" />}
-    </motion.div>
+    </div>
   )
 }
 
