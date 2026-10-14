@@ -399,8 +399,7 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
         </div>
       )}
 
-      <motion.div
-        layoutScroll
+      <div
         className="flex-1 overflow-y-auto px-2 py-2 pb-24"
         ref={listRef}
         onPointerUp={() => {
@@ -437,7 +436,7 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
             ))}
           </AnimatePresence>
         </Reorder.Group>
-      </motion.div>
+      </div>
 
       {/* Selection action bar — absolute overlay: mounting/unmounting must
           never change the list geometry (container shifts invalidate the drag
