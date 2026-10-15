@@ -30,12 +30,11 @@ interface Props {
 // Hold-and-drag queue row in the single always-mounted Reorder tree: grip-only
 // dragging (dragListener={false}) so scroll works everywhere else; row holds
 // start on the same live controls. select-none stops iOS text selection.
-function DragPlaylistRow({ itemId, track, position, isPlaying, constraints, editMode, isSelected, onToggleSelect, showGrip, onHoldToOrder, dropStampRef, onPlay, onCommitMove }: {
+function DragPlaylistRow({ itemId, track, position, isPlaying, editMode, isSelected, onToggleSelect, showGrip, onHoldToOrder, dropStampRef, onPlay, onCommitMove }: {
   itemId: string
   track: Track
   position: number
   isPlaying: boolean
-  constraints: React.RefObject<HTMLDivElement | null>
   editMode: boolean
   isSelected: boolean
   onToggleSelect: () => void
@@ -66,7 +65,6 @@ function DragPlaylistRow({ itemId, track, position, isPlaying, constraints, edit
       value={itemId}
       dragListener={false}
       dragControls={controls}
-      dragConstraints={constraints}
       whileDrag={{ scale: 1.04, boxShadow: '0 10px 28px rgba(0,0,0,0.5)' }}
       exit={{ opacity: 0 }}
       onDragEnd={() => onCommitMove()}
@@ -373,7 +371,6 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
                         track={t}
                         position={pos + 1}
                         isPlaying={playing}
-                        constraints={queueListRef}
                         editMode={editMode}
                         isSelected={selectedItemIds.has(iid)}
                         onToggleSelect={() => toggleSelect(iid)}

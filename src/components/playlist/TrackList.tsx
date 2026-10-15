@@ -65,12 +65,11 @@ function formatSize(bytes: number): string {
 // Draggable row in the single always-mounted Reorder tree: grip-only dragging
 // (dragListener={false}) so scroll works everywhere else; row holds start on
 // the same live controls. select-none stops iOS text selection mid-drag.
-function DragTrackRow({ track, index, isCurrent, currentIsSource, constraints, selectMode, isSelected, onToggleSelect, showGrip, holdToOrder, dropStampRef, onPlay, onCommitMove }: {
+function DragTrackRow({ track, index, isCurrent, currentIsSource, selectMode, isSelected, onToggleSelect, showGrip, holdToOrder, dropStampRef, onPlay, onCommitMove }: {
   track: Track
   index: number
   isCurrent: boolean
   currentIsSource?: boolean
-  constraints: React.RefObject<HTMLDivElement | null>
   selectMode: boolean
   isSelected: boolean
   onToggleSelect: () => void
@@ -108,7 +107,6 @@ function DragTrackRow({ track, index, isCurrent, currentIsSource, constraints, s
       value={track.id}
       dragListener={false}
       dragControls={controls}
-      dragConstraints={constraints}
       whileDrag={{ scale: 1.04, boxShadow: '0 10px 28px rgba(0,0,0,0.5)' }}
       exit={{ opacity: 0 }}
       initial={{ opacity: 0, y: 10 }}
@@ -423,7 +421,6 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
                 index={index}
                 isCurrent={index === displayCurrentIdx}
                 currentIsSource={currentIsSource}
-                constraints={listRef}
                 selectMode={selectMode}
                 isSelected={selectedIds.has(track.id)}
                 onToggleSelect={() => toggleSelect(track.id)}
