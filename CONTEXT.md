@@ -260,3 +260,18 @@ Verified on iPhone 12 (Safari-web + standalone PWA, separate IDB stores) + Windo
 - **Ghost-audio fix**: `loadTrack` clears deferred visible→hidden anchor (pause-then-switch-context played stale src).
 - **Lock mode on reload**: handler registration re-pushes metadata; boot warm-up preloads track 1 paused (it previously never loaded until first tap).
 
+## Lock-screen seek fighting — FIXED (thumbnail probe videos)
+Two lock-screen positions fought (one frozen ~4s) then merged ~10s in, video tracks only.
+Root cause: `getVideoThumbnail` parks a REAL `<video>` at a ~3.5s seek for every
+video file (up to ~100, sequentially, 4s timeout each). Small libraries finish
+probing before you can lock; 48+ tracks means probes are still alive 30s+ after
+opening the library — the exact quantity threshold found by testing (16 clean,
+48 fights; single 5h file clean, slow 5h parse stretches the window to 5–6s).
+Heat stretches decodes and widens it further. Verified fixed: 49 tracks incl.
+the 5h file, immediate play + lock skip, single bar.
+Fix (`thumbnail.ts`, all three loaders): probes are muted + defaultMuted +
+volume 0 + disableRemotePlayback + inline + airplay-deny before src, and
+Library / playlist-detail / playlist-grid loaders abort while audio plays,
+resuming on pause. Thumbnails fill in when paused; playback never shares the
+decoder with a probe again.
+
