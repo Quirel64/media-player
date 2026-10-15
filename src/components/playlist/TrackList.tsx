@@ -65,7 +65,7 @@ function formatSize(bytes: number): string {
 // Draggable row in the single always-mounted Reorder tree: grip-only dragging
 // (dragListener={false}) so scroll works everywhere else; row holds start on
 // the same live controls. select-none stops iOS text selection mid-drag.
-function DragTrackRow({ track, index, isCurrent, currentIsSource, selectMode, isSelected, onToggleSelect, showGrip, holdToOrder, dropStampRef, onPlay, onCommitMove }: {
+function DragTrackRow({ track, index, isCurrent, currentIsSource, selectMode, isSelected, onToggleSelect, showGrip, holdToOrder, dropStampRef, onPlay, onCommitMove, onDragBegin }: {
   track: Track
   index: number
   isCurrent: boolean
@@ -82,6 +82,7 @@ function DragTrackRow({ track, index, isCurrent, currentIsSource, selectMode, is
   dropStampRef: React.RefObject<number>
   onPlay: () => void
   onCommitMove: () => void
+  onDragBegin: () => void
 }) {
   const controls = useDragControls()
   // Long-press anywhere on the row also grabs it (same controls as the grip).
@@ -112,6 +113,7 @@ function DragTrackRow({ track, index, isCurrent, currentIsSource, selectMode, is
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2, delay: Math.min(index * 0.02, 0.4) }}
+      onDragStart={() => onDragBegin()}
       onDragEnd={() => onCommitMove()}
       onClick={() => {
         if (Date.now() - dropStampRef.current < 300) return
@@ -255,6 +257,8 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
     // The hold path blocks scrolling for the whole gesture: always release it
     // at drop, changed or not.
     unblockTouchScroll()
+    setDragActive(false)
+    setDragActive(false)
     dropCommittedRef.current = true
     dropStampRef.current = Date.now()
     onDropEnd?.()
@@ -268,6 +272,10 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
   // Release-without-drop in a hold-entered session exits it (see prop note).
   // dropCommittedRef distinguishes a real drop (commit ran) from a bare lift.
   const dropCommittedRef = useRef(false)
+  // A drag is active between any row's dragstart and its drop: native scroll
+  // must stay out (framer autoscrolls programmatically) or the two scrollers
+  // fight and measurements drift.
+  const [dragActive, setDragActive] = useState(false)
   // Timestamp of the last drop commit: row clicks inside 300ms of it are the
   // release itself, not taps.
   const dropStampRef = useRef(0)
@@ -276,6 +284,7 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
   }, [reorderMode])
   const handleReleaseUp = () => {
     unblockTouchScroll()
+    setDragActive(false)
     window.setTimeout(() => {
       if (!dropCommittedRef.current) onReleaseWithoutDrop?.()
       dropCommittedRef.current = false
@@ -406,7 +415,7 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
       )}
 
       <div
-        className="flex-1 overflow-y-auto px-2 py-2 pb-24"
+        className={`flex-1 overflow-y-auto px-2 py-2 pb-24 ${dragActive ? 'touch-none' : ''}`}
         ref={listRef}
         onPointerUp={() => {
           handleReleaseUp()
@@ -437,6 +446,7 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
                 dropStampRef={dropStampRef}
                 onPlay={() => onSelectTrack(index)}
                 onCommitMove={commitDragMove}
+                onDragBegin={() => setDragActive(true)}
               />
             ))}
           </AnimatePresence>

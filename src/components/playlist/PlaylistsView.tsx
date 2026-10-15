@@ -30,7 +30,7 @@ interface Props {
 // Hold-and-drag queue row in the single always-mounted Reorder tree: grip-only
 // dragging (dragListener={false}) so scroll works everywhere else; row holds
 // start on the same live controls. select-none stops iOS text selection.
-function DragPlaylistRow({ itemId, track, position, isPlaying, editMode, isSelected, onToggleSelect, showGrip, onHoldToOrder, dropStampRef, onPlay, onCommitMove }: {
+function DragPlaylistRow({ itemId, track, position, isPlaying, editMode, isSelected, onToggleSelect, showGrip, onHoldToOrder, dropStampRef, onPlay, onCommitMove, onDragBegin }: {
   itemId: string
   track: Track
   position: number
@@ -43,6 +43,7 @@ function DragPlaylistRow({ itemId, track, position, isPlaying, editMode, isSelec
   dropStampRef: React.RefObject<number>
   onPlay: () => void
   onCommitMove: () => void
+  onDragBegin: () => void
 }) {
   const controls = useDragControls()
   const hold = useHoldToDrag({
@@ -67,6 +68,7 @@ function DragPlaylistRow({ itemId, track, position, isPlaying, editMode, isSelec
       dragControls={controls}
       whileDrag={{ scale: 1.04, boxShadow: '0 10px 28px rgba(0,0,0,0.5)' }}
       exit={{ opacity: 0 }}
+      onDragStart={() => onDragBegin()}
       onDragEnd={() => onCommitMove()}
       onClick={() => {
         if (Date.now() - dropStampRef.current < 300) return
@@ -244,10 +246,15 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
       window.removeEventListener('orientationchange', onResize)
     }
   }, [])
+  // A drag is active between any row's dragstart and its drop: native scroll
+  // must stay out (framer autoscrolls programmatically) or the two scrollers
+  // fight and measurements drift.
+  const [dragActive, setDragActive] = useState(false)
   const commitDragMove = () => {
     // The hold path blocks scrolling for the whole gesture: always release it
     // at drop, changed or not.
     unblockTouchScroll()
+    setDragActive(false)
     dropCommittedRef.current = true
     dropStampRef.current = Date.now()
     // Hold-entered sessions (grips hidden) exit on drop — quick in-and-out.
@@ -273,6 +280,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
   }, [orderMode])
   const handleReleaseUp = () => {
     unblockTouchScroll()
+    setDragActive(false)
     window.setTimeout(() => {
       if (!dropCommittedRef.current && !gripsVisible) {
         setOrderMode(false)
@@ -350,7 +358,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
         ) : isQueue ? (
           <div className="relative flex flex-1 flex-col overflow-hidden">
             <div
-              className="flex-1 overflow-y-auto p-2 pb-24"
+              className={`flex-1 overflow-y-auto p-2 pb-24 ${dragActive ? 'touch-none' : ''}`}
               ref={queueListRef}
               onPointerUp={() => {
                 handleReleaseUp()
@@ -386,6 +394,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
                         dropStampRef={dropStampRef}
                         onPlay={() => onForcePlayPlaylist(active.id, idx)}
                         onCommitMove={commitDragMove}
+                        onDragBegin={() => setDragActive(true)}
                       />
                     )
                   })}
