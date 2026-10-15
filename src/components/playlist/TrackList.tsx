@@ -6,6 +6,8 @@ import { HoldRing } from '../ui/HoldRing'
 import { useHoldToDrag, unblockTouchScroll } from '../ui/useHoldToDrag'
 import { orderByIds } from '../../lib/queue'
 import { addLog } from '../../lib/logger'
+// TEMP-TELEMETRY (scroll-drift diagnosis — remove with the onDrag hook below)
+import { telemetryDragSample } from '../../lib/dragTelemetry'
 
 
 interface TrackListProps {
@@ -112,6 +114,9 @@ function DragTrackRow({ track, index, isCurrent, currentIsSource, selectMode, is
       exit={{ opacity: 0 }}
       onDragStart={() => onDragBegin()}
       onDragEnd={() => onCommitMove()}
+      onDrag={(e, info) => {
+        telemetryDragSample('lib', e.currentTarget as HTMLElement | null, info.point.y)
+      }}
       onClick={() => {
         if (Date.now() - dropStampRef.current < 300) return
         if (selectMode) onToggleSelect()
@@ -412,6 +417,7 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
       )}
 
       <div
+        data-dragscroll
         className={`flex-1 overflow-y-auto px-2 py-2 pb-24 ${dragActive ? 'touch-none' : ''}`}
         ref={listRef}
         onPointerUp={() => {

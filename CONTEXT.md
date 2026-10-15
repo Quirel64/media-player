@@ -275,3 +275,35 @@ Library / playlist-detail / playlist-grid loaders abort while audio plays,
 resuming on pause. Thumbnails fill in when paused; playback never shares the
 decoder with a probe again.
 
+## Engine hardening — DONE (spam survival, iPhone 12 + Windows verified)
+- **Swap serialization**: mutex + last-wins skip; blind retry replaced by guarded
+  retry (500ms after NotSupportedError, 120ms otherwise).
+- **Coalescing + 750ms floor**: index always moves, at most ~1.3Hz sustained
+  swaps, one paced catch-up for the final index. Pauses/direct-resumes instant.
+- **10s→500ms play bound** (`PLAY_TIMEOUT_MS`, device-tested 7/7 clean):
+  wedges become ordinary failures. Watch name-vs-duration: mismatch = catching up.
+- **Element rebuild** after 3 consecutive swap failures (30s cooldown) +
+  hard-reset on NotSupportedError — in-app recovery, no force-close needed.
+- **Deferred anchor prebuild** (800ms past the coalesce window, gen-guarded).
+- **Video**: `maybePlayVideo` (canplay-gated, 1.5s cap, framed-paused fallback),
+  `muted + volume 0` re-asserted ~4Hz, PlayBar prev/play/next
+  `touch-action: manipulation` (no double-tap zoom).
+- **Boot**: probe-only warm-up (uniform first-track load path), lockScreenMode
+  localStorage fast path, re-apply handlers on play-start edge.
+
+## Reorder saga — OPEN (library scroll-drift, playlist verified)
+- Framer Reorder restored (13→14.2: constraint-scroll + React 19 fixes).
+- Live mirror, full-order `orderByIds` commits, remount keys (track/select/
+  size/resize — never order flag), grip + 600ms hold, touch blocker, haptics,
+  edge autoscroll, click suppression, container touch-none while dragging.
+- Custom engine (`useRowDrag.ts`) tried and DELETED: fought framer over
+  `transform`, broke drop precision.
+- OPEN: library rows drift/fly on scrolled drags; 68-track playlist control is
+  clean. `dragtele` telemetry (`lib`/`pl`: pointerY vs rowTop vs scrollTop @2Hz)
+  ships in this build to discriminate gesture-level vs order-level drift.
+- HoldRing (user-built, SMIL) + 100ms grace; EventLog copyable; global
+  no-select except inputs.
+- Lessons (do not repeat): `transition` with delay on Reorder items poisons
+  layout/drag physics; `layoutScroll` + popLayout breaks mounting; remounting
+  mid-gesture strands drags; `setLoadForce(0)` retriggered loads (double-start).
+

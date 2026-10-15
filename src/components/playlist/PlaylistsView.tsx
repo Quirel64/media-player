@@ -10,6 +10,8 @@ import { showError } from '../ui/Toast'
 import { addLog } from '../../lib/logger'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
 import { HoldRing } from '../ui/HoldRing'
+// TEMP-TELEMETRY (scroll-drift diagnosis — remove with the onDrag hooks)
+import { telemetryDragSample } from '../../lib/dragTelemetry'
 import { useHoldToDrag, unblockTouchScroll } from '../ui/useHoldToDrag'
 import { AddTracksSheet } from './AddTracksSheet'
 
@@ -70,6 +72,9 @@ function DragPlaylistRow({ itemId, track, position, isPlaying, editMode, isSelec
       exit={{ opacity: 0 }}
       onDragStart={() => onDragBegin()}
       onDragEnd={() => onCommitMove()}
+      onDrag={(e, info) => {
+        telemetryDragSample('pl', e.currentTarget as HTMLElement | null, info.point.y)
+      }}
       onClick={() => {
         if (Date.now() - dropStampRef.current < 300) return
         if (editMode) onToggleSelect()
@@ -359,6 +364,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
           <div className="relative flex flex-1 flex-col overflow-hidden">
             <div
               className={`flex-1 overflow-y-auto p-2 pb-24 ${dragActive ? 'touch-none' : ''}`}
+              data-dragscroll
               ref={queueListRef}
               onPointerUp={() => {
                 handleReleaseUp()
