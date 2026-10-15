@@ -220,24 +220,13 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
   useEffect(() => { setDragIds(null) }, [reorderMode, tracks, currentTrackIndex])
   const dragIdsRef = useRef<string[] | null>(null)
   useEffect(() => { dragIdsRef.current = dragIds }, [dragIds])
-  // Throttled mirror: framer moves siblings via transform every frame AND
-  // React moves DOM nodes on every mirror update — both positioning systems at
-  // 60fps fight (overshoot, flyaway, jitter). The mirror refreshes at ~8Hz so
-  // framer interpolates between snapshots instead; the drop commit always
-  // reads the unthrottled latest ref for full precision.
+  // Live mirror (framer 14 handles the cadence — the old 120ms throttle broke
+  // number updates and needed wiggling to register slots). The drop commit
+  // reads the same ref, so precision never depends on render timing.
   const latestIdsRef = useRef<string[] | null>(null)
-  const mirrorTimerRef = useRef<number | null>(null)
-  useEffect(() => () => {
-    if (mirrorTimerRef.current != null) clearTimeout(mirrorTimerRef.current)
-  }, [])
   const queueReorder = (ids: string[]) => {
     latestIdsRef.current = ids
-    if (mirrorTimerRef.current == null) {
-      mirrorTimerRef.current = window.setTimeout(() => {
-        mirrorTimerRef.current = null
-        if (latestIdsRef.current) setDragIds(latestIdsRef.current)
-      }, 120)
-    }
+    setDragIds(ids)
   }
   const displayTracks = useMemo(() => {
     const ordered = orderByIds(tracks, (t) => t.id, dragIds ?? rowIds)
@@ -266,10 +255,6 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
     // The hold path blocks scrolling for the whole gesture: always release it
     // at drop, changed or not.
     unblockTouchScroll()
-    if (mirrorTimerRef.current != null) {
-      clearTimeout(mirrorTimerRef.current)
-      mirrorTimerRef.current = null
-    }
     dropCommittedRef.current = true
     dropStampRef.current = Date.now()
     onDropEnd?.()

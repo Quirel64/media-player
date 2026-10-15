@@ -221,20 +221,12 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
   useEffect(() => { setDragItemIds(null) }, [orderMode, activeId, playlists, currentQueueKey, currentTrackId])
   const dragItemIdsRef = useRef<string[] | null>(null)
   useEffect(() => { dragItemIdsRef.current = dragItemIds }, [dragItemIds])
-  // Throttled mirror (see TrackList): both positioning systems at 60fps fight.
+  // Live mirror (framer 14 handles the cadence — throttling broke number
+  // updates and needed wiggling to register slots).
   const latestIdsRef = useRef<string[] | null>(null)
-  const mirrorTimerRef = useRef<number | null>(null)
-  useEffect(() => () => {
-    if (mirrorTimerRef.current != null) clearTimeout(mirrorTimerRef.current)
-  }, [])
   const queueReorder = (ids: string[]) => {
     latestIdsRef.current = ids
-    if (mirrorTimerRef.current == null) {
-      mirrorTimerRef.current = window.setTimeout(() => {
-        mirrorTimerRef.current = null
-        if (latestIdsRef.current) setDragItemIds(latestIdsRef.current)
-      }, 120)
-    }
+    setDragItemIds(ids)
   }
   const displayItemIds: string[] = useMemo(() => {
     if (!active) return []
@@ -256,10 +248,6 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
     // The hold path blocks scrolling for the whole gesture: always release it
     // at drop, changed or not.
     unblockTouchScroll()
-    if (mirrorTimerRef.current != null) {
-      clearTimeout(mirrorTimerRef.current)
-      mirrorTimerRef.current = null
-    }
     dropCommittedRef.current = true
     dropStampRef.current = Date.now()
     // Hold-entered sessions (grips hidden) exit on drop — quick in-and-out.
