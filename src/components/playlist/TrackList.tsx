@@ -105,8 +105,12 @@ function DragTrackRow({ track, index, isCurrent, currentIsSource, selectMode, is
     },
   })
   const lifted = hold.dragging
+  // Row element for telemetry: framer's onDrag event has no currentTarget
+  // (native pointer event), so we measure via ref instead.
+  const rowRef = useRef<HTMLLIElement | null>(null)
   return (
     <Reorder.Item
+      ref={rowRef}
       value={track.id}
       dragListener={false}
       dragControls={controls}
@@ -114,8 +118,8 @@ function DragTrackRow({ track, index, isCurrent, currentIsSource, selectMode, is
       exit={{ opacity: 0 }}
       onDragStart={() => onDragBegin()}
       onDragEnd={() => onCommitMove()}
-      onDrag={(e, info) => {
-        telemetryDragSample('lib', e.currentTarget as HTMLElement | null, info.point.y)
+      onDrag={(_e, info) => {
+        telemetryDragSample('lib', rowRef.current, info.point.y)
       }}
       onClick={() => {
         if (Date.now() - dropStampRef.current < 300) return
@@ -126,10 +130,17 @@ function DragTrackRow({ track, index, isCurrent, currentIsSource, selectMode, is
       onPointerMove={hold.onPointerMove}
       onPointerUp={hold.onPointerUp}
       onPointerCancel={hold.onPointerCancel}
-      className={`group flex cursor-pointer select-none items-center gap-4 rounded-lg px-4 py-3 transition-colors ${
+      className={`group flex cursor-pointer select-none items-center gap-4 rounded-lg px-4 py-3 ${
         hold.dragging ? 'touch-none' : 'touch-pan-y'
       } ${
-        lifted ? 'relative z-10 scale-[1.04] shadow-[0_10px_28px_rgba(0,0,0,0.5)]' : ''
+        // NOTE: no Tailwind scale/shadow here on purpose — whileDrag above
+        // already scales the row via framer's transform. Adding a second
+        // scale via CSS (scale-[1.04] uses the `scale` property, which
+        // multiplies with framer's `transform`) made the held row ~8%
+        // larger than measured, so it drifted ahead of the finger and flew
+        // off-screen once edge autoscroll kicked in. Grip drags never set
+        // hold.dragging, which is why only hold-drags drifted.
+        lifted ? 'relative z-10' : ''
       } ${
         isCurrent ? 'bg-primary/20 text-primary-light' : 'text-slate-300 hover:bg-slate-800/50'
       }`}
@@ -259,7 +270,6 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
     // The hold path blocks scrolling for the whole gesture: always release it
     // at drop, changed or not.
     unblockTouchScroll()
-    setDragActive(false)
     setDragActive(false)
     dropCommittedRef.current = true
     dropStampRef.current = Date.now()

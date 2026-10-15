@@ -63,8 +63,10 @@ function DragPlaylistRow({ itemId, track, position, isPlaying, editMode, isSelec
     },
   })
   const lifted = hold.dragging
+  const rowRef = useRef<HTMLLIElement | null>(null)
   return (
     <Reorder.Item
+      ref={rowRef}
       value={itemId}
       dragListener={false}
       dragControls={controls}
@@ -72,8 +74,8 @@ function DragPlaylistRow({ itemId, track, position, isPlaying, editMode, isSelec
       exit={{ opacity: 0 }}
       onDragStart={() => onDragBegin()}
       onDragEnd={() => onCommitMove()}
-      onDrag={(e, info) => {
-        telemetryDragSample('pl', e.currentTarget as HTMLElement | null, info.point.y)
+      onDrag={(_e, info) => {
+        telemetryDragSample('pl', rowRef.current, info.point.y)
       }}
       onClick={() => {
         if (Date.now() - dropStampRef.current < 300) return
