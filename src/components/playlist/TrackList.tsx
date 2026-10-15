@@ -220,6 +220,25 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
   useEffect(() => { setDragIds(null) }, [reorderMode, tracks, currentTrackIndex])
   const dragIdsRef = useRef<string[] | null>(null)
   useEffect(() => { dragIdsRef.current = dragIds }, [dragIds])
+  // Throttled mirror: framer moves siblings via transform every frame AND
+  // React moves DOM nodes on every mirror update — both positioning systems at
+  // 60fps fight (overshoot, flyaway, jitter). The mirror refreshes at ~8Hz so
+  // framer interpolates between snapshots instead; the drop commit always
+  // reads the unthrottled latest ref for full precision.
+  const latestIdsRef = useRef<string[] | null>(null)
+  const mirrorTimerRef = useRef<number | null>(null)
+  useEffect(() => () => {
+    if (mirrorTimerRef.current != null) clearTimeout(mirrorTimerRef.current)
+  }, [])
+  const queueReorder = (ids: string[]) => {
+    latestIdsRef.current = ids
+    if (mirrorTimerRef.current == null) {
+      mirrorTimerRef.current = window.setTimeout(() => {
+        mirrorTimerRef.current = null
+        if (latestIdsRef.current) setDragIds(latestIdsRef.current)
+      }, 120)
+    }
+  }
   const displayTracks = useMemo(() => {
     const ordered = orderByIds(tracks, (t) => t.id, dragIds ?? rowIds)
     return ordered ?? tracks
@@ -247,10 +266,14 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
     // The hold path blocks scrolling for the whole gesture: always release it
     // at drop, changed or not.
     unblockTouchScroll()
+    if (mirrorTimerRef.current != null) {
+      clearTimeout(mirrorTimerRef.current)
+      mirrorTimerRef.current = null
+    }
     dropCommittedRef.current = true
     dropStampRef.current = Date.now()
     onDropEnd?.()
-    const ids = dragIdsRef.current
+    const ids = latestIdsRef.current ?? dragIdsRef.current
     if (!ids) return
     const ordered = orderByIds(tracks, (t) => t.id, ids)
     // No-op drops (released where it started) commit nothing.
@@ -411,7 +434,7 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
           key={`${soundingId}|${layoutNonce}`}
           axis="y"
           values={groupValues}
-          onReorder={(ids) => setDragIds(ids)}
+          onReorder={(ids) => queueReorder(ids)}
         >
           <AnimatePresence initial={false}>
             {displayTracks.map((track, index) => (

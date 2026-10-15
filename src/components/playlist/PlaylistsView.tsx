@@ -221,6 +221,21 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
   useEffect(() => { setDragItemIds(null) }, [orderMode, activeId, playlists, currentQueueKey, currentTrackId])
   const dragItemIdsRef = useRef<string[] | null>(null)
   useEffect(() => { dragItemIdsRef.current = dragItemIds }, [dragItemIds])
+  // Throttled mirror (see TrackList): both positioning systems at 60fps fight.
+  const latestIdsRef = useRef<string[] | null>(null)
+  const mirrorTimerRef = useRef<number | null>(null)
+  useEffect(() => () => {
+    if (mirrorTimerRef.current != null) clearTimeout(mirrorTimerRef.current)
+  }, [])
+  const queueReorder = (ids: string[]) => {
+    latestIdsRef.current = ids
+    if (mirrorTimerRef.current == null) {
+      mirrorTimerRef.current = window.setTimeout(() => {
+        mirrorTimerRef.current = null
+        if (latestIdsRef.current) setDragItemIds(latestIdsRef.current)
+      }, 120)
+    }
+  }
   const displayItemIds: string[] = useMemo(() => {
     if (!active) return []
     const ordered = orderByIds(active.items, (it) => it.id, dragItemIds ?? [])
@@ -241,6 +256,10 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
     // The hold path blocks scrolling for the whole gesture: always release it
     // at drop, changed or not.
     unblockTouchScroll()
+    if (mirrorTimerRef.current != null) {
+      clearTimeout(mirrorTimerRef.current)
+      mirrorTimerRef.current = null
+    }
     dropCommittedRef.current = true
     dropStampRef.current = Date.now()
     // Hold-entered sessions (grips hidden) exit on drop — quick in-and-out.
@@ -248,7 +267,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
       setOrderMode(false)
       setGripsVisible(true)
     }
-    const ids = dragItemIdsRef.current
+    const ids = latestIdsRef.current ?? dragItemIdsRef.current
     if (!ids || !active || !onReorderItems) return
     const ordered = orderByIds(active.items, (it) => it.id, ids)
     // No-op drops (released where it started) commit nothing.
@@ -352,12 +371,12 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
                 unblockTouchScroll()
               }}
             >
-              <Reorder.Group
-                key={`${soundingKey}|${layoutNonce}`}
-                axis="y"
-                values={displayItemIds}
-                onReorder={(ids) => setDragItemIds(ids)}
-              >
+                <Reorder.Group
+                  key={`${soundingKey}|${layoutNonce}`}
+                  axis="y"
+                  values={displayItemIds}
+                  onReorder={(ids) => queueReorder(ids)}
+                >
                 <AnimatePresence initial={false}>
                   {displayItemIds.map((iid, pos) => {
                     const idx = active.items.findIndex((it) => it.id === iid)
