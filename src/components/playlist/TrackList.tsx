@@ -110,9 +110,6 @@ function DragTrackRow({ track, index, isCurrent, currentIsSource, selectMode, is
       dragControls={controls}
       whileDrag={{ scale: 1.04, boxShadow: '0 10px 28px rgba(0,0,0,0.5)' }}
       exit={{ opacity: 0 }}
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2, delay: Math.min(index * 0.02, 0.4) }}
       onDragStart={() => onDragBegin()}
       onDragEnd={() => onCommitMove()}
       onClick={() => {
