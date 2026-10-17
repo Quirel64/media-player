@@ -13,6 +13,7 @@ import { HoldRing } from '../ui/HoldRing'
 // TEMP-TELEMETRY (scroll-drift diagnosis — remove with the onDrag hooks)
 import { telemetryDragSample } from '../../lib/dragTelemetry'
 import { useHoldToDrag, unblockTouchScroll } from '../ui/useHoldToDrag'
+import { useScrollSlotSync } from '../ui/useScrollSlotSync'
 import { AddTracksSheet } from './AddTracksSheet'
 
 interface Props {
@@ -45,7 +46,7 @@ function DragPlaylistRow({ itemId, track, position, isPlaying, editMode, isSelec
   dropStampRef: React.RefObject<number>
   onPlay: () => void
   onCommitMove: () => void
-  onDragBegin: () => void
+  onDragBegin: (id: string) => void
 }) {
   const controls = useDragControls()
   const hold = useHoldToDrag({
@@ -68,11 +69,12 @@ function DragPlaylistRow({ itemId, track, position, isPlaying, editMode, isSelec
     <Reorder.Item
       ref={rowRef}
       value={itemId}
+      data-drag-id={itemId}
       dragListener={false}
       dragControls={controls}
       whileDrag={{ scale: 1.04, boxShadow: '0 10px 28px rgba(0,0,0,0.5)' }}
       exit={{ opacity: 0 }}
-      onDragStart={() => onDragBegin()}
+      onDragStart={() => onDragBegin(itemId)}
       onDragEnd={() => onCommitMove()}
       onDrag={(_e, info) => {
         telemetryDragSample('pl', rowRef.current, info.point.y)
@@ -257,7 +259,23 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
   // must stay out (framer autoscrolls programmatically) or the two scrollers
   // fight and measurements drift.
   const [dragActive, setDragActive] = useState(false)
+  // Which row is being dragged (set at dragstart): the scroll-slot sync
+  // measures geometry relative to this id.
+  const draggedIdRef = useRef<string | null>(null)
+  // Scroll-driven slot sync (same as the library list): framer freezes slots
+  // when pointer velocity is zero; scroll events re-check geometry instead.
+  const syncNow = useScrollSlotSync({
+    containerRef: queueListRef,
+    active: dragActive,
+    draggedIdRef,
+    getIds: () => latestIdsRef.current ?? dragItemIdsRef.current ?? displayItemIds,
+    setIds: queueReorder,
+    label: 'pl',
+  })
   const commitDragMove = () => {
+    // Final geometry check before commit: a scroll in the last frames may not
+    // have had a rAF tick yet — land the drop where the row actually is.
+    syncNow()
     // The hold path blocks scrolling for the whole gesture: always release it
     // at drop, changed or not.
     unblockTouchScroll()

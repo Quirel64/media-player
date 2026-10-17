@@ -291,19 +291,57 @@ decoder with a probe again.
 - **Boot**: probe-only warm-up (uniform first-track load path), lockScreenMode
   localStorage fast path, re-apply handlers on play-start edge.
 
-## Reorder saga — OPEN (library scroll-drift, playlist verified)
+## Reorder saga — scroll-drift FIXED, parked-finger slot lag FIXED (2026-10-17)
+**Open items closed this session:**
+- **Library hold-drag flyaway — FIXED.** Root: library `DragTrackRow` set BOTH
+  `whileDrag={{ scale: 1.04 }}` (framer transform) AND `scale-[1.04]` (Tailwind
+  CSS `scale` property) plus `transition-colors`. The two scales compose (~8%
+  larger than the size framer measured at dragstart), so the row drifted ahead
+  of the finger; near an edge, framer autoscroll compounded it every frame until
+  the row flew off. Grip drags never set `hold.dragging`, playlist rows never had
+  the class — that's why only library hold-drags broke. Fix: dropped the Tailwind
+  scale/shadow and `transition-colors` from the dragged row; `whileDrag` owns all
+  scaling. Verified on iPhone: `pointerY − rowTop` constant to the pixel across a
+  1554px scrolled drag (`dragtele lib` logs).
+- **dragtele showed "no element" — FIXED.** Framer's `onDrag` fires with a native
+  pointer event, so `e.currentTarget` was always null. Rows now measure via a real
+  `rowRef` (both `TrackList` and `PlaylistsView`).
+- **Parked-finger slot lag — FIXED via `src/components/ui/useScrollSlotSync.ts`.**
+  Root (framer source, `check-reorder.mjs:38`): `if (!velocity[axis]) return order`
+  — framer only re-evaluates slots inside pointer events AND only when vertical
+  velocity is non-zero. A finger parked in the autoscroll edge keeps scrolling
+  (framer's `autoScrollIfNeeded` runs on any `onDrag`, even zero-velocity ones),
+  but the slot check returns early, so rows flow under the finger while order and
+  the number badges freeze. The "wiggle" workaround = velocity ≠ 0 = gate opens.
+  Fix: scroll-driven geometry sync — on container scroll during a drag, count row
+  centers above the finger (last pointer clientY; fallback = dragged row center)
+  and move the dragged id to that slot, applied through the same
+  `setIds`/`onReorder` path framer uses. Fires ONLY on scroll; framer keeps the
+  pointer-move path. A DOM-order == mirror guard skips frames where framer's own
+  reorder hasn't rendered, so the two never fight. `syncNow()` also runs at drop
+  for the last-frame scroll. New `data-drag-id` on rows, `onDragBegin(id)` wired.
+  `addLog('scrollslot lib|pl: from→to')` ships for device verification.
+
+## Reorder saga — history (pre-fix notes)
 - Framer Reorder restored (13→14.2: constraint-scroll + React 19 fixes).
 - Live mirror, full-order `orderByIds` commits, remount keys (track/select/
   size/resize — never order flag), grip + 600ms hold, touch blocker, haptics,
   edge autoscroll, click suppression, container touch-none while dragging.
 - Custom engine (`useRowDrag.ts`) tried and DELETED: fought framer over
   `transform`, broke drop precision.
-- OPEN: library rows drift/fly on scrolled drags; 68-track playlist control is
-  clean. `dragtele` telemetry (`lib`/`pl`: pointerY vs rowTop vs scrollTop @2Hz)
-  ships in this build to discriminate gesture-level vs order-level drift.
+- RESOLVED 2026-10-17: library rows no longer drift/fly on scrolled drags (double
+  `scale` — `whileDrag` transform + Tailwind `scale` property — removed; see the
+  new section at the top of this file). Parked-finger slot lag fixed by
+  `useScrollSlotSync`. `dragtele` (`lib`/`pl`: pointerY vs rowTop vs scrollTop
+  @2Hz, now via `rowRef`) kept for future device verification.
 - HoldRing (user-built, SMIL) + 100ms grace; EventLog copyable; global
   no-select except inputs.
 - Lessons (do not repeat): `transition` with delay on Reorder items poisons
   layout/drag physics; `layoutScroll` + popLayout breaks mounting; remounting
-  mid-gesture strands drags; `setLoadForce(0)` retriggered loads (double-start).
+  mid-gesture strands drags; `setLoadForce(0)` retriggered loads (double-start);
+  a CSS `scale`/`transform` utility class on a `Reorder.Item` stacks with
+  framer's `whileDrag` transform and desyncs measurement; framer's `onDrag`
+  event is native (no `currentTarget`); framer's slot check is gated on pointer
+  velocity (`check-reorder.mjs:38`), so scroll-driven reordering needs our own
+  geometry pass.
 

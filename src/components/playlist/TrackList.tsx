@@ -4,6 +4,7 @@ import type { Track } from '../../lib/types'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
 import { HoldRing } from '../ui/HoldRing'
 import { useHoldToDrag, unblockTouchScroll } from '../ui/useHoldToDrag'
+import { useScrollSlotSync } from '../ui/useScrollSlotSync'
 import { orderByIds } from '../../lib/queue'
 import { addLog } from '../../lib/logger'
 // TEMP-TELEMETRY (scroll-drift diagnosis — remove with the onDrag hook below)
@@ -84,7 +85,7 @@ function DragTrackRow({ track, index, isCurrent, currentIsSource, selectMode, is
   dropStampRef: React.RefObject<number>
   onPlay: () => void
   onCommitMove: () => void
-  onDragBegin: () => void
+  onDragBegin: (id: string) => void
 }) {
   const controls = useDragControls()
   // Long-press anywhere on the row also grabs it (same controls as the grip).
@@ -112,11 +113,12 @@ function DragTrackRow({ track, index, isCurrent, currentIsSource, selectMode, is
     <Reorder.Item
       ref={rowRef}
       value={track.id}
+      data-drag-id={track.id}
       dragListener={false}
       dragControls={controls}
       whileDrag={{ scale: 1.04, boxShadow: '0 10px 28px rgba(0,0,0,0.5)' }}
       exit={{ opacity: 0 }}
-      onDragStart={() => onDragBegin()}
+      onDragStart={() => onDragBegin(track.id)}
       onDragEnd={() => onCommitMove()}
       onDrag={(_e, info) => {
         telemetryDragSample('lib', rowRef.current, info.point.y)
@@ -243,6 +245,26 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
     latestIdsRef.current = ids
     setDragIds(ids)
   }
+  // Which row is being dragged (set at dragstart): the scroll-slot sync
+  // measures geometry relative to this id.
+  const draggedIdRef = useRef<string | null>(null)
+  // A drag is active between any row's dragstart and its drop: native scroll
+  // must stay out (framer autoscrolls programmatically) or the two scrollers
+  // fight and measurements drift.
+  const [dragActive, setDragActive] = useState(false)
+  // Scroll-driven slot sync: framer's check-reorder returns early when pointer
+  // velocity is zero, so a parked finger in the autoscroll zone scrolls the
+  // list while slots (and the number badges) freeze. The sync re-checks
+  // geometry on every container scroll; the DOM==mirror guard skips frames
+  // where framer's own reorder hasn't rendered yet, so the two never fight.
+  const syncNow = useScrollSlotSync({
+    containerRef: listRef,
+    active: dragActive,
+    draggedIdRef,
+    getIds: () => latestIdsRef.current ?? dragIdsRef.current ?? rowIds,
+    setIds: queueReorder,
+    label: 'lib',
+  })
   const displayTracks = useMemo(() => {
     const ordered = orderByIds(tracks, (t) => t.id, dragIds ?? rowIds)
     return ordered ?? tracks
@@ -267,6 +289,9 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
     }
   }, [])
   const commitDragMove = () => {
+    // Final geometry check before commit: a scroll in the last frames may not
+    // have had a rAF tick yet — land the drop where the row actually is.
+    syncNow()
     // The hold path blocks scrolling for the whole gesture: always release it
     // at drop, changed or not.
     unblockTouchScroll()
@@ -284,10 +309,6 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
   // Release-without-drop in a hold-entered session exits it (see prop note).
   // dropCommittedRef distinguishes a real drop (commit ran) from a bare lift.
   const dropCommittedRef = useRef(false)
-  // A drag is active between any row's dragstart and its drop: native scroll
-  // must stay out (framer autoscrolls programmatically) or the two scrollers
-  // fight and measurements drift.
-  const [dragActive, setDragActive] = useState(false)
   // Timestamp of the last drop commit: row clicks inside 300ms of it are the
   // release itself, not taps.
   const dropStampRef = useRef(0)
@@ -459,7 +480,10 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
                 dropStampRef={dropStampRef}
                 onPlay={() => onSelectTrack(index)}
                 onCommitMove={commitDragMove}
-                onDragBegin={() => setDragActive(true)}
+                onDragBegin={(id) => {
+                  draggedIdRef.current = id
+                  setDragActive(true)
+                }}
               />
             ))}
           </AnimatePresence>
