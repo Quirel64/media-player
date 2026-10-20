@@ -420,7 +420,10 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
                         dropStampRef={dropStampRef}
                         onPlay={() => onForcePlayPlaylist(active.id, idx)}
                         onCommitMove={commitDragMove}
-                        onDragBegin={() => setDragActive(true)}
+                        onDragBegin={(id) => {
+                          draggedIdRef.current = id
+                          setDragActive(true)
+                        }}
                       />
                     )
                   })}
