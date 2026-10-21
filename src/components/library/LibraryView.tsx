@@ -7,7 +7,7 @@ import { PlayingIndicator } from '../ui/PlayingIndicator'
 import { usePlayerStore } from '../../stores/playerStore'
 import { queueKey, findQueueIndexByKey, orderByIds } from '../../lib/queue'
 import { getTrackFile } from '../../lib/idb'
-import { getTrackThumbnail } from '../../lib/thumbnail'
+import { getTrackThumbnail, getCachedThumbnails } from '../../lib/thumbnail'
 
 interface Props {
   tracks: Track[]
@@ -53,7 +53,7 @@ export function LibraryView({ tracks, onSelectTrack, onPickFolder, onPickFiles, 
   const [queueSelectAllTrigger, setQueueSelectAllTrigger] = useState(0)
   const [queueSelectClearTrigger, setQueueSelectClearTrigger] = useState(0)
   const [selectAllOn, setSelectAllOn] = useState(false)
-  const [thumbs, setThumbs] = useState<Record<string, string>>({})
+  const [thumbs, setThumbs] = useState<Record<string, string>>(() => getCachedThumbnails())
 
   const grouped = useMemo(() => groupTracks(tracks, { minGroupSize: 2 }), [tracks])
 
@@ -81,7 +81,7 @@ export function LibraryView({ tracks, onSelectTrack, onPickFolder, onPickFiles, 
         try {
           const file = await getTrackFile(t.fileName)
           if (!file || cancelled) continue
-          const url = await getTrackThumbnail(file, t.mediaType)
+          const url = await getTrackThumbnail(file, t.mediaType, t.fileName)
           if (url && !cancelled) setThumbs((prev) => (prev[t.fileName] ? prev : { ...prev, [t.fileName]: url }))
         } catch { /* ignore */ }
       }

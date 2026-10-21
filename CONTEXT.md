@@ -274,6 +274,13 @@ volume 0 + disableRemotePlayback + inline + airplay-deny before src, and
 Library / playlist-detail / playlist-grid loaders abort while audio plays,
 resuming on pause. Thumbnails fill in when paused; playback never shares the
 decoder with a probe again.
+Follow-up (2026-10-17): probes still pause during playback, but results are now
+memoized in a module-level cache (`thumbnail.ts`, data URLs, keyed by fileName,
+cap 500) and each view seeds its `thumbs` state from it. Previously every view
+had private state, so starting playback in the library then opening a playlist's
+Tracks tab showed no thumbnails at all even for already-probed files. Cached
+thumbs now appear in every view immediately; only never-probed tracks wait for
+pause. Failed video probes are NOT cached (retry later); audio nulls are cached.
 
 ## Engine hardening — DONE (spam survival, iPhone 12 + Windows verified)
 - **Swap serialization**: mutex + last-wins skip; blind retry replaced by guarded

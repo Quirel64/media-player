@@ -5,7 +5,7 @@ import { usePlayerStore } from '../../stores/playerStore'
 import { orderByIds } from '../../lib/queue'
 import { getAllTracks } from '../../lib/idb'
 import { getTrackFile } from '../../lib/idb'
-import { getTrackThumbnail } from '../../lib/thumbnail'
+import { getTrackThumbnail, getCachedThumbnails } from '../../lib/thumbnail'
 import { showError } from '../ui/Toast'
 import { addLog } from '../../lib/logger'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
@@ -133,7 +133,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
   const [orderMode, setOrderMode] = useState(false)
   const [gripsVisible, setGripsVisible] = useState(true)
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
-  const [thumbs, setThumbs] = useState<Record<string, string>>({})
+  const [thumbs, setThumbs] = useState<Record<string, string>>(() => getCachedThumbnails())
 
   const active = activeId ? playlists.find(p => p.id === activeId) ?? null : null
 
@@ -170,7 +170,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
           try {
             const file = await getTrackFile(track.fileName)
             if (!file || cancelled) continue
-            const url = await getTrackThumbnail(file, track.mediaType)
+            const url = await getTrackThumbnail(file, track.mediaType, track.fileName)
             if (url && !cancelled) setThumbs(prev => prev[track.fileName] ? prev : { ...prev, [track.fileName]: url })
           } catch {}
         }
@@ -199,7 +199,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
         try {
           const file = await getTrackFile(t.fileName)
           if (!file || cancelled) continue
-          const url = await getTrackThumbnail(file, t.mediaType)
+          const url = await getTrackThumbnail(file, t.mediaType, t.fileName)
           if (url && !cancelled) setThumbs(prev => prev[t.fileName] ? prev : { ...prev, [t.fileName]: url })
         } catch {}
       }

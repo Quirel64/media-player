@@ -3,11 +3,37 @@
  * Audio: embedded picture via ID3/MP4 tags (jsmediatags if available).
  * Video: first frame via hidden <video> + canvas.
  * Returns data URL or null (caller falls back to SVG icon).
+ *
+ * Results are memoized in a module-level cache (data URLs, so no object-URL
+ * lifecycle). Views seed their thumbs state from it, so a thumbnail generated
+ * in one view shows instantly in another — including while audio plays, when
+ * fresh probes are deliberately paused (lock-screen timeline hygiene).
  */
 
-export async function getTrackThumbnail(file: File, type: 'audio' | 'video'): Promise<string | null> {
-  if (type === 'video') return getVideoThumbnail(file)
-  return getAudioThumbnail(file)
+const thumbnailCache = new Map<string, string | null>()
+const MAX_CACHED_THUMBNAILS = 500
+
+export function getCachedThumbnails(): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [key, url] of thumbnailCache) if (url) out[key] = url
+  return out
+}
+
+export async function getTrackThumbnail(file: File, type: 'audio' | 'video', cacheKey?: string): Promise<string | null> {
+  if (cacheKey !== undefined && thumbnailCache.has(cacheKey)) {
+    return thumbnailCache.get(cacheKey) ?? null
+  }
+  const url = type === 'video' ? await getVideoThumbnail(file) : await getAudioThumbnail(file)
+  if (cacheKey !== undefined) {
+    if (url || type === 'audio') {
+      if (thumbnailCache.size >= MAX_CACHED_THUMBNAILS) {
+        const oldest = thumbnailCache.keys().next().value
+        if (oldest !== undefined) thumbnailCache.delete(oldest)
+      }
+      thumbnailCache.set(cacheKey, url)
+    }
+  }
+  return url
 }
 
 async function getAudioThumbnail(_file: File): Promise<string | null> {
