@@ -281,6 +281,12 @@ had private state, so starting playback in the library then opening a playlist's
 Tracks tab showed no thumbnails at all even for already-probed files. Cached
 thumbs now appear in every view immediately; only never-probed tracks wait for
 pause. Failed video probes are NOT cached (retry later); audio nulls are cached.
+Follow-up (2026-10-17): the playlist OVERVIEW grid never rendered thumbnails at
+all — it hardcoded a 📋 placeholder per cell while the loader right above it
+fetched grid thumbs into state nobody read. Now renders real covers (trackId →
+fileName map) with a `+N` badge on the 4th cell when the playlist has more than
+4 items (was `+N` replacing the cell, and `length-3`; now `length-4` since the
+4th cover shows too).
 
 ## Engine hardening — DONE (spam survival, iPhone 12 + Windows verified)
 - **Swap serialization**: mutex + last-wins skip; blind retry replaced by guarded

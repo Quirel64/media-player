@@ -134,6 +134,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
   const [gripsVisible, setGripsVisible] = useState(true)
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
   const [thumbs, setThumbs] = useState<Record<string, string>>(() => getCachedThumbnails())
+  const [trackFileNameById, setTrackFileNameById] = useState<Record<string, string>>({})
 
   const active = activeId ? playlists.find(p => p.id === activeId) ?? null : null
 
@@ -187,6 +188,11 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
     ;(async () => {
       const all = await getAllTracks()
       const map = new Map(all.map(t => [t.id, t] as const))
+      if (cancelled) return
+      // Playlist items reference trackId; thumbnails are keyed by fileName.
+      const byId: Record<string, string> = {}
+      for (const t of all) byId[t.id] = t.fileName
+      setTrackFileNameById(byId)
       const toLoad: Track[] = []
       for (const pl of playlists) {
         for (let i = 0; i < Math.min(4, pl.items.length); i++) {
@@ -525,12 +531,23 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
             {playlists.map(p => (
               <motion.button key={p.id} whileTap={{ scale: 0.97 }} onClick={() => setActiveId(p.id)} className="flex flex-col overflow-hidden rounded-lg bg-slate-900 text-left">
                 <div className="grid h-28 grid-cols-2 gap-0.5 bg-slate-800 p-0.5">
-                  {/* Show 2x2 thumbs or placeholder */}
+                  {/* 2x2 cover art from the first 4 items; +N overlay on the 4th */}
                   {(() => {
                     return [0,1,2,3].map(i => {
-                      if (p.items.length === 0) return <div key={i} className="bg-slate-700 flex items-center justify-center text-slate-500 text-xs">—</div>
-                      if (i === 3 && p.items.length > 4) return <div key={i} className="flex items-center justify-center bg-slate-700 text-sm font-semibold text-slate-300">+{p.items.length - 3}</div>
-                      return <div key={i} className="bg-slate-700 flex items-center justify-center text-slate-500">📋</div>
+                      const item = p.items[i]
+                      if (!item) return <div key={i} className="bg-slate-700 flex items-center justify-center text-slate-500 text-xs">—</div>
+                      const fileName = trackFileNameById[item.trackId]
+                      const url = fileName ? thumbs[fileName] : undefined
+                      const overflow = i === 3 && p.items.length > 4
+                      if (!url) return <div key={i} className="bg-slate-700 flex items-center justify-center text-slate-500">📋</div>
+                      return (
+                        <div key={i} className="relative overflow-hidden bg-slate-700">
+                          <img src={url} alt="" className="h-full w-full object-cover" />
+                          {overflow && (
+                            <span className="absolute bottom-0 right-0 rounded-tl bg-slate-900/80 px-1.5 text-xs font-semibold text-slate-200">+{p.items.length - 4}</span>
+                          )}
+                        </div>
+                      )
                     })
                   })()}
                 </div>
