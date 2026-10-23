@@ -7,7 +7,7 @@ import { PlayingIndicator } from '../ui/PlayingIndicator'
 import { usePlayerStore } from '../../stores/playerStore'
 import { queueKey, findQueueIndexByKey, orderByIds } from '../../lib/queue'
 import { getTrackFile } from '../../lib/idb'
-import { getTrackThumbnail, getCachedThumbnails } from '../../lib/thumbnail'
+import { getTrackThumbnail, getCachedThumbnails, loadPersistedThumbnails, canProbeNow } from '../../lib/thumbnail'
 
 interface Props {
   tracks: Track[]
@@ -54,14 +54,25 @@ export function LibraryView({ tracks, onSelectTrack, onPickFolder, onPickFiles, 
   const [queueSelectClearTrigger, setQueueSelectClearTrigger] = useState(0)
   const [selectAllOn, setSelectAllOn] = useState(false)
   const [thumbs, setThumbs] = useState<Record<string, string>>(() => getCachedThumbnails())
+  const [probeTick, setProbeTick] = useState(0)
 
   const grouped = useMemo(() => groupTracks(tracks, { minGroupSize: 2 }), [tracks])
 
   // Lazy thumbnails: first 4 per group + visible loose (limit 24 total) to avoid IndexedDB churn on iOS.
   // S3: when a group is open, load ALL its members (cap 40) so detail rows show thumbs too.
-  // Probing pauses while audio plays: a parked probe video (~3.5s seek) registers
-  // a competing lock-screen timeline (phantom 4s seek fight). Resumes on pause.
+  // Probing pauses while audio plays by default (a parked seek probe registers
+  // a competing lock-screen timeline). `canProbeNow()` owns the gate; the
+  // EventLog toggle can allow seekless-only probes during playback.
   const isPlayingProbe = usePlayerStore((s) => s.isPlaying)
+  useEffect(() => {
+    let cancelled = false
+    void loadPersistedThumbnails().then((stored) => {
+      if (!cancelled && Object.keys(stored).length > 0) setThumbs((prev) => ({ ...stored, ...prev }))
+    })
+    const onResume = () => setProbeTick((v) => v + 1)
+    window.addEventListener('thumb-probes-resume', onResume)
+    return () => { cancelled = true; window.removeEventListener('thumb-probes-resume', onResume) }
+  }, [])
   useEffect(() => {
     let cancelled = false
     const toLoad: Track[] = []
@@ -77,7 +88,7 @@ export function LibraryView({ tracks, onSelectTrack, onPickFolder, onPickFiles, 
     if (missing.length === 0) return
     ;(async () => {
       for (const t of missing) {
-        if (cancelled || usePlayerStore.getState().isPlaying) break
+        if (cancelled || !canProbeNow()) break
         try {
           const file = await getTrackFile(t.fileName)
           if (!file || cancelled) continue
@@ -87,7 +98,7 @@ export function LibraryView({ tracks, onSelectTrack, onPickFolder, onPickFiles, 
       }
     })()
     return () => { cancelled = true }
-  }, [grouped.groups, grouped.loose, activeGroupId, isPlayingProbe])
+  }, [grouped.groups, grouped.loose, activeGroupId, isPlayingProbe, probeTick])
   const query = search.trim().toLowerCase()
 
   const filteredGroups = useMemo(() => {

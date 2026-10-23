@@ -5,7 +5,7 @@ import { usePlayerStore } from '../../stores/playerStore'
 import { orderByIds } from '../../lib/queue'
 import { getAllTracks } from '../../lib/idb'
 import { getTrackFile } from '../../lib/idb'
-import { getTrackThumbnail, getCachedThumbnails } from '../../lib/thumbnail'
+import { getTrackThumbnail, getCachedThumbnails, loadPersistedThumbnails, canProbeNow } from '../../lib/thumbnail'
 import { showError } from '../ui/Toast'
 import { addLog } from '../../lib/logger'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
@@ -135,6 +135,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
   const [thumbs, setThumbs] = useState<Record<string, string>>(() => getCachedThumbnails())
   const [trackFileNameById, setTrackFileNameById] = useState<Record<string, string>>({})
+  const [probeTick, setProbeTick] = useState(0)
 
   const active = activeId ? playlists.find(p => p.id === activeId) ?? null : null
 
@@ -155,9 +156,18 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
     return () => { cancelled = true }
   }, [active])
 
-  // Thumbnails for active detail and grid. Parked probes (~3.5s video seeks)
-  // compete with the lock screen — probing pauses while audio plays.
+  // Thumbnails for active detail and grid. Persisted per file, so probes are
+  // one-time. `canProbeNow()` handles playback pause + seek/hidden cooldown.
   const isPlayingProbe = usePlayerStore((s) => s.isPlaying)
+  useEffect(() => {
+    let cancelled = false
+    void loadPersistedThumbnails().then((stored) => {
+      if (!cancelled && Object.keys(stored).length > 0) setThumbs((prev) => ({ ...stored, ...prev }))
+    })
+    const onResume = () => setProbeTick((v) => v + 1)
+    window.addEventListener('thumb-probes-resume', onResume)
+    return () => { cancelled = true; window.removeEventListener('thumb-probes-resume', onResume) }
+  }, [])
   useEffect(() => {
     let cancelled = false
     const toLoad: { fileName: string, track: Track }[] = []
@@ -167,7 +177,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
       if (toLoad.length === 0) return
       ;(async () => {
         for (const { track } of toLoad) {
-          if (cancelled || usePlayerStore.getState().isPlaying) break
+          if (cancelled || !canProbeNow()) break
           try {
             const file = await getTrackFile(track.fileName)
             if (!file || cancelled) continue
@@ -178,7 +188,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
       })()
     }
     return () => { cancelled = true }
-  }, [active, activeTracks, viewMode, thumbs, isPlayingProbe])
+  }, [active, activeTracks, viewMode, thumbs, isPlayingProbe, probeTick])
 
   // Grid thumbnails for playlist overview (first 4 per playlist). Same
   // probe-hygiene as above: never while audio plays.
@@ -201,7 +211,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
         }
       }
       for (const t of toLoad) {
-        if (cancelled || usePlayerStore.getState().isPlaying) break
+        if (cancelled || !canProbeNow()) break
         try {
           const file = await getTrackFile(t.fileName)
           if (!file || cancelled) continue
@@ -211,7 +221,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
       }
     })()
     return () => { cancelled = true }
-  }, [playlists, active, thumbs, isPlayingProbe])
+  }, [playlists, active, thumbs, isPlayingProbe, probeTick])
 
   const handleCreate = async () => {
     const name = newName.trim()

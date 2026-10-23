@@ -288,6 +288,51 @@ fileName map) with a `+N` badge on the 4th cell when the playlist has more than
 4 items (was `+N` replacing the cell, and `length-3`; now `length-4` since the
 4th cover shows too).
 
+## Thumbnail probes — persisted + smarter frames (2026-10-22)
+The old probe (`getVideoThumbnail`) always seeked to ~3.5s for every video on
+every app launch. The seek (not `play()`) is what registers the competing
+lock-screen position; a manual seek while a probe is parked is what actually
+produced the "two bars fighting" symptom (no manual seek → no fight). So the
+fix is fewer/lighter probes, not removing seeks (there is no browser-only
+alternative: embedded art is unavailable, WebCodecs+demuxer is out of scope).
+
+- **Persisted to IndexedDB** (`idb.ts` `DB_VERSION 5`, `thumbs` store keyed by
+  `fileName`, data URL strings). `thumbnail.ts` hydrates the memory cache once
+  (`ensureHydrated`/`loadPersistedThumbnails`), views merge it into state on
+  mount. Each file is probed once per device, not once per launch. Deletion
+  paths clean up: `removeTrack`/`removeTracks` delete by fileName, boot
+  reconcile prunes thumbs for vanished files, `clearAll` wipes the cache
+  (`resetDB` drops the store). "Check Storage" now logs thumb count + ~KB.
+- **Adaptive seeks** instead of a fixed 3.5s: base
+  `clamp(duration*0.1, 3s, 30s)` (short clips use `duration*0.5`), then step
+  `~8%` of duration (capped 15s), max 3 attempts. Fixes "still black at 3.5s".
+- **Frame validation** before accepting: mean luma must be in `[8, 245]` and
+  stddev ≥ 5 (32×18 luma sample). Dark, flat/white title, or letterbox-only
+  frames are rejected → next target; if all fail, store nothing and show the
+  icon (a black rectangle looks broken, the icon looks intentional).
+- **Seekless frame-0 path**: draw after `loadeddata` without writing
+  `currentTime`; accepted only if it passes the same validation. Idle probing
+  seeks first and uses frame 0 only as a fallback (frame 0 is often a title
+  card/logo, which must not become the permanent thumb). During playback, frame
+  0 is the only allowed result and is kept **memory-only** (provisional) so a
+  later idle pass can seek and persist a representative frame.
+- **Probing during playback is opt-in**: EventLog button `Probe play` (default
+  OFF, localStorage `thumb-probe-during-playback`). When ON, only the seekless
+  path runs (one attempt per file per playing epoch); seeks never run while
+  audio plays. Default OFF keeps the hard-won "playback never shares the
+  decoder with a probe" guarantee.
+- **Serialized + deduped**: one probe media element at a time (`enqueueProbe`
+  chain), in-flight map keyed by fileName.
+- **Abort on interaction**: `useAudioEngine.seek()` dispatches `media-seek`;
+  thumbnail aborts the active probe on that and on `visibilitychange → hidden`
+  (`abortThumbnailProbes`), then holds a 2s cooldown so the loop does not
+  immediately reopen the park window. Views gate with `canProbeNow()`.
+- Probes log one line each: `thumb <name>: seekless-ok`, `seek-ok …`,
+  `seekless-fallback`, `unusable …`, `aborted:seek|hidden`, `load-timeout`.
+- `abortThumbnailProbes` schedules a `thumb-probes-resume` window event after
+  the cooldown (and fires it immediately on visible) so loaders re-run without
+  needing an unrelated render.
+
 ## Engine hardening — DONE (spam survival, iPhone 12 + Windows verified)
 - **Swap serialization**: mutex + last-wins skip; blind retry replaced by guarded
   retry (500ms after NotSupportedError, 120ms otherwise).

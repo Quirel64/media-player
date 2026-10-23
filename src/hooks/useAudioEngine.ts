@@ -509,6 +509,9 @@ export function useAudioEngine() {
 
   const seek = useCallback((time: number) => {
     const media = mediaRef.current; if (!media) return
+    // A parked thumbnail probe + a user seek is the exact pair that makes iOS
+    // merge two Now Playing timelines. Abort probes the moment a seek starts.
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('media-seek'))
     const trackDur = trackDurationRef.current || media.duration || time
     const clamped = Math.max(0, Math.min(time, trackDur))
     frozenPosRef.current = clamped; setCurrentTime(clamped)

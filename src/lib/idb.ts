@@ -2,11 +2,12 @@
 import type { Track, Playlist } from './types'
 
 const DB_NAME = 'media-player-db'
-const DB_VERSION = 4
+const DB_VERSION = 5
 const TRACKS_STORE = 'tracks'
 const PLAYLISTS_STORE = 'playlists'
 const SETTINGS_STORE = 'settings'
 const FILES_STORE = 'files'
+const THUMBS_STORE = 'thumbs'
 
 interface MediaDB extends DBSchema {
   [TRACKS_STORE]: {
@@ -25,6 +26,10 @@ interface MediaDB extends DBSchema {
   [FILES_STORE]: {
     key: string
     value: File
+  }
+  [THUMBS_STORE]: {
+    key: string
+    value: string
   }
 }
 
@@ -50,6 +55,9 @@ async function getDB(): Promise<IDBPDatabase<MediaDB>> {
         if (!tracksStore.indexNames.contains('by-createdAt')) {
           tracksStore.createIndex('by-createdAt', 'createdAt')
         }
+      }
+      if (oldVersion < 5) {
+        db.createObjectStore(THUMBS_STORE)
       }
       if (oldVersion < 4) {
         // Migrate legacy playlists (tracks: Track[]) to items: PlaylistItem[] for duplicate support
@@ -226,14 +234,17 @@ export interface StorageReport {
   trackCount: number
   blobCount: number
   metadataBytes: number
+  thumbCount: number
+  thumbBytes: number
   estimateUsage: number | null
   estimateQuota: number | null
 }
 
 export async function getTruthfulStorageReport(): Promise<StorageReport> {
-  const [tracks, blobNames, est] = await Promise.all([
+  const [tracks, blobNames, thumbStats, est] = await Promise.all([
     getAllTracks().catch(() => [] as Track[]),
     getAllFileBlobNames().catch(() => [] as string[]),
+    getThumbnailStats().catch(() => ({ count: 0, bytes: 0 })),
     getStorageEstimate(),
   ])
   let metadataBytes = 0
@@ -242,6 +253,8 @@ export async function getTruthfulStorageReport(): Promise<StorageReport> {
     trackCount: tracks.length,
     blobCount: blobNames.length,
     metadataBytes,
+    thumbCount: thumbStats.count,
+    thumbBytes: thumbStats.bytes,
     estimateUsage: est?.usage ?? null,
     estimateQuota: est?.quota ?? null,
   }
@@ -298,6 +311,57 @@ export async function clearTrackFiles(): Promise<void> {
 
 export async function listTrackFiles(): Promise<string[]> {
   return getAllFileBlobNames()
+}
+
+// Thumbnails (data URLs, keyed by fileName). Persisted so each video is
+// probed once per device instead of once per app launch.
+export async function getAllThumbnails(): Promise<Record<string, string>> {
+  const db = await getDB()
+  const keys = await db.getAllKeys(THUMBS_STORE)
+  const values = await Promise.all(keys.map((k) => db.get(THUMBS_STORE, k)))
+  const out: Record<string, string> = {}
+  keys.forEach((k, i) => {
+    const v = values[i]
+    if (typeof v === 'string' && v) out[k] = v
+  })
+  return out
+}
+
+export async function saveThumbnail(fileName: string, dataUrl: string): Promise<void> {
+  const db = await getDB()
+  await db.put(THUMBS_STORE, dataUrl, fileName)
+}
+
+export async function deleteThumbnail(fileName: string): Promise<void> {
+  const db = await getDB()
+  await db.delete(THUMBS_STORE, fileName)
+}
+
+export async function clearThumbnails(): Promise<void> {
+  const db = await getDB()
+  await db.clear(THUMBS_STORE)
+}
+
+export async function getThumbnailStats(): Promise<{ count: number; bytes: number }> {
+  const db = await getDB()
+  const keys = await db.getAllKeys(THUMBS_STORE)
+  let bytes = 0
+  for (const k of keys) {
+    const v = await db.get(THUMBS_STORE, k)
+    if (typeof v === 'string') bytes += v.length
+  }
+  return { count: keys.length, bytes }
+}
+
+export async function pruneThumbnails(keepFileNames: Set<string>): Promise<number> {
+  const db = await getDB()
+  const keys = await db.getAllKeys(THUMBS_STORE)
+  const stale = keys.filter((k) => !keepFileNames.has(k))
+  if (stale.length === 0) return 0
+  const tx = db.transaction(THUMBS_STORE, 'readwrite')
+  for (const k of stale) void tx.store.delete(k)
+  await tx.done
+  return stale.length
 }
 
 export async function debugTrackFiles(): Promise<void> {

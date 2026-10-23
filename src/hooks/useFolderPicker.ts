@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import type { Track } from '../lib/types'
-import { saveTracks, getAllTracks, savePlaylist, resetDB, deleteTrack, getPlaylist, getAllPlaylists, getAllFileBlobNames, getStorageEstimate, saveTrackFile, clearTrackFiles, deleteTrackFile, debugTrackFiles } from '../lib/idb'
+import { saveTracks, getAllTracks, savePlaylist, resetDB, deleteTrack, getPlaylist, getAllPlaylists, getAllFileBlobNames, getStorageEstimate, saveTrackFile, clearTrackFiles, deleteTrackFile, debugTrackFiles, deleteThumbnail, pruneThumbnails } from '../lib/idb'
+import { removeCachedThumbnail, clearThumbnailCache } from '../lib/thumbnail'
 import { generateTrackId } from '../lib/shuffle'
 import { usePlayerStore } from '../stores/playerStore'
 import { addLog } from '../lib/logger'
@@ -337,6 +338,10 @@ export function useFolderPicker() {
         }
       }
 
+      // 3b. Drop persisted thumbnails for files that no longer exist.
+      const prunedThumbs = await pruneThumbnails(new Set(validByName.keys())).catch(() => 0)
+      if (prunedThumbs > 0) addLog(`thumb: pruned ${prunedThumbs} orphaned thumbnail${prunedThumbs === 1 ? '' : 's'}`)
+
       // 4. Repair library snapshot: tracks[] = valid in createdAt order; items keep
       // stable IDs for surviving trackIds (no UUID churn), new IDs only for newcomers.
       const ordered = [...valid].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
@@ -419,6 +424,7 @@ export function useFolderPicker() {
     addLog(`clearAll start: estimate=${(estBefore?.usage ?? 0) / (1024*1024)}MB`)
     await clearTrackFiles()
     await resetDB()
+    clearThumbnailCache()
     try {
       const cacheNames = await caches.keys()
       for (const name of cacheNames) {
@@ -437,6 +443,8 @@ export function useFolderPicker() {
 
   const removeTrack = useCallback(async (track: Track) => {
     await deleteTrackFile(track.fileName)
+    try { await deleteThumbnail(track.fileName) } catch { /* best-effort */ }
+    removeCachedThumbnail(track.fileName)
     await deleteTrack(track.id)
     // Phase 1a: transactional delete — also prune library copy + all playlist refs
     // so deleted metadata can't resurrect on reload (dud stacking).
@@ -460,6 +468,8 @@ export function useFolderPicker() {
   const removeTracks = useCallback(async (tracks: Track[]) => {
     for (const track of tracks) {
       await deleteTrackFile(track.fileName)
+      try { await deleteThumbnail(track.fileName) } catch { /* best-effort */ }
+      removeCachedThumbnail(track.fileName)
       await deleteTrack(track.id)
     }
     // Phase 1a: transactional delete — also prune library copy + all playlist refs

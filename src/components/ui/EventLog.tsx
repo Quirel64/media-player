@@ -3,12 +3,20 @@ import { getLogs, subscribeLogs, clearLogs, addLog } from '../../lib/logger'
 import { usePlayerStore } from '../../stores/playerStore'
 import { groupTracks, describeGroups } from '../../lib/group'
 import { getStorageEstimate, getTruthfulStorageReport } from '../../lib/idb'
+import { getProbeDuringPlayback, setProbeDuringPlayback } from '../../lib/thumbnail'
 
 export function EventLog() {
   const [entries, setEntries] = useState<string[]>(() => getLogs())
   const queue = usePlayerStore((s) => s.queue)
+  const [probePlay, setProbePlay] = useState(() => getProbeDuringPlayback())
 
   useEffect(() => subscribeLogs(setEntries), [])
+
+  const toggleProbePlay = () => {
+    const next = !probePlay
+    setProbePlay(next)
+    setProbeDuringPlayback(next)
+  }
 
   const runGroupPreview = () => {
     if (queue.length === 0) { addLog('group preview: queue empty'); return }
@@ -24,9 +32,10 @@ export function EventLog() {
     try {
       const rep = await getTruthfulStorageReport()
       const realMB = (rep.metadataBytes / (1024 * 1024)).toFixed(1)
+      const thumbKB = (rep.thumbBytes / 1024).toFixed(0)
       const estMB = rep.estimateUsage != null ? (rep.estimateUsage / (1024 * 1024)).toFixed(2) : '?'
       const quotaMB = rep.estimateQuota != null ? (rep.estimateQuota / (1024 * 1024)).toFixed(0) : '?'
-      addLog(`storage real: ${realMB}MB across ${rep.trackCount} tracks / ${rep.blobCount} blobs (estimate()=${estMB}MB of ${quotaMB}MB — iOS under-counts, trust the real figure)`)
+      addLog(`storage real: ${realMB}MB across ${rep.trackCount} tracks / ${rep.blobCount} blobs; thumbs ${rep.thumbCount} (~${thumbKB}KB) (estimate()=${estMB}MB of ${quotaMB}MB — iOS under-counts, trust the real figure)`)
     } catch (e) {
       const est = await getStorageEstimate()
       if (est) {
@@ -44,7 +53,14 @@ export function EventLog() {
     <div className="flex h-full flex-col rounded-xl border border-slate-800 bg-slate-900">
       <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
         <h3 className="text-sm font-semibold text-white">Event Log</h3>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
+          <button
+            onClick={toggleProbePlay}
+            className={`rounded-md px-2.5 py-1 text-xs font-medium ${probePlay ? 'bg-emerald-600 text-white hover:bg-emerald-500' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+            title="Probe video thumbnails while audio plays (seekless frame 0 only). Off by default to protect the lock-screen timeline."
+          >
+            Probe play: {probePlay ? 'ON' : 'OFF'}
+          </button>
           <button
             onClick={runGroupPreview}
             className="rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-indigo-500"
