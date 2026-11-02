@@ -243,6 +243,8 @@ All core functionality verified on iOS 26.2 PWA + Windows:
 8. adding fullscreen mode to the video which would work for when you tilt the phone horizonatally for example or just a button that gives fullscreen.
 9. making the group play in the groups order instead of the queue. (once playlists are implemented.)
 10. allowing users to modify the order of the queue in a playlist or in the library queue mode.
+11. adding a delete playlist button while there are no tracks in the playlist. (currently delete playlist only appears when there is at least one track in the playlist.)
+12. remove delete from +tracks inside of a playlist as it is for adding tracks not deleting them.
 
 ## Cleanup Phases — DONE 2026-09-27 (C, 1a/1b/1c, 3; Phase 4 struck off)
 Verified on iPhone 12 (Safari-web + standalone PWA, separate IDB stores) + Windows laptop:
