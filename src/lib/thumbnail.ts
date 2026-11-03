@@ -22,7 +22,7 @@
 
 import { addLog } from './logger'
 import { usePlayerStore } from '../stores/playerStore'
-import { getAllThumbnails, saveThumbnail as persistThumbnail } from './idb'
+import { getAllThumbnails, saveThumbnail as persistThumbnail, deleteThumbnail } from './idb'
 
 const thumbnailCache = new Map<string, string | null>()
 const MAX_CACHED_THUMBNAILS = 500
@@ -70,7 +70,8 @@ function ensureHydrated(): Promise<void> {
         let added = 0
         for (const [key, url] of Object.entries(stored)) {
           if (!thumbnailCache.has(key)) {
-            thumbnailCache.set(key, url)
+            // Empty string = persisted "no usable frame" marker, not a URL.
+            thumbnailCache.set(key, url === '' ? null : url)
             added++
           }
         }
@@ -102,6 +103,21 @@ export function clearThumbnailCache(): void {
   thumbnailCache.clear()
 }
 
+// Undo persistent "no usable frame" markers (and any in-memory nulls) so those
+// files get re-probed with the current seek constants. Use after retuning.
+export async function clearThumbnailFailureMarks(): Promise<void> {
+  await ensureHydrated()
+  const marked: string[] = []
+  for (const [key, value] of thumbnailCache) {
+    if (value === null) marked.push(key)
+    thumbnailCache.delete(key)
+  }
+  for (const key of marked) {
+    try { await deleteThumbnail(key) } catch { /* already gone */ }
+  }
+  addLog(`thumb: cleared ${marked.length} failure marker${marked.length === 1 ? '' : 's'} — files will re-probe`)
+}
+
 function cacheInMemory(key: string, url: string | null): void {
   if (thumbnailCache.size >= MAX_CACHED_THUMBNAILS && !thumbnailCache.has(key)) {
     const oldest = thumbnailCache.keys().next().value
@@ -114,7 +130,6 @@ function cacheInMemory(key: string, url: string | null): void {
 // Probe gating / serialization
 // ---------------------------------------------------------------------------
 
-let lastPlaying = false
 const seeklessAttempted = new Set<string>()
 let suspended = false
 let cooldownUntil = 0
@@ -124,12 +139,7 @@ let resumeTimer: ReturnType<typeof setTimeout> | null = null
 let activeAbort: { id: number; abort: (reason: string) => void } | null = null
 
 function syncPlayEpoch(): boolean {
-  const playing = usePlayerStore.getState().isPlaying
-  if (playing !== lastPlaying) {
-    lastPlaying = playing
-    seeklessAttempted.clear()
-  }
-  return playing
+  return usePlayerStore.getState().isPlaying
 }
 
 export function canProbeNow(): boolean {
@@ -170,6 +180,21 @@ if (typeof window !== 'undefined') {
     }
   })
 }
+
+// An element parked at a non-zero position must never coexist with a live
+// track/anchor session: iOS merges the two timelines, the lock-screen seekto
+// stops reaching us and play()/swap wedges follow. Views stop STARTING probes
+// while playing, but an in-flight probe would keep parking — abort it the
+// instant playback starts or the loaded track changes (a tap without autoplay
+// still swaps the engine element).
+usePlayerStore.subscribe((state, prev) => {
+  if (state.isPlaying !== prev.isPlaying) {
+    seeklessAttempted.clear()
+    if (state.isPlaying) abortThumbnailProbes('playing')
+  } else if (state.currentTrackIndex !== prev.currentTrackIndex && !state.isPlaying) {
+    abortThumbnailProbes('track-change')
+  }
+})
 
 let probeChain: Promise<unknown> = Promise.resolve()
 
@@ -231,6 +256,15 @@ export async function getTrackThumbnail(file: File, type: 'audio' | 'video', cac
       if (result.mode !== 'seekless-ok') {
         try { await persistThumbnail(dedupeKey, result.url) } catch (e) { addLog(`thumb: persist failed (${e})`) }
       }
+    } else if (!result.url && dedupeKey !== undefined && result.mode.startsWith('unusable')) {
+      // Content-based negative result (dark everywhere): persist an empty
+      // marker so this file is never probed again. Environment failures
+      // (error / timeout / aborted) stay uncached and retry later.
+      cacheInMemory(dedupeKey, null)
+      try {
+        await persistThumbnail(dedupeKey, '')
+        addLog(`thumb ${file.name}: marked no-usable-frame (not retried again)`)
+      } catch (e) { addLog(`thumb: persist failed (${e})`) }
     }
     return result.url
   })()

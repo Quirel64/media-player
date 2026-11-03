@@ -3,7 +3,7 @@ import { getLogs, subscribeLogs, clearLogs, addLog } from '../../lib/logger'
 import { usePlayerStore } from '../../stores/playerStore'
 import { groupTracks, describeGroups } from '../../lib/group'
 import { getStorageEstimate, getTruthfulStorageReport } from '../../lib/idb'
-import { getProbeDuringPlayback, setProbeDuringPlayback } from '../../lib/thumbnail'
+import { getProbeDuringPlayback, setProbeDuringPlayback, clearThumbnailFailureMarks } from '../../lib/thumbnail'
 
 export function EventLog() {
   const [entries, setEntries] = useState<string[]>(() => getLogs())
@@ -16,6 +16,10 @@ export function EventLog() {
     const next = !probePlay
     setProbePlay(next)
     setProbeDuringPlayback(next)
+  }
+
+  const resetThumbMarks = () => {
+    void clearThumbnailFailureMarks()
   }
 
   const runGroupPreview = () => {
@@ -60,6 +64,13 @@ export function EventLog() {
             title="Probe video thumbnails while audio plays (seekless frame 0 only). Off by default to protect the lock-screen timeline."
           >
             Probe play: {probePlay ? 'ON' : 'OFF'}
+          </button>
+          <button
+            onClick={resetThumbMarks}
+            className="rounded-md bg-slate-800 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-700"
+            title="Re-probe files that were marked 'no usable frame' (use after tuning seek constants)"
+          >
+            Reset dark thumbs
           </button>
           <button
             onClick={runGroupPreview}

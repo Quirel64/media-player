@@ -314,7 +314,9 @@ export async function listTrackFiles(): Promise<string[]> {
 }
 
 // Thumbnails (data URLs, keyed by fileName). Persisted so each video is
-// probed once per device instead of once per app launch.
+// probed once per device instead of once per app launch. An EMPTY STRING is
+// a persistent "no usable frame exists" marker (dark content), not a URL —
+// thumbnail.ts converts it to null so the file is never probed again.
 export async function getAllThumbnails(): Promise<Record<string, string>> {
   const db = await getDB()
   const keys = await db.getAllKeys(THUMBS_STORE)
@@ -322,7 +324,7 @@ export async function getAllThumbnails(): Promise<Record<string, string>> {
   const out: Record<string, string> = {}
   keys.forEach((k, i) => {
     const v = values[i]
-    if (typeof v === 'string' && v) out[k] = v
+    if (typeof v === 'string') out[k] = v
   })
   return out
 }
