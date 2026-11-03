@@ -38,6 +38,10 @@ const SEEK_STEP_MAX_SEC = 15
 const DARK_MEAN = 7 // 8 intially
 const BRIGHT_MEAN = 245
 const MIN_STDDEV = 5
+// Dark-but-detailed frames (white text on black, letterboxed night scenes):
+// high contrast over a dark background is real content — accept it even
+// though the mean is below DARK_MEAN. Flat black stays rejected.
+const DARK_DETAIL_STDDEV = 25
 const SEEK_COOLDOWN_MS = 2000
 const PROBE_PLAY_KEY = 'thumb-probe-during-playback'
 
@@ -484,5 +488,7 @@ function measureFrame(canvas: HTMLCanvasElement): { mean: number; stddev: number
 }
 
 function isUsableFrame(frame: FrameCapture): boolean {
-  return frame.mean >= DARK_MEAN && frame.mean <= BRIGHT_MEAN && frame.stddev >= MIN_STDDEV
+  if (frame.mean >= DARK_MEAN && frame.mean <= BRIGHT_MEAN && frame.stddev >= MIN_STDDEV) return true
+  if (frame.mean < DARK_MEAN && frame.stddev >= DARK_DETAIL_STDDEV) return true
+  return false
 }
