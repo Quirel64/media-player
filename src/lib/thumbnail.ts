@@ -29,8 +29,8 @@ const MAX_CACHED_THUMBNAILS = 500
 
 const LOAD_TIMEOUT_MS = 8000
 const SEEK_TIMEOUT_MS = 2500
-const MAX_SEEK_ATTEMPTS = 10 //3 initially
-const SEEK_MIN_SEC = 1.9  // adjust this for minimal seek used at least once, 3 intially. use this to make duration fractionmore accurate.
+const MAX_SEEK_ATTEMPTS = 5 //3 initially
+const SEEK_MIN_SEC = 2  // adjust this for minimal seek used at least once, 3 intially. use this to make duration fraction more accurate.
 const SEEK_MAX_SEC = 30
 const SEEK_DURATION_FRACTION = 0.2 // adjust this one for video probing 0.1 initially
 const SEEK_STEP_FRACTION = 0.8 // 0.08 intially, don't know what this does yet.
