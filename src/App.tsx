@@ -48,7 +48,7 @@ export default function App() {
       goToTrack(startItemIndex)
     }
   }, [playPlaylist, goToTrack])
-  const { setHandlers, reapplyHandlers } = useMediaSession()
+  const { setHandlers, reapplyHandlers, reviveHandlers } = useMediaSession()
 
   useEffect(() => {
     const init = async () => {
@@ -115,13 +115,13 @@ export default function App() {
   // handler set AT LOCK TIME, but our last re-apply happens at play/track
   // change. Greyed, touchless lock controls (reproduced even audio→audio,
   // inconsistently, refresh⇄force-close sensitive) fit a stale/unrouted set.
-  // Re-apply the moment we go hidden so iOS reads a fresh set right before
-  // it matters. Gated flag, default OFF.
+  // from the handler set — same-set re-applies are inert; a MODE FLIP
+  // (skip10⇄prevnext) empirically un-greys wedged lock controls, so the
+  // revive flips to the other mode and restores 300ms later. Gated, OFF.
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState === 'hidden' && isLockReviveOnHidden()) {
-        addLog('lock revive: re-applying handlers on hidden')
-        reapplyHandlers()
+        reviveHandlers()
       }
     }
     document.addEventListener('visibilitychange', onVis)

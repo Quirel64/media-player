@@ -133,5 +133,21 @@ export function useMediaSession() {
     applyHandlers(st.lockScreenMode, st.queue[st.currentTrackIndex] ?? undefined)
   }, [applyHandlers])
 
-  return { setHandlers, reapplyHandlers }
+  // Revive v2 (mode flip): re-applying the SAME set does not un-grey a wedged
+  // lock UI (logs show the same re-applies present in working AND greyed
+  // runs), but changing the button configuration empirically does (in-app
+  // skip10→prevnext→skip10 revived greyed controls). Do exactly that as the
+  // session goes hidden: flip, wait 300ms, restore. The lock UI is glimpsed
+  // mid-flip at worst; lockScreenMode in the store is never touched.
+  const reviveHandlers = useCallback(() => {
+    const st = usePlayerStore.getState()
+    const current = st.lockScreenMode
+    const track = st.queue[st.currentTrackIndex] ?? undefined
+    const toggled = current === 'skip10' ? 'prevnext' : 'skip10'
+    applyHandlers(toggled, track)
+    addLog(`lock revive: mode flip ${current} → ${toggled} → restoring…`)
+    window.setTimeout(() => applyHandlers(current, track), 300)
+  }, [applyHandlers])
+
+  return { setHandlers, reapplyHandlers, reviveHandlers }
 }

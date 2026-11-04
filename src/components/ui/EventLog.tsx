@@ -111,7 +111,7 @@ export function EventLog() {
           <button
             onClick={toggleRevive}
             className={`rounded-md px-2.5 py-1 text-xs font-medium ${revive ? 'bg-emerald-600 text-white hover:bg-emerald-500' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
-            title="Experiment: re-apply lock handlers the moment we go hidden, right before iOS builds the lock UI. For greyed/touchless lock controls."
+            title="Experiment: on hidden, flip lock mode to the other set and restore after 300ms — a mode CHANGE rebuilds the lock UI (same-set re-applies don't). For greyed/touchless lock controls."
           >
             Lock revive: {revive ? 'ON' : 'OFF'}
           </button>
