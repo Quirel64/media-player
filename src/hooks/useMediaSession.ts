@@ -3,6 +3,7 @@ import { usePlayerStore } from '../stores/playerStore'
 import type { Track, LockScreenMode } from '../lib/types'
 import { getPlayingArtwork } from '../lib/artwork'
 import { addLog } from '../lib/logger'
+import { isLockResilientToggle } from '../lib/mediaFlags'
 
 /*
   Lock screen bridge — single-element freeze (no anchor).
@@ -47,13 +48,14 @@ export function useMediaSession() {
 
     const handlePlay = () => {
       addLog('MediaSession play (center ▶️)')
-      // Prefer engine-aware toggle (checks anchor vs track) so inverted icon still resumes correctly
-      if (remotePauseOrResumeRef.current) remotePauseOrResumeRef.current()
+      // Resilient mode (default): engine-aware toggle (checks anchor vs track) so an
+      // inverted icon still resumes correctly. Experiment OFF: literal play.
+      if (isLockResilientToggle() && remotePauseOrResumeRef.current) remotePauseOrResumeRef.current()
       else playRef.current?.()
     }
     const handlePause = () => {
       addLog('MediaSession pause (center ||)')
-      if (remotePauseOrResumeRef.current) remotePauseOrResumeRef.current()
+      if (isLockResilientToggle() && remotePauseOrResumeRef.current) remotePauseOrResumeRef.current()
       else pauseRef.current?.()
     }
     safe('play', handlePlay)

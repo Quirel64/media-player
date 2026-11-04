@@ -4,11 +4,14 @@ import { usePlayerStore } from '../../stores/playerStore'
 import { groupTracks, describeGroups } from '../../lib/group'
 import { getStorageEstimate, getTruthfulStorageReport } from '../../lib/idb'
 import { getProbeDuringPlayback, setProbeDuringPlayback, clearThumbnailFailureMarks } from '../../lib/thumbnail'
+import { isVideoPausedMode, setVideoPausedMode, isLockResilientToggle, setLockResilientToggle } from '../../lib/mediaFlags'
 
 export function EventLog() {
   const [entries, setEntries] = useState<string[]>(() => getLogs())
   const queue = usePlayerStore((s) => s.queue)
   const [probePlay, setProbePlay] = useState(() => getProbeDuringPlayback())
+  const [videoPaused, setVideoPaused] = useState(() => isVideoPausedMode())
+  const [resilient, setResilient] = useState(() => isLockResilientToggle())
 
   useEffect(() => subscribeLogs(setEntries), [])
 
@@ -16,6 +19,25 @@ export function EventLog() {
     const next = !probePlay
     setProbePlay(next)
     setProbeDuringPlayback(next)
+  }
+
+  const toggleVideoPaused = () => {
+    const next = !videoPaused
+    setVideoPaused(next)
+    setVideoPausedMode(next)
+    if (next) {
+      // The session may already have a PLAYING muted video — stop it now so
+      // the experiment is testable without switching tracks (every engine
+      // path that would restart it is gated on the flag anyway).
+      document.querySelectorAll('video').forEach((v) => { try { v.pause() } catch { /* ignore */ } })
+      addLog('video paused mode: paused any live video element')
+    }
+  }
+
+  const toggleResilient = () => {
+    const next = !resilient
+    setResilient(next)
+    setLockResilientToggle(next)
   }
 
   const resetThumbMarks = () => {
@@ -64,6 +86,20 @@ export function EventLog() {
             title="Probe video thumbnails while audio plays (seekless frame 0 only). Off by default to protect the lock-screen timeline."
           >
             Probe play: {probePlay ? 'ON' : 'OFF'}
+          </button>
+          <button
+            onClick={toggleVideoPaused}
+            className={`rounded-md px-2.5 py-1 text-xs font-medium ${videoPaused ? 'bg-emerald-600 text-white hover:bg-emerald-500' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+            title="Experiment: video tracks stay paused + seek-framed (no muted playing timeline). Applies on next video track load/seek."
+          >
+            Video paused: {videoPaused ? 'ON' : 'OFF'}
+          </button>
+          <button
+            onClick={toggleResilient}
+            className={`rounded-md px-2.5 py-1 text-xs font-medium ${resilient ? 'bg-emerald-600 text-white hover:bg-emerald-500' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+            title="Experiment: OFF = lock center presses are literal play/pause, extra pause never auto-resumes. Default ON (inverted-icon workaround)."
+          >
+            Resilient toggle: {resilient ? 'ON' : 'OFF'}
           </button>
           <button
             onClick={resetThumbMarks}

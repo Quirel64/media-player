@@ -1,0 +1,51 @@
+import { addLog } from './logger'
+
+/*
+  Runtime experiment flags, localStorage-backed, toggled from the EventLog.
+  Read AT CALL TIME (not module load) so an EventLog toggle takes effect
+  immediately without re-applying handlers or reloading the app.
+*/
+
+const VIDEO_PAUSED_KEY = 'video-paused-mode'
+const RESILIENT_KEY = 'lock-resilient-toggle'
+
+function readFlag(key: string, fallback: boolean): boolean {
+  try {
+    if (typeof localStorage === 'undefined') return fallback
+    const v = localStorage.getItem(key)
+    if (v === '1') return true
+    if (v === '0') return false
+  } catch { /* ignore */ }
+  return fallback
+}
+
+function writeFlag(key: string, on: boolean): void {
+  try { localStorage.setItem(key, on ? '1' : '0') } catch { /* ignore */ }
+}
+
+// Experiment 1: when ON, the muted <video> never plays for video tracks — it
+// stays paused and seek-framed (the pre-dual-play design). Tests whether a
+// PLAYING video timeline is what cripples the lock-screen session on iOS 27.2
+// (lock seek/±10 dead only on video-first tracks). Default OFF.
+export function isVideoPausedMode(): boolean {
+  return readFlag(VIDEO_PAUSED_KEY, false)
+}
+
+export function setVideoPausedMode(on: boolean): void {
+  writeFlag(VIDEO_PAUSED_KEY, on)
+  addLog(`flag video-paused-mode → ${on ? 'ON' : 'OFF'} (takes effect on next video track load or seek)`)
+}
+
+// Experiment 2: the iOS 26.2 inverted-icon workaround. ON (default): lock-screen
+// center presses route through the engine-aware remotePauseOrResume and pause()
+// auto-resumes while anchor/pending. OFF: presses are literal (play→play,
+// pause→pause, extra pauses ignored) — tests whether resuming against an
+// interruption is what causes the pause/resume ping-pong + AbortError. Default ON.
+export function isLockResilientToggle(): boolean {
+  return readFlag(RESILIENT_KEY, true)
+}
+
+export function setLockResilientToggle(on: boolean): void {
+  writeFlag(RESILIENT_KEY, on)
+  addLog(`flag lock-resilient-toggle → ${on ? 'ON' : 'OFF'} (center presses: ${on ? 'engine-aware toggle' : 'literal play/pause'})`)
+}

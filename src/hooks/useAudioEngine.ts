@@ -5,6 +5,7 @@ import { queueKey } from '../lib/queue'
 import { getTrackFileURL } from '../lib/idb'
 import { showError } from '../components/ui/Toast'
 import { addLog } from '../lib/logger'
+import { isVideoPausedMode, isLockResilientToggle } from '../lib/mediaFlags'
 import { createSilentWavUrl, describeSilentWav } from '../lib/silentAudio'
 import { getPlayingArtwork } from '../lib/artwork'
 
@@ -170,6 +171,14 @@ export function useAudioEngine() {
         if (Math.abs((v.currentTime || 0) - pos) > 0.05) v.currentTime = pos
       } catch { /* ignore */ }
       v.muted = true
+      // Experiment (EventLog "Video paused mode"): never start the muted video
+      // timeline — stay paused on the framed position at every call site
+      // (track play, resume, visible-return re-sync). Two live timelines are
+      // the prime suspect for the iOS 27.2 lock-screen dead zone.
+      if (isVideoPausedMode()) {
+        addLog('video paused mode: framed, video not playing')
+        return
+      }
       v.play().catch(() => {
         // Stall: stay paused on the framed position (no competing timeline).
         try {
@@ -473,7 +482,16 @@ export function useAudioEngine() {
   const pause = useCallback(async () => {
     const media = mediaRef.current
     if (!media) return
-    if (sourceKindRef.current === 'anchor' || pendingAnchorPosRef.current !== null) { addLog('pause while placeholder/pending → resume'); pendingAnchorPosRef.current = null; void play(); return }
+    if (sourceKindRef.current === 'anchor' || pendingAnchorPosRef.current !== null) {
+      // Resilient workaround (default): iOS 26.2 showed an inverted icon in this
+      // state, so a "pause" press really meant resume. On iOS 27.2 interruptions
+      // arrive as pause presses and re-asserting play causes ping-pong/AbortError,
+      // so Experiment 2 (EventLog "Resilient toggle") renders it literal: an
+      // extra pause while already-paused/pending is a no-op, never a resume.
+      if (isLockResilientToggle()) { addLog('pause while placeholder/pending → resume'); pendingAnchorPosRef.current = null; void play(); return }
+      addLog('pause while placeholder/pending → ignored (no auto-resume)')
+      return
+    }
     if (transitionRef.current) { queuedCommandRef.current = 'pause'; addLog('pause queued'); return }
     // Defer visible anchor to hidden: visible anchor shows || inverted, hidden shows > correctly + keeps session with HOLD_RATE
     if (document.visibilityState === 'visible' && sourceKindRef.current === 'track') {
