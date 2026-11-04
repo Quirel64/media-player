@@ -12,7 +12,7 @@ import { usePlayerStore } from './stores/playerStore'
 import { getSetting, saveSetting, saveTracks, getAllTracks, getPlaylist, savePlaylist } from './lib/idb'
 import { queueKey, toQueueItem, isLibraryQueue, findQueueIndexByKey, hasSameTracks, orderByIds } from './lib/queue'
 import { addLog } from './lib/logger'
-import { isVideoPausedMode, isLockResilientToggle } from './lib/mediaFlags'
+import { isVideoPausedMode, isLockResilientToggle, isLockReviveOnHidden } from './lib/mediaFlags'
 import { getProbeDuringPlayback } from './lib/thumbnail'
 import { ToastContainer } from './components/ui/Toast'
 import { EventLog } from './components/ui/EventLog'
@@ -55,7 +55,7 @@ export default function App() {
       // Always log experiment flag state at boot: the flags persist in
       // localStorage across force-closes, so every diagnosis needs to know
       // which combination the session actually ran with.
-      addLog(`flags: video-paused-mode=${isVideoPausedMode() ? 1 : 0} lock-resilient-toggle=${isLockResilientToggle() ? 1 : 0} thumb-probe-play=${getProbeDuringPlayback() ? 1 : 0}`)
+      addLog(`flags: video-paused-mode=${isVideoPausedMode() ? 1 : 0} lock-resilient-toggle=${isLockResilientToggle() ? 1 : 0} lock-revive-on-hidden=${isLockReviveOnHidden() ? 1 : 0} thumb-probe-play=${getProbeDuringPlayback() ? 1 : 0}`)
       // Fast path first: localStorage reads instantly even when a hot/throttled
       // device takes seconds to open IndexedDB (handlers then apply correctly
       // on the very first lock). IDB confirms afterwards; both stay in sync.
@@ -110,6 +110,23 @@ export default function App() {
       onSeek: seek,
     })
   }, [play, pause, remotePauseOrResume, prevTrack, nextTrack, seek])
+
+  // Experiment (EventLog "Lock revive"): iOS builds the lock-screen UI from the
+  // handler set AT LOCK TIME, but our last re-apply happens at play/track
+  // change. Greyed, touchless lock controls (reproduced even audio→audio,
+  // inconsistently, refresh⇄force-close sensitive) fit a stale/unrouted set.
+  // Re-apply the moment we go hidden so iOS reads a fresh set right before
+  // it matters. Gated flag, default OFF.
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === 'hidden' && isLockReviveOnHidden()) {
+        addLog('lock revive: re-applying handlers on hidden')
+        reapplyHandlers()
+      }
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [reapplyHandlers])
 
   // Play-start edge: boot-time registrations happen with no live session, and
   // iOS can ignore the null-ing then (both sets stay registered = wrong

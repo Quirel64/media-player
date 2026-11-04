@@ -49,3 +49,19 @@ export function setLockResilientToggle(on: boolean): void {
   writeFlag(RESILIENT_KEY, on)
   addLog(`flag lock-resilient-toggle → ${on ? 'ON' : 'OFF'} (center presses: ${on ? 'engine-aware toggle' : 'literal play/pause'})`)
 }
+
+// Experiment 3: iOS builds the lock-screen UI from the registered handler set
+// AT LOCK TIME. Our last re-apply always happens at play/track change, so a
+// session established after a refresh could be holding a stale/unrouted set
+// (greyed, touchless lock controls — reproduced even audio→audio). When ON,
+// App re-applies the handlers the instant visibility goes hidden, right
+// before iOS reads them. Default OFF.
+const REVIVE_KEY = 'lock-revive-on-hidden'
+export function isLockReviveOnHidden(): boolean {
+  return readFlag(REVIVE_KEY, false)
+}
+
+export function setLockReviveOnHidden(on: boolean): void {
+  writeFlag(REVIVE_KEY, on)
+  addLog(`flag lock-revive-on-hidden → ${on ? 'ON' : 'OFF'} (handlers re-applied right before lock builds the UI)`)
+}

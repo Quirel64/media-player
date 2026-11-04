@@ -1,0 +1,84 @@
+<!doctype html>
+<!-- iOS 27.2 lock-session isolation test. NO app code: one audio element,
+     MediaSession handlers, two in-page silent WAV blobs. If greyed/touchless
+     lock controls reproduce HERE (esp. after a regular refresh), the bug is
+     WebKit's, not the player's engine. -->
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Session test</title>
+<style>
+  body { font-family: -apple-system, sans-serif; padding: 12px; }
+  button { font-size: 17px; padding: 10px 14px; margin: 4px 2px; border-radius: 8px; border: 1px solid #888; background: #fff; }
+  pre { white-space: pre-wrap; word-break: break-word; background: #f0f0f0; padding: 8px; height: 16em; overflow: auto; font-size: 12px; }
+</style>
+</head>
+<body>
+<h3>Session isolation test (no engine)</h3>
+<button id="play">Play 1</button>
+<button id="next">Swap to 2</button>
+<button id="pause">Pause</button>
+<button id="seek">Seek +10</button>
+<pre id="log"></pre>
+<audio id="a"></audio>
+<script>
+const logEl = document.getElementById('log')
+const log = (m) => { logEl.textContent = new Date().toTimeString().slice(0, 8) + ' ' + m + '\n' + logEl.textContent }
+
+// Silent WAV blob ~30s, like the app's placeholder
+function wav(seconds) {
+  const rate = 8000, n = rate * seconds
+  const buf = new ArrayBuffer(44 + n), v = new DataView(buf)
+  const ws = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)) }
+  ws(0, 'RIFF'); v.setUint32(4, 36 + n, true); ws(8, 'WAVE'); ws(12, 'fmt ')
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true)
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true)
+  ws(36, 'data'); v.setUint32(40, n, true)
+  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }))
+}
+const urls = [wav(30), wav(30)]
+let idx = 0
+const a = document.getElementById('a')
+
+function apply(name) {
+  const ms = navigator.mediaSession
+  if (!ms) { log('no mediaSession!'); return }
+  ms.metadata = new MediaMetadata({ title: name, artist: 'session test', album: 't' })
+  const H = (act, fn) => { try { ms.setActionHandler(act, fn) } catch (e) { log('handler fail ' + act) } }
+  H('play', () => log('MS play action'))
+  H('pause', () => log('MS pause action'))
+  H('seekto', (d) => log('MS seekto ' + d.seekTime))
+  H('seekbackward', () => log('MS seekback'))
+  H('seekforward', () => log('MS seekfwd'))
+  H('previoustrack', () => log('MS prev'))
+  H('nexttrack', () => log('MS next'))
+  log('handlers applied for ' + name)
+}
+
+document.getElementById('play').onclick = async () => {
+  idx = 0; a.src = urls[0]
+  try { await a.play(); log('audio play t1 ok') } catch (e) { log('play t1 FAILED: ' + e); return }
+  apply('track 1')
+  navigator.mediaSession.playbackState = 'playing'
+}
+document.getElementById('next').onclick = async () => {
+  idx = 1; a.src = urls[1]
+  try { await a.play(); log('audio SWAP to t2 ok') } catch (e) { log('play t2 FAILED: ' + e); return }
+  apply('track 2')
+  navigator.mediaSession.playbackState = 'playing'
+}
+document.getElementById('pause').onclick = async () => {
+  a.pause(); navigator.mediaSession.playbackState = 'paused'; log('audio paused')
+}
+document.getElementById('seek').onclick = () => {
+  a.currentTime = Math.min(a.duration, a.currentTime + 10)
+  log('in-app seek to ' + a.currentTime.toFixed(1))
+}
+a.onplay = () => { navigator.mediaSession.playbackState = 'playing'; log('audio onplay') }
+a.onpause = (e) => { navigator.mediaSession.playbackState = 'paused'; log('audio onpause') }
+a.ontimeupdate = () => {}
+log('page loaded — press Play (gesture required)')
+</script>
+</body>
+</html>

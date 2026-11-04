@@ -4,7 +4,7 @@ import { usePlayerStore } from '../../stores/playerStore'
 import { groupTracks, describeGroups } from '../../lib/group'
 import { getStorageEstimate, getTruthfulStorageReport } from '../../lib/idb'
 import { getProbeDuringPlayback, setProbeDuringPlayback, clearThumbnailFailureMarks } from '../../lib/thumbnail'
-import { isVideoPausedMode, setVideoPausedMode, isLockResilientToggle, setLockResilientToggle } from '../../lib/mediaFlags'
+import { isVideoPausedMode, setVideoPausedMode, isLockResilientToggle, setLockResilientToggle, isLockReviveOnHidden, setLockReviveOnHidden } from '../../lib/mediaFlags'
 
 export function EventLog() {
   const [entries, setEntries] = useState<string[]>(() => getLogs())
@@ -12,6 +12,7 @@ export function EventLog() {
   const [probePlay, setProbePlay] = useState(() => getProbeDuringPlayback())
   const [videoPaused, setVideoPaused] = useState(() => isVideoPausedMode())
   const [resilient, setResilient] = useState(() => isLockResilientToggle())
+  const [revive, setRevive] = useState(() => isLockReviveOnHidden())
 
   useEffect(() => subscribeLogs(setEntries), [])
 
@@ -38,6 +39,12 @@ export function EventLog() {
     const next = !resilient
     setResilient(next)
     setLockResilientToggle(next)
+  }
+
+  const toggleRevive = () => {
+    const next = !revive
+    setRevive(next)
+    setLockReviveOnHidden(next)
   }
 
   const resetThumbMarks = () => {
@@ -100,6 +107,13 @@ export function EventLog() {
             title="Experiment: OFF = lock center presses are literal play/pause, extra pause never auto-resumes. Default ON (inverted-icon workaround)."
           >
             Resilient toggle: {resilient ? 'ON' : 'OFF'}
+          </button>
+          <button
+            onClick={toggleRevive}
+            className={`rounded-md px-2.5 py-1 text-xs font-medium ${revive ? 'bg-emerald-600 text-white hover:bg-emerald-500' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+            title="Experiment: re-apply lock handlers the moment we go hidden, right before iOS builds the lock UI. For greyed/touchless lock controls."
+          >
+            Lock revive: {revive ? 'ON' : 'OFF'}
           </button>
           <button
             onClick={resetThumbMarks}
