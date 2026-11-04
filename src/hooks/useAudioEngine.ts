@@ -177,6 +177,17 @@ export function useAudioEngine() {
       // the prime suspect for the iOS 27.2 lock-screen dead zone.
       if (isVideoPausedMode()) {
         addLog('video paused mode: framed, video not playing')
+        // iOS 27.2 arbitration appears to promote the LAST element that
+        // loaded/became playable. At a swap that's this freshly-framed paused
+        // video → the lock session is greyed/dead. Re-assert the audio LAST so
+        // the session lands back on the audio element. Skipped when iOS paused
+        // the element natively (interruption) — never re-assert against that.
+        window.setTimeout(() => {
+          const m = mediaRef.current
+          if (m && sourceKindRef.current === 'track' && !m.paused) {
+            void m.play().then(() => addLog('video paused mode: audio re-assert (session on audio)')).catch(() => {})
+          }
+        }, 250)
         return
       }
       v.play().catch(() => {
