@@ -519,7 +519,11 @@ export function useAudioEngine() {
   }, [activateSource, ensureAnchor, flushQueued, play, setOwner, setPlaying, setCurrentTime])
 
   commandRunnerRef.current = (c) => { if (c === 'play') void play(); else void pause() }
-  const togglePlay = useCallback(() => { if (ownerRef.current === 'track') void pause(); else void play() }, [pause, play])
+  // In-app ⏯ routes on the REAL playing state, not owner: after a manual
+  // visible pause owner is still 'track', so owner-based routing ran pause()
+  // again and (with the resilient auto-resume gated off) hit the "ignored"
+  // branch — in-app play could never un-pause its own pause.
+  const togglePlay = useCallback(() => { if (usePlayerStore.getState().isPlaying) void pause(); else void play() }, [pause, play])
   const remotePauseOrResume = useCallback(() => {
     // While placeholder is playing iOS still shows ||, so pause means resume
     if (sourceKindRef.current === 'anchor' || ownerRef.current === 'anchor') void play(); else void pause()

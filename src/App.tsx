@@ -12,6 +12,8 @@ import { usePlayerStore } from './stores/playerStore'
 import { getSetting, saveSetting, saveTracks, getAllTracks, getPlaylist, savePlaylist } from './lib/idb'
 import { queueKey, toQueueItem, isLibraryQueue, findQueueIndexByKey, hasSameTracks, orderByIds } from './lib/queue'
 import { addLog } from './lib/logger'
+import { isVideoPausedMode, isLockResilientToggle } from './lib/mediaFlags'
+import { getProbeDuringPlayback } from './lib/thumbnail'
 import { ToastContainer } from './components/ui/Toast'
 import { EventLog } from './components/ui/EventLog'
 import { PlaylistsView } from './components/playlist/PlaylistsView'
@@ -50,6 +52,10 @@ export default function App() {
 
   useEffect(() => {
     const init = async () => {
+      // Always log experiment flag state at boot: the flags persist in
+      // localStorage across force-closes, so every diagnosis needs to know
+      // which combination the session actually ran with.
+      addLog(`flags: video-paused-mode=${isVideoPausedMode() ? 1 : 0} lock-resilient-toggle=${isLockResilientToggle() ? 1 : 0} thumb-probe-play=${getProbeDuringPlayback() ? 1 : 0}`)
       // Fast path first: localStorage reads instantly even when a hot/throttled
       // device takes seconds to open IndexedDB (handlers then apply correctly
       // on the very first lock). IDB confirms afterwards; both stay in sync.
