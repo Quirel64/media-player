@@ -101,3 +101,18 @@ export function setLockReviveDelay(ms: number): void {
   try { localStorage.setItem(REVIVE_DELAY_KEY, String(ms)) } catch { /* ignore */ }
   addLog(`flag lock-revive-delay → ${ms}ms (takes effect on next hidden)`)
 }
+
+// Experiment 5: handler-application hygiene. Current registrations happen at
+// boot, every track change, the play-start edge, mode toggles, and the hidden
+// flip. The snapshot model (lock UI read at lock time) makes the per-track
+// re-apply a candidate: when ON, identical mode re-applies and their null-set
+// cleanups are skipped; boot/mode-toggle/play-start/flip still apply. Default OFF.
+const MINIMAL_KEY = 'minimal-handlers'
+export function isMinimalHandlers(): boolean {
+  return readFlag(MINIMAL_KEY, false)
+}
+
+export function setMinimalHandlers(on: boolean): void {
+  writeFlag(MINIMAL_KEY, on)
+  addLog(`flag minimal-handlers → ${on ? 'ON' : 'OFF'} (skip same-set re-applies at track change; boot/mode-toggle/play-start/flip still apply)`)
+}

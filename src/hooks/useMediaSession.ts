@@ -3,7 +3,7 @@ import { usePlayerStore } from '../stores/playerStore'
 import type { Track, LockScreenMode } from '../lib/types'
 import { getPlayingArtwork } from '../lib/artwork'
 import { addLog } from '../lib/logger'
-import { isLockResilientToggle, getLockReviveDelay } from '../lib/mediaFlags'
+import { isLockResilientToggle, isMinimalHandlers, getLockReviveDelay } from '../lib/mediaFlags'
 
 /*
   Lock screen bridge — single-element freeze (no anchor).
@@ -22,6 +22,10 @@ export function useMediaSession() {
 
   const { currentTrackIndex, queue, lockScreenMode } = usePlayerStore()
   const currentTrack = queue[currentTrackIndex]
+  // Unmount marker: declared BEFORE the registration effect so its cleanup
+  // runs first at unmount (registration cleanup then knows it's final).
+  const unmountedRef = useRef(false)
+  const lastAppliedModeRef = useRef<LockScreenMode | null>(null)
 
   // Artwork sync — single artwork (anchor toggle removed)
   useEffect(() => {
@@ -98,9 +102,33 @@ export function useMediaSession() {
   }, [])
 
   useEffect(() => {
-    applyHandlers(lockScreenMode, currentTrack)
+    const mounted = unmountedRef
+    return () => { mounted.current = false }
+  }, [])
 
+  // Registration: applies on mount, on mode change, and (unless the Minimal
+  // applies experiment says otherwise) on every track change.
+  useEffect(() => {
+    // Minimal applies: under the proven snapshot model, the same-set re-apply
+    // on each track change only feeds iOS another identical snapshot — skip
+    // it (metadata is updated by the separate effect above). Boot apply and
+    // mode toggles still apply; the hidden mode-flip revive still delivers a
+    // fresh set at lock time.
+    const minimal = isMinimalHandlers()
+    const modeChanged = lastAppliedModeRef.current !== lockScreenMode
+    lastAppliedModeRef.current = lockScreenMode
+    if (minimal && !modeChanged) {
+      addLog('lockscreen handlers: minimal applies — skip identical re-apply')
+    } else {
+      applyHandlers(lockScreenMode, currentTrack)
+    }
     return () => {
+      // Minimal applies: on a mere dependency change (component still mounted),
+      // keep the previous handler set registered instead of nulling it — the
+      // next apply (mode toggle or hidden flip) will rewrite it anyway. On
+      // real unmount the marker effect above has already cleared
+      // unmountedRef, so the null-out runs as before.
+      if (unmountedRef.current && isMinimalHandlers()) return
       if (!('mediaSession' in navigator)) return
       const safe = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
         try { navigator.mediaSession.setActionHandler(action, handler) } catch { /* ignore */ }

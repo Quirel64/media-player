@@ -4,7 +4,7 @@ import { usePlayerStore } from '../../stores/playerStore'
 import { groupTracks, describeGroups } from '../../lib/group'
 import { getStorageEstimate, getTruthfulStorageReport } from '../../lib/idb'
 import { getProbeDuringPlayback, setProbeDuringPlayback, clearThumbnailFailureMarks } from '../../lib/thumbnail'
-import { isVideoPausedMode, setVideoPausedMode, isLockResilientToggle, setLockResilientToggle, isLockReviveOnHidden, setLockReviveOnHidden, isVideoDelayedStart, setVideoDelayedStart, getLockReviveDelay, setLockReviveDelay } from '../../lib/mediaFlags'
+import { isVideoPausedMode, setVideoPausedMode, isLockResilientToggle, setLockResilientToggle, isLockReviveOnHidden, setLockReviveOnHidden, isVideoDelayedStart, setVideoDelayedStart, getLockReviveDelay, setLockReviveDelay, isMinimalHandlers, setMinimalHandlers } from '../../lib/mediaFlags'
 
 export function EventLog() {
   const [entries, setEntries] = useState<string[]>(() => getLogs())
@@ -15,6 +15,7 @@ export function EventLog() {
   const [revive, setRevive] = useState(() => isLockReviveOnHidden())
   const [delayedStart, setDelayedStart] = useState(() => isVideoDelayedStart())
   const [reviveDelay, setReviveDelay] = useState(() => getLockReviveDelay())
+  const [minimalApplies, setMinimalApplies] = useState(() => isMinimalHandlers())
 
   useEffect(() => subscribeLogs(setEntries), [])
 
@@ -60,6 +61,12 @@ export function EventLog() {
     const next = steps[(steps.indexOf(reviveDelay) + 1) % steps.length]
     setReviveDelay(next)
     setLockReviveDelay(next)
+  }
+
+  const toggleMinimalApplies = () => {
+    const next = !minimalApplies
+    setMinimalApplies(next)
+    setMinimalHandlers(next)
   }
 
   const resetThumbMarks = () => {
@@ -136,6 +143,13 @@ export function EventLog() {
             title="Tune the gap between the revive flip and its restore (cycles 150/300/600ms). If greyed controls slip through, try longer."
           >
             Revive delay
+          </button>
+          <button
+            onClick={toggleMinimalApplies}
+            className={`rounded-md px-2.5 py-1 text-xs font-medium ${minimalApplies ? 'bg-emerald-600 text-white hover:bg-emerald-500' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+            title="Experiment: skip identical same-set handler re-applies at track change (boot/mode-toggle/play-start/hidden-flip still apply). Test whether fewer applications changes lock behavior."
+          >
+            Minimal applies: {minimalApplies ? 'ON' : 'OFF'}
           </button>
           <button
             onClick={toggleDelayedStart}

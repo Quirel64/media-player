@@ -335,6 +335,64 @@ alternative: embedded art is unavailable, WebCodecs+demuxer is out of scope).
   the cooldown (and fires it immediately on visible) so loaders re-run without
   needing an unrelated render.
 
+## Lock-screen wedge saga — model proven, posture promoted (2026-11-05..07)
+
+Symptom (iOS 27.2, appeared after the 26.2→27.2 WebKit gap, no code change):
+on video-first tracks the lock-screen seek bar is dead (snaps back) and ±10
+log nothing; later it degrades into **greyed, touchless** controls (session UI
+shown, touches not routed, audio plays on). Reproduces in the independent
+`custom-lock-screen-media-player` repo too → WebKit-level, not engine-local.
+
+**Proven model (device-logged):**
+- `v.play()` of the muted mask video is **THE poison event**. Locks performed
+  before the video ever played: healthy 10/10 (refresh + force-close) with the
+  mode-flip revive. After the video once played: every lock wedged, and the
+  flip no longer saves it (buttons may whiten, seek bar stays greyed/cmd „).
+- The lock UI is built from a **snapshot read at lock time**. Same-set handler
+  re-applies are inert (working and greyed runs emit identical apply logs);
+  sessions without the flip heal only randomly (snapshot race, invisible in
+  our logs — nothing differs); a **configuration change** (mode flip
+  skip10⇄prevnext, ~300ms apart, applied on `visibilitychange→hidden`)
+  rebuilds it deterministically (10/10).
+- Drift-fix acquitted: the visible-return `drift>0.15` seek runs *after* the
+  first lock (return-only; VideoSyncController was already deleted), and the
+  engine already pauses+frames the video at every `hidden` — dual-play locks
+  wedged anyway. The wedge is born at **establishment** (first play/swap with
+  the mask playing), not at any later seek event.
+- Historical lock-seek-fighting theories (probes, parked seeks, handler
+  null-handoff) were acquitted one by one with device logs; aborts and probe
+  markers remain as hygiene.
+
+**Defaults since the promotion build:** `video-paused-mode=1` (frozen video
+posture — the only fully lock-safe one), `lock-revive-on-hidden=1` (mode
+flip), `lock-resilient-toggle=1` (inverted-icon workaround), tunable
+`lock-revive-delay` (EventLog cycles 150/300/600ms, default 300),
+`video-delayed-start=0`, `minimal-handlers=0`, `thumb-probe-during-playback=0`.
+The boot log always begins with a `flags:` line listing the live combination
+(the flags persist in localStorage across force-closes).
+
+**Interrupt notes (iOS 27.2):** iOS interruptions surface as
+`MediaSession pause (center ||)` events. Resilient ON = one-press toggle but
+re-asserts play against interruptions (YouTube gets paused → our track
+re-asserts → other source needs manual resume: the ping-pong). Resilient OFF
+= literal presses: interruption is a single clean pause (other source takes
+over after 1–2 taps) but the lock-unpause on an inverted icon can take 3
+presses (`||`→`||`, `||`→`>`, `>`→plays). Unresolved: distinguishing a user
+press from an interruption echo (they are byte-identical to the page).
+
+**Deferred video start** (`video-delayed-start`) keeps the first ~12s
+lock-safe (session establishes on audio alone) then plays the mask in-app —
+opt-in motion mode; once it plays, lock safety reverts to the poisoned case.
+
+**Isolation assets:** `public/test-session.html` (engine-free MediaSession
+page, deployed at `/test-session.html`) and the separate
+`custom-lock-screen-media-player-the-new-one` repo.
+
+**Still open:** interruption/echo press disambiguation; in-app video motion
+(the poison trade); `track play() timed out after 500ms` (intermittent,
+dormant, first-load-after-hidden contexts); `minimal-handlers` experiment
+replacement; upstream WebKit stale snapshot.
+
 ## Engine hardening — DONE (spam survival, iPhone 12 + Windows verified)
 - **Swap serialization**: mutex + last-wins skip; blind retry replaced by guarded
   retry (500ms after NotSupportedError, 120ms otherwise).
