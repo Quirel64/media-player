@@ -8,6 +8,7 @@ import { addLog } from './logger'
 
 const VIDEO_PAUSED_KEY = 'video-paused-mode'
 const RESILIENT_KEY = 'lock-resilient-toggle'
+const DELAYED_START_KEY = 'video-delayed-start'
 
 function readFlag(key: string, fallback: boolean): boolean {
   try {
@@ -50,12 +51,26 @@ export function setLockResilientToggle(on: boolean): void {
   addLog(`flag lock-resilient-toggle → ${on ? 'ON' : 'OFF'} (center presses: ${on ? 'engine-aware toggle' : 'literal play/pause'})`)
 }
 
-// Experiment 3: iOS builds the lock-screen UI from the registered handler set
-// AT LOCK TIME. Our last re-apply always happens at play/track change, so a
-// session established after a refresh could be holding a stale/unrouted set
-// (greyed, touchless lock controls — reproduced even audio→audio). When ON,
-// App re-applies the handlers the instant visibility goes hidden, right
-// before iOS reads them. Default OFF.
+// Experiment 4: in-app video recovery. The lock wedge is born at session
+// ESTABLISHMENT when the muted video is playing alongside (established-paused
+// sessions stay healable by the mode-flip revive; established-dual-playing
+// ones don't, and the seek bar specifically can't be rebound). When ON, the
+// video is framed but stays paused for the first ~12s of a track so the
+// session establishes on audio alone, then starts playing in-app. Never
+// starts on a lock screen. Default OFF.
+export function isVideoDelayedStart(): boolean {
+  return readFlag(DELAYED_START_KEY, false)
+}
+
+export function setVideoDelayedStart(on: boolean): void {
+  writeFlag(DELAYED_START_KEY, on)
+  addLog(`flag video-delayed-start → ${on ? 'ON' : 'OFF'} (video starts playing 12s after track start; needs Video paused OFF)`)
+}
+// Experiment 3 (v2): iOS builds the lock-screen UI from the registered handler
+// set AT LOCK TIME. Re-applying the SAME set is proven inert (greyed runs and
+// working runs emit identical re-applies), but a CONFIGURATION change rebuilds
+// it: so when ON, the handlers flip to the other lock mode then restore
+// (useMediaSession.reviveHandlers) the instant visibility goes hidden. Default OFF.
 const REVIVE_KEY = 'lock-revive-on-hidden'
 export function isLockReviveOnHidden(): boolean {
   return readFlag(REVIVE_KEY, false)

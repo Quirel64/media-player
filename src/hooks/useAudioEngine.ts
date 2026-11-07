@@ -5,7 +5,7 @@ import { queueKey } from '../lib/queue'
 import { getTrackFileURL } from '../lib/idb'
 import { showError } from '../components/ui/Toast'
 import { addLog } from '../lib/logger'
-import { isVideoPausedMode, isLockResilientToggle } from '../lib/mediaFlags'
+import { isVideoPausedMode, isLockResilientToggle, isVideoDelayedStart } from '../lib/mediaFlags'
 import { createSilentWavUrl, describeSilentWav } from '../lib/silentAudio'
 import { getPlayingArtwork } from '../lib/artwork'
 
@@ -166,6 +166,31 @@ export function useAudioEngine() {
   const maybePlayVideo = useCallback((pos: number) => {
     const v = videoRef.current
     if (!v || !v.src) return
+    // Experiment 4 (EventLog "Video delayed start"): establish the session on
+    // audio ALONE — frame the mask but keep it paused for the first ~12s, then
+    // start the in-app video. If the dual-play wedge is born at establishment,
+    // the lock stays healable while the video comes back. Guards at fire time:
+    // never start while hidden (the lock screen must never see a playing
+    // video), never against a paused/interrupted audio, never for a stale src
+    // (track already changed underneath us).
+    if (isVideoDelayedStart()) {
+      const frameNear = (p: number) => { try { if (Math.abs((v.currentTime || 0) - p) > 0.05) v.currentTime = p } catch { /* ignore */ } }
+      addLog('video delayed start: framing; video starts in 12s if still in-app playing')
+      v.muted = true
+      if (v.readyState >= 3) frameNear(pos)
+      else v.addEventListener('canplay', () => frameNear(pos), { once: true })
+      window.setTimeout(() => {
+        const m = mediaRef.current
+        if (document.visibilityState !== 'visible') { addLog('video delayed start: skipped (hidden — lock safe)'); return }
+        if (!m || m.paused || sourceKindRef.current !== 'track') { addLog('video delayed start: skipped (audio not playing)'); return }
+        const blobNow = blobUrlRef.current || ''
+        if (blobNow && v.src !== blobNow && v.currentSrc !== blobNow) { addLog('video delayed start: skipped (track changed)'); return }
+        const livePos = m.currentTime
+        frameNear(livePos)
+        v.play().then(() => addLog('video delayed start: video playing')).catch(() => addLog('video delayed start: play failed (stays framed)'))
+      }, 12000)
+      return
+    }
     const go = () => {
       try {
         if (Math.abs((v.currentTime || 0) - pos) > 0.05) v.currentTime = pos

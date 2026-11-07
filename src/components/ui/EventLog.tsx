@@ -4,7 +4,7 @@ import { usePlayerStore } from '../../stores/playerStore'
 import { groupTracks, describeGroups } from '../../lib/group'
 import { getStorageEstimate, getTruthfulStorageReport } from '../../lib/idb'
 import { getProbeDuringPlayback, setProbeDuringPlayback, clearThumbnailFailureMarks } from '../../lib/thumbnail'
-import { isVideoPausedMode, setVideoPausedMode, isLockResilientToggle, setLockResilientToggle, isLockReviveOnHidden, setLockReviveOnHidden } from '../../lib/mediaFlags'
+import { isVideoPausedMode, setVideoPausedMode, isLockResilientToggle, setLockResilientToggle, isLockReviveOnHidden, setLockReviveOnHidden, isVideoDelayedStart, setVideoDelayedStart } from '../../lib/mediaFlags'
 
 export function EventLog() {
   const [entries, setEntries] = useState<string[]>(() => getLogs())
@@ -13,6 +13,7 @@ export function EventLog() {
   const [videoPaused, setVideoPaused] = useState(() => isVideoPausedMode())
   const [resilient, setResilient] = useState(() => isLockResilientToggle())
   const [revive, setRevive] = useState(() => isLockReviveOnHidden())
+  const [delayedStart, setDelayedStart] = useState(() => isVideoDelayedStart())
 
   useEffect(() => subscribeLogs(setEntries), [])
 
@@ -45,6 +46,12 @@ export function EventLog() {
     const next = !revive
     setRevive(next)
     setLockReviveOnHidden(next)
+  }
+
+  const toggleDelayedStart = () => {
+    const next = !delayedStart
+    setDelayedStart(next)
+    setVideoDelayedStart(next)
   }
 
   const resetThumbMarks = () => {
@@ -114,6 +121,13 @@ export function EventLog() {
             title="Experiment: on hidden, flip lock mode to the other set and restore after 300ms — a mode CHANGE rebuilds the lock UI (same-set re-applies don't). For greyed/touchless lock controls."
           >
             Lock revive: {revive ? 'ON' : 'OFF'}
+          </button>
+          <button
+            onClick={toggleDelayedStart}
+            className={`rounded-md px-2.5 py-1 text-xs font-medium ${delayedStart ? 'bg-emerald-600 text-white hover:bg-emerald-500' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+            title="Experiment: video stays framed+paused for 12s so the session establishes on audio alone, then starts playing in-app. Needs 'Video paused' OFF."
+          >
+            Video delayed: {delayedStart ? 'ON' : 'OFF'}
           </button>
           <button
             onClick={resetThumbMarks}
