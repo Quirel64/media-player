@@ -3,7 +3,7 @@ import { usePlayerStore } from '../stores/playerStore'
 import type { Track, LockScreenMode } from '../lib/types'
 import { getPlayingArtwork } from '../lib/artwork'
 import { addLog } from '../lib/logger'
-import { isLockResilientToggle } from '../lib/mediaFlags'
+import { isLockResilientToggle, getLockReviveDelay } from '../lib/mediaFlags'
 
 /*
   Lock screen bridge — single-element freeze (no anchor).
@@ -146,7 +146,7 @@ export function useMediaSession() {
     const toggled = current === 'skip10' ? 'prevnext' : 'skip10'
     applyHandlers(toggled, track)
     addLog(`lock revive: mode flip ${current} → ${toggled} → restoring…`)
-    window.setTimeout(() => applyHandlers(current, track), 300)
+    window.setTimeout(() => applyHandlers(current, track), getLockReviveDelay())
   }, [applyHandlers])
 
   return { setHandlers, reapplyHandlers, reviveHandlers }

@@ -4,7 +4,7 @@ import { usePlayerStore } from '../../stores/playerStore'
 import { groupTracks, describeGroups } from '../../lib/group'
 import { getStorageEstimate, getTruthfulStorageReport } from '../../lib/idb'
 import { getProbeDuringPlayback, setProbeDuringPlayback, clearThumbnailFailureMarks } from '../../lib/thumbnail'
-import { isVideoPausedMode, setVideoPausedMode, isLockResilientToggle, setLockResilientToggle, isLockReviveOnHidden, setLockReviveOnHidden, isVideoDelayedStart, setVideoDelayedStart } from '../../lib/mediaFlags'
+import { isVideoPausedMode, setVideoPausedMode, isLockResilientToggle, setLockResilientToggle, isLockReviveOnHidden, setLockReviveOnHidden, isVideoDelayedStart, setVideoDelayedStart, getLockReviveDelay, setLockReviveDelay } from '../../lib/mediaFlags'
 
 export function EventLog() {
   const [entries, setEntries] = useState<string[]>(() => getLogs())
@@ -14,6 +14,7 @@ export function EventLog() {
   const [resilient, setResilient] = useState(() => isLockResilientToggle())
   const [revive, setRevive] = useState(() => isLockReviveOnHidden())
   const [delayedStart, setDelayedStart] = useState(() => isVideoDelayedStart())
+  const [reviveDelay, setReviveDelay] = useState(() => getLockReviveDelay())
 
   useEffect(() => subscribeLogs(setEntries), [])
 
@@ -52,6 +53,13 @@ export function EventLog() {
     const next = !delayedStart
     setDelayedStart(next)
     setVideoDelayedStart(next)
+  }
+
+  const cycleReviveDelay = () => {
+    const steps = [150, 300, 600]
+    const next = steps[(steps.indexOf(reviveDelay) + 1) % steps.length]
+    setReviveDelay(next)
+    setLockReviveDelay(next)
   }
 
   const resetThumbMarks = () => {
@@ -118,9 +126,16 @@ export function EventLog() {
           <button
             onClick={toggleRevive}
             className={`rounded-md px-2.5 py-1 text-xs font-medium ${revive ? 'bg-emerald-600 text-white hover:bg-emerald-500' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
-            title="Experiment: on hidden, flip lock mode to the other set and restore after 300ms — a mode CHANGE rebuilds the lock UI (same-set re-applies don't). For greyed/touchless lock controls."
+            title="Experiment: on hidden, flip lock mode to the other set and restore after the tuned delay — a mode CHANGE rebuilds the lock UI (same-set re-applies don't). For greyed/touchless lock controls."
           >
-            Lock revive: {revive ? 'ON' : 'OFF'}
+            Lock revive: {revive ? 'ON' : 'OFF'} ({reviveDelay}ms)
+          </button>
+          <button
+            onClick={cycleReviveDelay}
+            className="rounded-md bg-slate-800 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-700"
+            title="Tune the gap between the revive flip and its restore (cycles 150/300/600ms). If greyed controls slip through, try longer."
+          >
+            Revive delay
           </button>
           <button
             onClick={toggleDelayedStart}

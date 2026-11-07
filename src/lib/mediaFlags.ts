@@ -24,12 +24,15 @@ function writeFlag(key: string, on: boolean): void {
   try { localStorage.setItem(key, on ? '1' : '0') } catch { /* ignore */ }
 }
 
-// Experiment 1: when ON, the muted <video> never plays for video tracks — it
-// stays paused and seek-framed (the pre-dual-play design). Tests whether a
-// PLAYING video timeline is what cripples the lock-screen session on iOS 27.2
-// (lock seek/±10 dead only on video-first tracks). Default OFF.
+// Experiment 1 → now DEFAULT: when ON, the muted <video> never plays — it
+// stays paused and seek-framed. PROVEN on iOS 27.2: v.play() of the mask is
+// THE poisoned-lock event (locks before a delayed start were healthy 10/10;
+// after the video played, every lock wedged, flip-proof). Recovery from
+// unlock↔lock needs the mode-flip revive (Experiment 3). In-app cost: video
+// is a still frame with one drift-snap on return. Turn OFF (or use
+// video-delayed-start) to trade lock safety for in-app motion.
 export function isVideoPausedMode(): boolean {
-  return readFlag(VIDEO_PAUSED_KEY, false)
+  return readFlag(VIDEO_PAUSED_KEY, true)
 }
 
 export function setVideoPausedMode(on: boolean): void {
@@ -66,17 +69,35 @@ export function setVideoDelayedStart(on: boolean): void {
   writeFlag(DELAYED_START_KEY, on)
   addLog(`flag video-delayed-start → ${on ? 'ON' : 'OFF'} (video starts playing 12s after track start; needs Video paused OFF)`)
 }
-// Experiment 3 (v2): iOS builds the lock-screen UI from the registered handler
-// set AT LOCK TIME. Re-applying the SAME set is proven inert (greyed runs and
-// working runs emit identical re-applies), but a CONFIGURATION change rebuilds
-// it: so when ON, the handlers flip to the other lock mode then restore
-// (useMediaSession.reviveHandlers) the instant visibility goes hidden. Default OFF.
+// Experiment 3 (v2) → now DEFAULT: iOS builds the lock-screen UI from the
+// registered handler set AT LOCK TIME. Same-set re-applies are proven inert
+// (greyed and working runs emit identical re-applies) and no-flip sessions
+// heal only randomly — a CONFIGURATION change rebuilds it deterministically:
+// the handlers flip to the other lock mode then restore
+// (useMediaSession.reviveHandlers) the instant visibility goes hidden.
 const REVIVE_KEY = 'lock-revive-on-hidden'
 export function isLockReviveOnHidden(): boolean {
-  return readFlag(REVIVE_KEY, false)
+  return readFlag(REVIVE_KEY, true)
 }
 
 export function setLockReviveOnHidden(on: boolean): void {
   writeFlag(REVIVE_KEY, on)
   addLog(`flag lock-revive-on-hidden → ${on ? 'ON' : 'OFF'} (handlers re-applied right before lock builds the UI)`)
+}
+
+// Tunable gap between the flip and the restore inside reviveHandlers. iOS
+// needs both sets to land; if greyed controls ever slip through, try longer.
+const REVIVE_DELAY_KEY = 'lock-revive-delay'
+export function getLockReviveDelay(): number {
+  try {
+    const v = localStorage.getItem(REVIVE_DELAY_KEY)
+    const n = v ? parseInt(v, 10) : NaN
+    if (Number.isFinite(n) && n >= 0) return n
+  } catch { /* ignore */ }
+  return 300
+}
+
+export function setLockReviveDelay(ms: number): void {
+  try { localStorage.setItem(REVIVE_DELAY_KEY, String(ms)) } catch { /* ignore */ }
+  addLog(`flag lock-revive-delay → ${ms}ms (takes effect on next hidden)`)
 }

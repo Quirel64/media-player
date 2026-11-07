@@ -166,6 +166,28 @@ export function useAudioEngine() {
   const maybePlayVideo = useCallback((pos: number) => {
     const v = videoRef.current
     if (!v || !v.src) return
+    v.muted = true
+    // Experiment 1 "Video paused mode" — checked FIRST so it governs every
+    // path (delayed start included): v.play() of the mask is the actual
+    // poisoned-lock event (test: locking before the 12s delayed start was
+    // healthy 10/10; after the video played, every lock wedged). When this is
+    // on the video only ever frames; the audio is re-asserted as the last
+    // touched element so the lock session lands on audio.
+    if (isVideoPausedMode()) {
+      const frame = () => { try { if (Math.abs((v.currentTime || 0) - pos) > 0.05) v.currentTime = pos } catch { /* ignore */ } }
+      if (v.readyState >= 3) frame()
+      else v.addEventListener('canplay', frame, { once: true })
+      addLog('video paused mode: framed, video not playing')
+      // Last-touched-element re-assert. Skipped when iOS paused the audio
+      // natively (interruption) — never re-assert against that.
+      window.setTimeout(() => {
+        const m = mediaRef.current
+        if (m && sourceKindRef.current === 'track' && !m.paused) {
+          void m.play().then(() => addLog('video paused mode: audio re-assert (session on audio)')).catch(() => {})
+        }
+      }, 250)
+      return
+    }
     // Experiment 4 (EventLog "Video delayed start"): establish the session on
     // audio ALONE — frame the mask but keep it paused for the first ~12s, then
     // start the in-app video. If the dual-play wedge is born at establishment,
@@ -176,7 +198,6 @@ export function useAudioEngine() {
     if (isVideoDelayedStart()) {
       const frameNear = (p: number) => { try { if (Math.abs((v.currentTime || 0) - p) > 0.05) v.currentTime = p } catch { /* ignore */ } }
       addLog('video delayed start: framing; video starts in 12s if still in-app playing')
-      v.muted = true
       if (v.readyState >= 3) frameNear(pos)
       else v.addEventListener('canplay', () => frameNear(pos), { once: true })
       window.setTimeout(() => {
@@ -195,26 +216,6 @@ export function useAudioEngine() {
       try {
         if (Math.abs((v.currentTime || 0) - pos) > 0.05) v.currentTime = pos
       } catch { /* ignore */ }
-      v.muted = true
-      // Experiment (EventLog "Video paused mode"): never start the muted video
-      // timeline — stay paused on the framed position at every call site
-      // (track play, resume, visible-return re-sync). Two live timelines are
-      // the prime suspect for the iOS 27.2 lock-screen dead zone.
-      if (isVideoPausedMode()) {
-        addLog('video paused mode: framed, video not playing')
-        // iOS 27.2 arbitration appears to promote the LAST element that
-        // loaded/became playable. At a swap that's this freshly-framed paused
-        // video → the lock session is greyed/dead. Re-assert the audio LAST so
-        // the session lands back on the audio element. Skipped when iOS paused
-        // the element natively (interruption) — never re-assert against that.
-        window.setTimeout(() => {
-          const m = mediaRef.current
-          if (m && sourceKindRef.current === 'track' && !m.paused) {
-            void m.play().then(() => addLog('video paused mode: audio re-assert (session on audio)')).catch(() => {})
-          }
-        }, 250)
-        return
-      }
       v.play().catch(() => {
         // Stall: stay paused on the framed position (no competing timeline).
         try {
