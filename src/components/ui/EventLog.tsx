@@ -4,7 +4,7 @@ import { usePlayerStore } from '../../stores/playerStore'
 import { groupTracks, describeGroups } from '../../lib/group'
 import { getStorageEstimate, getTruthfulStorageReport } from '../../lib/idb'
 import { getProbeDuringPlayback, setProbeDuringPlayback, clearThumbnailFailureMarks } from '../../lib/thumbnail'
-import { isVideoPausedMode, setVideoPausedMode, isLockResilientToggle, setLockResilientToggle, isLockReviveOnHidden, setLockReviveOnHidden, isVideoDelayedStart, setVideoDelayedStart, getLockReviveDelay, setLockReviveDelay, isMinimalHandlers, setMinimalHandlers } from '../../lib/mediaFlags'
+import { isVideoPausedMode, setVideoPausedMode, isLockResilientToggle, setLockResilientToggle, isLockReviveOnHidden, setLockReviveOnHidden, isVideoDelayedStart, setVideoDelayedStart, getLockReviveDelay, setLockReviveDelay, isMinimalHandlers, setMinimalHandlers, isEchoAwareToggle, setEchoAwareToggle } from '../../lib/mediaFlags'
 
 export function EventLog() {
   const [entries, setEntries] = useState<string[]>(() => getLogs())
@@ -16,6 +16,7 @@ export function EventLog() {
   const [delayedStart, setDelayedStart] = useState(() => isVideoDelayedStart())
   const [reviveDelay, setReviveDelay] = useState(() => getLockReviveDelay())
   const [minimalApplies, setMinimalApplies] = useState(() => isMinimalHandlers())
+  const [echoAware, setEchoAware] = useState(() => isEchoAwareToggle())
 
   useEffect(() => subscribeLogs(setEntries), [])
 
@@ -67,6 +68,12 @@ export function EventLog() {
     const next = !minimalApplies
     setMinimalApplies(next)
     setMinimalHandlers(next)
+  }
+
+  const toggleEchoAware = () => {
+    const next = !echoAware
+    setEchoAware(next)
+    setEchoAwareToggle(next)
   }
 
   const resetThumbMarks = () => {
@@ -150,6 +157,13 @@ export function EventLog() {
             title="Experiment: skip identical same-set handler re-applies at track change (boot/mode-toggle/play-start/hidden-flip still apply). Test whether fewer applications changes lock behavior."
           >
             Minimal applies: {minimalApplies ? 'ON' : 'OFF'}
+          </button>
+          <button
+            onClick={toggleEchoAware}
+            className={`rounded-md px-2.5 py-1 text-xs font-medium ${echoAware ? 'bg-emerald-600 text-white hover:bg-emerald-500' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+            title="Experiment: with resilient toggle ON, a pause press within 4s of an external native pause (interruption) is ignored as an echo instead of resuming. Play presses always resume. Fixes the interruption ping-pong without losing single-press toggling."
+          >
+            Echo-aware: {echoAware ? 'ON' : 'OFF'}
           </button>
           <button
             onClick={toggleDelayedStart}

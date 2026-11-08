@@ -15,7 +15,7 @@ import { isLockResilientToggle, isMinimalHandlers, getLockReviveDelay } from '..
 export function useMediaSession() {
   const playRef = useRef<(() => void) | null>(null)
   const pauseRef = useRef<(() => void) | null>(null)
-  const remotePauseOrResumeRef = useRef<(() => void) | null>(null)
+  const remotePauseOrResumeRef = useRef<((press?: 'play' | 'pause') => void) | null>(null)
   const seekRef = useRef<((t: number) => void) | null>(null)
   const prevRef = useRef<(() => void) | null>(null)
   const nextRef = useRef<(() => void) | null>(null)
@@ -54,12 +54,14 @@ export function useMediaSession() {
       addLog('MediaSession play (center ▶️)')
       // Resilient mode (default): engine-aware toggle (checks anchor vs track) so an
       // inverted icon still resumes correctly. Experiment OFF: literal play.
-      if (isLockResilientToggle() && remotePauseOrResumeRef.current) remotePauseOrResumeRef.current()
+      // Press kind passed through: echo-aware only gates "pause" presses (the
+      // interruption echo shape) — a play press is always a genuine resume.
+      if (isLockResilientToggle() && remotePauseOrResumeRef.current) remotePauseOrResumeRef.current('play')
       else playRef.current?.()
     }
     const handlePause = () => {
       addLog('MediaSession pause (center ||)')
-      if (isLockResilientToggle() && remotePauseOrResumeRef.current) remotePauseOrResumeRef.current()
+      if (isLockResilientToggle() && remotePauseOrResumeRef.current) remotePauseOrResumeRef.current('pause')
       else pauseRef.current?.()
     }
     safe('play', handlePlay)
@@ -142,7 +144,7 @@ export function useMediaSession() {
   const setHandlers = (h: {
     onPlay: () => void
     onPause: () => void
-    onRemotePauseOrResume: () => void
+    onRemotePauseOrResume: (press?: 'play' | 'pause') => void
     onPrev: () => void
     onNext: () => void
     onSeek: (t: number) => void

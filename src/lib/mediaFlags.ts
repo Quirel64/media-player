@@ -118,3 +118,22 @@ export function setMinimalHandlers(on: boolean): void {
   writeFlag(MINIMAL_KEY, on)
   addLog(`flag minimal-handlers → ${on ? 'ON' : 'OFF'} (skip same-set re-applies at track change; boot/mode-toggle/play-start/flip still apply)`)
 }
+
+// Experiment 6: echo-aware resilient toggle. The one hard problem left with
+// resilient ON: an interruption (e.g. YouTube taking over) pauses our element
+// NATIVELY without our request, then iOS delivers pause presses that under
+// resilience mean "resume" — re-asserting our track and causing the ping-pong.
+// Discriminator: a user press does NOT natively pause the element; an
+// interruption does. So a "pause" press while anchored is ignored ONLY if an
+// external (not-our-own) native pause happened within the last ~4s. Our own
+// anchor swap must NOT count as external (else Windows-flyout unpause breaks —
+// the flyout only ever emits "pause"). Default OFF.
+const ECHO_AWARE_KEY = 'echo-aware-toggle'
+export function isEchoAwareToggle(): boolean {
+  return readFlag(ECHO_AWARE_KEY, false)
+}
+
+export function setEchoAwareToggle(on: boolean): void {
+  writeFlag(ECHO_AWARE_KEY, on)
+  addLog(`flag echo-aware-toggle → ${on ? 'ON' : 'OFF'} (resilient pause press ignored within 4s of an external native pause)`)
+}

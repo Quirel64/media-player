@@ -5,7 +5,7 @@ import { queueKey } from '../lib/queue'
 import { getTrackFileURL } from '../lib/idb'
 import { showError } from '../components/ui/Toast'
 import { addLog } from '../lib/logger'
-import { isVideoPausedMode, isLockResilientToggle, isVideoDelayedStart } from '../lib/mediaFlags'
+import { isVideoPausedMode, isLockResilientToggle, isVideoDelayedStart, isEchoAwareToggle } from '../lib/mediaFlags'
 import { createSilentWavUrl, describeSilentWav } from '../lib/silentAudio'
 import { getPlayingArtwork } from '../lib/artwork'
 
@@ -31,6 +31,13 @@ const HOLD_RATE = 0.0000001
 const FALLBACK_HOLD_RATE = 0.0625
 // HOLD_RATE 1e-7 keeps bar frozen (~4 months/sec) while anchor holds session; 0 made bar drift to end (see 13:44 logs)
 const INVERT_LOCK_ICON_TEST = false
+
+// Experiment 6 (echo-aware toggle) discriminators: performance.now() of OUR OWN
+// pause actions vs the last EXTERNAL native pause (element paused without our
+// request = interruption). A pause press within ECHO_WINDOW_MS of an external
+// pause is treated as the interruption echo, not a user press.
+const ECHO_WINDOW_MS = 4000
+const OWN_PAUSE_ECHO_MS = 1500
 
 function setRate(el: HTMLMediaElement, rate: number) {
   try { el.defaultPlaybackRate = rate; el.playbackRate = rate } catch {
@@ -94,6 +101,10 @@ export function useAudioEngine() {
   const trackDurationRef = useRef(0)
   const transitionRef = useRef(false)
   const transitionTokenRef = useRef(0)
+  // Echo-aware toggle state: timestamp of our own pause actions vs the last
+  // external native pause event (no own action within OWN_PAUSE_ECHO_MS).
+  const lastOwnPauseAtRef = useRef(0)
+  const lastExternalPauseAtRef = useRef(0)
   const queuedCommandRef = useRef<'play' | 'pause' | null>(null)
   // Swap serialization: rapid lock-screen next/prev (<1s apart) used to overlap
   // src swaps on the one element — each media.load() aborts the previous
@@ -525,7 +536,18 @@ export function useAudioEngine() {
       // arrive as pause presses and re-asserting play causes ping-pong/AbortError,
       // so Experiment 2 (EventLog "Resilient toggle") renders it literal: an
       // extra pause while already-paused/pending is a no-op, never a resume.
-      if (isLockResilientToggle()) { addLog('pause while placeholder/pending → resume'); pendingAnchorPosRef.current = null; void play(); return }
+      if (isLockResilientToggle()) {
+        // Echo-aware guard: same rule as remotePauseOrResume — a pause press
+        // within the echo window of an external native pause is ignored.
+        if (isEchoAwareToggle() && lastExternalPauseAtRef.current > 0) {
+          const sinceExternal = performance.now() - lastExternalPauseAtRef.current
+          if (sinceExternal < ECHO_WINDOW_MS) {
+            addLog(`pause while placeholder/pending ${Math.round(sinceExternal)}ms after external pause → echo ignored (echo-aware)`)
+            return
+          }
+        }
+        addLog('pause while placeholder/pending → resume'); pendingAnchorPosRef.current = null; void play(); return
+      }
       addLog('pause while placeholder/pending → ignored (no auto-resume)')
       return
     }
@@ -535,6 +557,7 @@ export function useAudioEngine() {
       const pos = media.currentTime
       frozenPosRef.current = pos; setCurrentTime(pos); setPlaying(false)
       const vPause = videoRef.current; if (vPause) try { vPause.pause(); vPause.currentTime = pos } catch {}
+      lastOwnPauseAtRef.current = performance.now()
       try { media.pause(); addLog(`pause deferred media.pause @ ${pos.toFixed(2)}s`) } catch {}
       pendingAnchorPosRef.current = pos
       ensureAnchor(trackDurationRef.current || media.duration || 2)
@@ -545,6 +568,9 @@ export function useAudioEngine() {
     }
     transitionRef.current = true
     try {
+      // Own action: the anchor swap stops the track — this is OUR pause, never
+      // an external one (Windows flyout relies on that distinction).
+      lastOwnPauseAtRef.current = performance.now()
       const pos = media.currentTime
       frozenPosRef.current = pos; setCurrentTime(pos); setPlaying(false)
       const vPause = videoRef.current; if (vPause) try { vPause.pause() } catch {}
@@ -561,9 +587,23 @@ export function useAudioEngine() {
   // again and (with the resilient auto-resume gated off) hit the "ignored"
   // branch — in-app play could never un-pause its own pause.
   const togglePlay = useCallback(() => { if (usePlayerStore.getState().isPlaying) void pause(); else void play() }, [pause, play])
-  const remotePauseOrResume = useCallback(() => {
+  const remotePauseOrResume = useCallback((press: 'play' | 'pause' = 'play') => {
     // While placeholder is playing iOS still shows ||, so pause means resume
-    if (sourceKindRef.current === 'anchor' || ownerRef.current === 'anchor') void play(); else void pause()
+    if (sourceKindRef.current === 'anchor' || ownerRef.current === 'anchor') {
+      // Echo-aware: a pause press shortly after an EXTERNAL native pause is
+      // almost certainly the interruption echo (iOS echos its own pause press
+      // to us) — ignore instead of re-asserting our track over the other
+      // source. A play press is never gated: it is a genuine resume request.
+      if (press === 'pause' && isEchoAwareToggle() && lastExternalPauseAtRef.current > 0) {
+        const sinceExternal = performance.now() - lastExternalPauseAtRef.current
+        if (sinceExternal < ECHO_WINDOW_MS) {
+          addLog(`pause press ${Math.round(sinceExternal)}ms after external pause → echo ignored (echo-aware)`)
+          return
+        }
+      }
+      void play(); return
+    }
+    void pause()
   }, [play, pause])
 
   const seek = useCallback((time: number) => {
@@ -847,7 +887,17 @@ export function useAudioEngine() {
       addLog(`native playing (${k}, same element)`)
     }
     const onPause = () => {
-      if (transitionRef.current) { addLog(`native pause ignored during transition (${sourceKindRef.current})`); return }
+      if (transitionRef.current) { addLog(`native pause ignored during transition (${sourceKindRef.current})`) ; return }
+      // Echo-aware detection: an element pause WITHOUT our request (no own
+      // pause action within OWN_PAUSE_ECHO_MS) is an external native pause —
+      // iOS's interruption pausing us. Own echoes (deferred media.pause(),
+      // anchor swaps are transition-guarded) must NOT count as external, else
+      // all our own pause presses would later be misread as echoes.
+      const sinceOwn = performance.now() - lastOwnPauseAtRef.current
+      if (sinceOwn >= OWN_PAUSE_ECHO_MS) {
+        lastExternalPauseAtRef.current = performance.now()
+        addLog('external native pause detected (echo-aware)')
+      }
       // Only treat pause as real pause when track was playing; anchor pause is expected to be playing silent
       if (sourceKindRef.current==='track' && ownerRef.current==='track') { setPlaying(false); try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = getLockPlaybackState('anchor') } catch {} }
       addLog(`native pause (${sourceKindRef.current})`)
