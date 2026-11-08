@@ -154,3 +154,19 @@ export function setLockWarmCycle(on: boolean): void {
   writeFlag(WARM_KEY, on)
   addLog(`flag lock-warm-cycle → ${on ? 'ON' : 'OFF'} (synthetic pause→play pair on every hidden, mimics the autoplay warm-up)`)
 }
+
+// Tunable warm-gap (EventLog cycler). 700ms proven; shorter gaps may not warm.
+const WARM_DELAY_KEY = 'lock-warm-cycle-delay'
+const DEFAULT_WARM_DELAY_MS = 700
+export function getWarmCycleDelay(): number {
+  try {
+    const v = parseInt(localStorage.getItem(WARM_DELAY_KEY) || '', 10)
+    if (v === 200 || v === 450 || v === 700) return v
+  } catch { /* ignore */ }
+  return DEFAULT_WARM_DELAY_MS
+}
+
+export function setWarmCycleDelay(ms: number): void {
+  try { localStorage.setItem(WARM_DELAY_KEY, String(ms)) } catch { /* ignore */ }
+  addLog(`flag lock-warm-cycle-delay → ${ms}ms (next lock uses the new gap)`)
+}

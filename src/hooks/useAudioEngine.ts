@@ -5,7 +5,7 @@ import { queueKey } from '../lib/queue'
 import { getTrackFileURL } from '../lib/idb'
 import { showError } from '../components/ui/Toast'
 import { addLog } from '../lib/logger'
-import { isVideoPausedMode, isLockResilientToggle, isVideoDelayedStart, isEchoAwareToggle, isLockWarmCycle } from '../lib/mediaFlags'
+import { isVideoPausedMode, isLockResilientToggle, isVideoDelayedStart, isEchoAwareToggle, isLockWarmCycle, getWarmCycleDelay } from '../lib/mediaFlags'
 import { createSilentWavUrl, describeSilentWav } from '../lib/silentAudio'
 import { getPlayingArtwork } from '../lib/artwork'
 
@@ -42,9 +42,11 @@ const INVERT_LOCK_ICON_TEST = false
 const ECHO_WINDOW_MS = 4000
 const OWN_PAUSE_ECHO_MS = 1500
 const PAIR_WINDOW_MS = 600
-// Warm-cycle gap: native pause on hidden → resume. ~700ms may give iOS the
-// completed cycle without an audible gap much beyond a normal track-end gap.
-const WARM_CYCLE_DELAY_MS = 700
+// Armed-resume confirmation window (Experiment 8): during this many ms after
+// an anchor pause press we hold the resume, waiting to see whether iOS
+// pauses our anchor natively (another source claiming focus = interruption,
+// cancel); otherwise it was a human and we resume.
+const CONFIRM_WINDOW_MS = 350
 
 function setRate(el: HTMLMediaElement, rate: number) {
   try { el.defaultPlaybackRate = rate; el.playbackRate = rate } catch {
@@ -115,6 +117,9 @@ export function useAudioEngine() {
   // Experiment 7 guard: the synthetic pause→play warm pair must not flip
   // store state or feed the external-pause detector.
   const warmCycleRef = useRef(false)
+  // Experiment 8 state: token invalidating stale armed resumes (any newer
+  // press, play press, or arm supersedes the pending one).
+  const resumeArmTokenRef = useRef(0)
   const queuedCommandRef = useRef<'play' | 'pause' | null>(null)
   // Swap serialization: rapid lock-screen next/prev (<1s apart) used to overlap
   // src swaps on the one element — each media.load() aborts the previous
@@ -537,6 +542,30 @@ export function useAudioEngine() {
     finally { transitionRef.current = false; flushQueued() }
   }, [activateSource, currentTrack, flushQueued, setOwner, setPlaying, maybePlayVideo])
 
+  // Experiment 8 (armed resume): a pause press while anchored means "resume"
+  // under resilience — but when another source is claiming focus, iOS pauses
+  // our anchor natively a moment later. Hold the resume for a short
+  // confirmation window: an external native pause inside it cancels (we stay
+  // conceded, the other source wins); no event = it was a human, resume.
+  const armConfirmedResume = useCallback(() => {
+    const token = ++resumeArmTokenRef.current
+    addLog(`echo-aware: resume armed (${CONFIRM_WINDOW_MS}ms confirmation window)`)
+    setTimeout(() => {
+      if (token !== resumeArmTokenRef.current) return
+      const m = mediaRef.current
+      if (!m) return
+      if (sourceKindRef.current !== 'anchor' || ownerRef.current !== 'anchor') return
+      if (usePlayerStore.getState().isPlaying) return
+      const sinceExternal = lastExternalPauseAtRef.current > 0 ? performance.now() - lastExternalPauseAtRef.current : Infinity
+      if (sinceExternal < CONFIRM_WINDOW_MS) {
+        addLog('echo-aware: armed resume canceled — external pause during confirmation window')
+        return
+      }
+      addLog('echo-aware: armed resume firing (no external pause in window)')
+      void play()
+    }, CONFIRM_WINDOW_MS)
+  }, [play])
+
   const pause = useCallback(async () => {
     const media = mediaRef.current
     if (!media) return
@@ -556,7 +585,15 @@ export function useAudioEngine() {
           addLog(`pause while placeholder/pending after own ${Math.round(sinceOwn)}ms / external ${Number.isFinite(sinceExternal) ? Math.round(sinceExternal) : '∞'}ms → echo ignored (echo-aware)`)
           return
         }
-        addLog('pause while placeholder/pending → resume'); pendingAnchorPosRef.current = null; void play(); return
+        if (isEchoAwareToggle()) {
+          // Experiment 8: arm instead of immediate resume — a recent in-app
+          // pause press and a session handoff press are identical here too.
+          // play() cancels the deferred anchor itself when it fires, so the
+          // pending state is left intact for a canceled arm.
+          armConfirmedResume(); return
+        }
+        pendingAnchorPosRef.current = null
+        addLog('pause while placeholder/pending → resume'); void play(); return
       }
       addLog('pause while placeholder/pending → ignored (no auto-resume)')
       return
@@ -589,7 +626,7 @@ export function useAudioEngine() {
       addLog(`track → placeholder swap @ ${pos.toFixed(2)}s`)
     } catch (e) { setOwner('idle'); addLog(`placeholder swap failed: ${e}`) }
     finally { transitionRef.current = false; flushQueued() }
-  }, [activateSource, ensureAnchor, flushQueued, play, setOwner, setPlaying, setCurrentTime])
+  }, [activateSource, ensureAnchor, flushQueued, armConfirmedResume, play, setOwner, setPlaying, setCurrentTime])
 
   commandRunnerRef.current = (c) => { if (c === 'play') void play(); else void pause() }
   // In-app ⏯ routes on the REAL playing state, not owner: after a manual
@@ -620,11 +657,17 @@ export function useAudioEngine() {
           addLog(`pause press ${Math.round(sinceExternal)}ms after external pause → echo ignored (echo-aware)`)
           return
         }
+        // Experiment 8: the first press of a takeover has no evidence yet at
+        // arrival (we were already paused — nothing native to detect it with).
+        // Arm the resume; if iOS pauses our anchor natively in the next
+        // ~350ms (other source claiming focus), cancel and stay conceded.
+        // play() cancels the deferred anchor itself when it fires.
+        if (isEchoAwareToggle()) { armConfirmedResume(); return }
       }
       void play(); return
     }
     void pause()
-  }, [play, pause])
+  }, [play, pause, armConfirmedResume])
 
   const seek = useCallback((time: number) => {
     const media = mediaRef.current; if (!media) return
@@ -974,13 +1017,17 @@ export function useAudioEngine() {
       setTimeout(() => {
         warmCycleRef.current = false
         const m = mediaRef.current
-        if (!m || document.visibilityState !== 'hidden') return
+        // Resume regardless of visibility: the user can return to the app
+        // before the timer fires — the element is OUR pause (warmCycleRef
+        // gated the pause event), so playback must be restored either way.
+        // Coming back visible simply continues the interrupted warm pair.
+        if (!m) return
         if (sourceKindRef.current !== 'track' || ownerRef.current !== 'track') return
         if (!usePlayerStore.getState().isPlaying) return
-        addLog('warm-cycle: native resume (lock warm-up)')
+        addLog(`warm-cycle: native resume (lock warm-up${document.visibilityState === 'visible' ? ', resumed-after-return' : ''})`)
         const p = m.play()
         if (p) p.catch((e) => addLog(`warm-cycle play failed: ${e}`))
-      }, WARM_CYCLE_DELAY_MS)
+      }, getWarmCycleDelay())
     }
     document.addEventListener('visibilitychange', onVis)
     return () => document.removeEventListener('visibilitychange', onVis)

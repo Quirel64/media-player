@@ -414,7 +414,20 @@ dead handlers/seek until first pause/unpause, triple press). Experiment 7
 the playing track natively, resume after ~700ms on the same src
 (warmCycleRef keeps store state + echo detector untouched during the pair).
 Complementary to the mode-flip revive (handlers snapshot) — the warm cycle
-services the touch-routing/icon layer.
+services the touch-routing/icon layer. DEVICE RESULT: warm cycle ON → cold
+locks come up correct (pause/skip/seek/handlers working, ~700ms audible gap
+at the lock moment). Known fixed edge: returning to the app inside the gap
+used to freeze the track (resume timer required hidden) — resume now always
+restores playback. Warm gap is tunable via EventLog cycler (200/450/700ms,
+default 700; shorter gaps risk iOS not registering the pair).
+
+**Experiment 8 (armed resume):** the first press of a session takeover from
+our ALREADY-PAUSED state is unattributable at arrival (we're conceded
+already — no native pause of ours to contrast, so pair/external gates see
+nothing). Fix under echo-aware: hold the resume ~350ms; if iOS pauses our
+anchor natively inside the window (other source claiming focus), cancel and
+stay conceded — the takeover wins. No event = human press → resume. Play
+presses remain instant.
 
 **Lock-screen icon flip (resilient-era observation):** under resilient
 mapping the lock cycle is press=paused/icon `||`→`||`, press=playing/

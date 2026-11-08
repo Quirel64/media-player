@@ -4,7 +4,7 @@ import { usePlayerStore } from '../../stores/playerStore'
 import { groupTracks, describeGroups } from '../../lib/group'
 import { getStorageEstimate, getTruthfulStorageReport } from '../../lib/idb'
 import { getProbeDuringPlayback, setProbeDuringPlayback, clearThumbnailFailureMarks } from '../../lib/thumbnail'
-import { isVideoPausedMode, setVideoPausedMode, isLockResilientToggle, setLockResilientToggle, isLockReviveOnHidden, setLockReviveOnHidden, isVideoDelayedStart, setVideoDelayedStart, getLockReviveDelay, setLockReviveDelay, isMinimalHandlers, setMinimalHandlers, isEchoAwareToggle, setEchoAwareToggle, isLockWarmCycle, setLockWarmCycle } from '../../lib/mediaFlags'
+import { isVideoPausedMode, setVideoPausedMode, isLockResilientToggle, setLockResilientToggle, isLockReviveOnHidden, setLockReviveOnHidden, isVideoDelayedStart, setVideoDelayedStart, getLockReviveDelay, setLockReviveDelay, isMinimalHandlers, setMinimalHandlers, isEchoAwareToggle, setEchoAwareToggle, isLockWarmCycle, setLockWarmCycle, getWarmCycleDelay, setWarmCycleDelay } from '../../lib/mediaFlags'
 
 export function EventLog() {
   const [entries, setEntries] = useState<string[]>(() => getLogs())
@@ -18,6 +18,7 @@ export function EventLog() {
   const [minimalApplies, setMinimalApplies] = useState(() => isMinimalHandlers())
   const [echoAware, setEchoAware] = useState(() => isEchoAwareToggle())
   const [warmCycle, setWarmCycle] = useState(() => isLockWarmCycle())
+  const [warmDelay, setWarmDelay] = useState(() => getWarmCycleDelay())
 
   useEffect(() => subscribeLogs(setEntries), [])
 
@@ -81,6 +82,13 @@ export function EventLog() {
     const next = !warmCycle
     setWarmCycle(next)
     setLockWarmCycle(next)
+  }
+
+  const cycleWarmDelay = () => {
+    const steps = [200, 450, 700]
+    const next = steps[(steps.indexOf(warmDelay) + 1) % steps.length]
+    setWarmDelay(next)
+    setWarmCycleDelay(next)
   }
 
   const resetThumbMarks = () => {
@@ -178,6 +186,13 @@ export function EventLog() {
             title="Experiment: on every visible→hidden, pause the playing track natively then resume ~700ms later — mimics the autoplay warm-up that makes the lock UI come up fully correct (icons, touch routing, seek bar)."
           >
             Warm cycle: {warmCycle ? 'ON' : 'OFF'}
+          </button>
+          <button
+            onClick={cycleWarmDelay}
+            className="rounded-md bg-slate-800 px-2.5 py-1 text-xs font-medium text-slate-300 hover:bg-slate-700"
+            title="Warm-cycle gap between the synthetic native pause and the resume (700ms proven; try shorter gaps to reduce the audible pause — too short and iOS may not register the pair)."
+          >
+            Warm delay
           </button>
           <button
             onClick={toggleDelayedStart}
