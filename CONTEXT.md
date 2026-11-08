@@ -392,6 +392,29 @@ ignored as the echo (`Rapid-pair` under `echo-aware-toggle`, default OFF;
 play presses never gated; user-center fast-double unaffected — it arrives
 coalesced as a play press). Windows flyout: take-over presses hit the
 pair-rule too (its repeated `pause` presses are >600ms apart, unmoved).
+v3: transition pause events are RECORDED as external (normal swaps emit NO
+element pause at all — device logs: pre-publish → native playing (anchor),
+nothing between; a transition pause = the interruption itself, and it even
+aborts our play() with AbortError). Repairs the 1–2s press blindness in
+conceded pauses (v1/v2 blind spot: the mid-swap external was discarded).
+**Win/loss criterion (decoded):** after our concessional pause, any pause
+press that resumes us before the other source establishes = our track wins
+(takeover failed). Pair rule handles same-second presses; the external gate
+(v3) handles 1–2s presses; presses after ~4s are treated as human. A second
+YouTube tab succeeds right after a failed takeover because the stale episode
+ends once one takeover cleanly completes (per-episode race, not damage).
+
+**Lock warm-up unification (autoplay discovery, Experiment 7):** an autoplay
+(track end → auto-next during a lock) makes the lock come up FULLY WARM —
+correct icons, live touch routing, working seek bar, single presses, with no
+manual pause/unpause first. The native pause→fresh play pair it delivers is
+the missing warm-up whose absence causes ALL cold-lock symptoms (icon flip,
+dead handlers/seek until first pause/unpause, triple press). Experiment 7
+`lock-warm-cycle` (default OFF) reproduces it on every visible→hidden: pause
+the playing track natively, resume after ~700ms on the same src
+(warmCycleRef keeps store state + echo detector untouched during the pair).
+Complementary to the mode-flip revive (handlers snapshot) — the warm cycle
+services the touch-routing/icon layer.
 
 **Lock-screen icon flip (resilient-era observation):** under resilient
 mapping the lock cycle is press=paused/icon `||`→`||`, press=playing/

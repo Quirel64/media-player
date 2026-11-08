@@ -137,3 +137,20 @@ export function setEchoAwareToggle(on: boolean): void {
   writeFlag(ECHO_AWARE_KEY, on)
   addLog(`flag echo-aware-toggle → ${on ? 'ON' : 'OFF'} (v2: rapid-pair <600ms + external evidence <4s gate pause-press resumes)`)
 }
+
+// Experiment 7: lock warm-cycle. Device-proven: an autoplay (track end →
+// auto-next) during a lock hands iOS a native pause→fresh play pair and the
+// lock UI comes up FULLY WARM — correct icons, live touch routing, working
+// seek bar, single presses; the cold-lock symptoms (icon flip, dead handlers
+// until first pause/unpause, triple press) all vanish. Reproduce that pair
+// programmatically on every visible→hidden: pause the playing track,
+// resume it ~700ms later on the same src (no swap, element stays activated).
+const WARM_KEY = 'lock-warm-cycle'
+export function isLockWarmCycle(): boolean {
+  return readFlag(WARM_KEY, false)
+}
+
+export function setLockWarmCycle(on: boolean): void {
+  writeFlag(WARM_KEY, on)
+  addLog(`flag lock-warm-cycle → ${on ? 'ON' : 'OFF'} (synthetic pause→play pair on every hidden, mimics the autoplay warm-up)`)
+}

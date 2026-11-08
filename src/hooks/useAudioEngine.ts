@@ -5,7 +5,7 @@ import { queueKey } from '../lib/queue'
 import { getTrackFileURL } from '../lib/idb'
 import { showError } from '../components/ui/Toast'
 import { addLog } from '../lib/logger'
-import { isVideoPausedMode, isLockResilientToggle, isVideoDelayedStart, isEchoAwareToggle } from '../lib/mediaFlags'
+import { isVideoPausedMode, isLockResilientToggle, isVideoDelayedStart, isEchoAwareToggle, isLockWarmCycle } from '../lib/mediaFlags'
 import { createSilentWavUrl, describeSilentWav } from '../lib/silentAudio'
 import { getPlayingArtwork } from '../lib/artwork'
 
@@ -42,6 +42,9 @@ const INVERT_LOCK_ICON_TEST = false
 const ECHO_WINDOW_MS = 4000
 const OWN_PAUSE_ECHO_MS = 1500
 const PAIR_WINDOW_MS = 600
+// Warm-cycle gap: native pause on hidden → resume. ~700ms may give iOS the
+// completed cycle without an audible gap much beyond a normal track-end gap.
+const WARM_CYCLE_DELAY_MS = 700
 
 function setRate(el: HTMLMediaElement, rate: number) {
   try { el.defaultPlaybackRate = rate; el.playbackRate = rate } catch {
@@ -109,6 +112,9 @@ export function useAudioEngine() {
   // external native pause event (no own action within OWN_PAUSE_ECHO_MS).
   const lastOwnPauseAtRef = useRef(0)
   const lastExternalPauseAtRef = useRef(0)
+  // Experiment 7 guard: the synthetic pause→play warm pair must not flip
+  // store state or feed the external-pause detector.
+  const warmCycleRef = useRef(false)
   const queuedCommandRef = useRef<'play' | 'pause' | null>(null)
   // Swap serialization: rapid lock-screen next/prev (<1s apart) used to overlap
   // src swaps on the one element — each media.load() aborts the previous
@@ -901,12 +907,17 @@ export function useAudioEngine() {
       addLog(`native playing (${k}, same element)`)
     }
     const onPause = () => {
+      if (warmCycleRef.current) { addLog('native pause ignored during warm-cycle'); return }
       if (transitionRef.current) {
-        // Attributed as swap noise for now, but flagged: device logs show iOS's
-        // interruption pauses our element MID-SWAP (aborts the anchor play())
-        // — the external-pause detector is blind here by design, the pair rule
-        // covers it.
-        addLog(`native pause ignored during transition (${sourceKindRef.current})${isEchoAwareToggle() ? ' [echo-aware: possible external during our swap]' : ''}`)
+        // Device-proven: NORMAL swaps emit NO element pause event at all
+        // (logs show pre-publish → native playing (anchor), nothing between).
+        // A pause DURING our transition is therefore iOS's interruption
+        // pausing us mid-swap (it even aborts our play() with AbortError).
+        // v1 swallowed this — the exact blind spot that let 1-2s presses
+        // resume us and re-assert the track. Record it as external so the
+        // 4s gate works for the presses that follow.
+        lastExternalPauseAtRef.current = performance.now()
+        addLog(`native pause during transition (${sourceKindRef.current}) → recorded as external (echo-aware interruption)`)
         return
       }
       // Echo-aware detection: an element pause WITHOUT our request (no own
@@ -941,6 +952,39 @@ export function useAudioEngine() {
     media.addEventListener('playing', onPlaying); media.addEventListener('pause', onPause)
     media.addEventListener('timeupdate', onTimeUpdate); media.addEventListener('ended', onEnded); media.addEventListener('error', onError)
   }, [ensureAnchor, handleTrackEnd, setDuration, setPlaying, setCurrentTime])
+
+  // Experiment 7 (lock warm-cycle): mimic the autoplay warm-up on every fresh
+  // lock. Autoplay during a lock = native element pause (track end) → fresh
+  // play (next track) → lock UI fully warm. We deliver pause→play ourselves
+  // when the page hides with the track playing: pause now, resume after
+  // WARM_CYCLE_DELAY_MS on the SAME src — no swap, no gesture needed (the
+  // element is already activated), and warmCycleRef keeps the store state and
+  // external-pause detector untouched during the pair.
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const onVis = () => {
+      if (document.visibilityState !== 'hidden' || !isLockWarmCycle()) return
+      const media = mediaRef.current
+      const st = usePlayerStore.getState()
+      if (!media || sourceKindRef.current !== 'track' || ownerRef.current !== 'track') return
+      if (!st.isPlaying || media.paused || media.ended) return
+      warmCycleRef.current = true
+      addLog('warm-cycle: native pause on hidden (lock warm-up)')
+      try { media.pause() } catch { /* ignore */ }
+      setTimeout(() => {
+        warmCycleRef.current = false
+        const m = mediaRef.current
+        if (!m || document.visibilityState !== 'hidden') return
+        if (sourceKindRef.current !== 'track' || ownerRef.current !== 'track') return
+        if (!usePlayerStore.getState().isPlaying) return
+        addLog('warm-cycle: native resume (lock warm-up)')
+        const p = m.play()
+        if (p) p.catch((e) => addLog(`warm-cycle play failed: ${e}`))
+      }, WARM_CYCLE_DELAY_MS)
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [])
 
   // Last-resort recovery: after N consecutive swap failures the element itself
   // is wedged (error state persists — only a force-close used to help). Rebuild

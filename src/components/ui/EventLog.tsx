@@ -4,7 +4,7 @@ import { usePlayerStore } from '../../stores/playerStore'
 import { groupTracks, describeGroups } from '../../lib/group'
 import { getStorageEstimate, getTruthfulStorageReport } from '../../lib/idb'
 import { getProbeDuringPlayback, setProbeDuringPlayback, clearThumbnailFailureMarks } from '../../lib/thumbnail'
-import { isVideoPausedMode, setVideoPausedMode, isLockResilientToggle, setLockResilientToggle, isLockReviveOnHidden, setLockReviveOnHidden, isVideoDelayedStart, setVideoDelayedStart, getLockReviveDelay, setLockReviveDelay, isMinimalHandlers, setMinimalHandlers, isEchoAwareToggle, setEchoAwareToggle } from '../../lib/mediaFlags'
+import { isVideoPausedMode, setVideoPausedMode, isLockResilientToggle, setLockResilientToggle, isLockReviveOnHidden, setLockReviveOnHidden, isVideoDelayedStart, setVideoDelayedStart, getLockReviveDelay, setLockReviveDelay, isMinimalHandlers, setMinimalHandlers, isEchoAwareToggle, setEchoAwareToggle, isLockWarmCycle, setLockWarmCycle } from '../../lib/mediaFlags'
 
 export function EventLog() {
   const [entries, setEntries] = useState<string[]>(() => getLogs())
@@ -17,6 +17,7 @@ export function EventLog() {
   const [reviveDelay, setReviveDelay] = useState(() => getLockReviveDelay())
   const [minimalApplies, setMinimalApplies] = useState(() => isMinimalHandlers())
   const [echoAware, setEchoAware] = useState(() => isEchoAwareToggle())
+  const [warmCycle, setWarmCycle] = useState(() => isLockWarmCycle())
 
   useEffect(() => subscribeLogs(setEntries), [])
 
@@ -74,6 +75,12 @@ export function EventLog() {
     const next = !echoAware
     setEchoAware(next)
     setEchoAwareToggle(next)
+  }
+
+  const toggleWarmCycle = () => {
+    const next = !warmCycle
+    setWarmCycle(next)
+    setLockWarmCycle(next)
   }
 
   const resetThumbMarks = () => {
@@ -164,6 +171,13 @@ export function EventLog() {
             title="Experiment: with resilient toggle ON, a pause press within 4s of an external native pause (interruption) is ignored as an echo instead of resuming. Play presses always resume. Fixes the interruption ping-pong without losing single-press toggling."
           >
             Echo-aware: {echoAware ? 'ON' : 'OFF'}
+          </button>
+          <button
+            onClick={toggleWarmCycle}
+            className={`rounded-md px-2.5 py-1 text-xs font-medium ${warmCycle ? 'bg-emerald-600 text-white hover:bg-emerald-500' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+            title="Experiment: on every visible→hidden, pause the playing track natively then resume ~700ms later — mimics the autoplay warm-up that makes the lock UI come up fully correct (icons, touch routing, seek bar)."
+          >
+            Warm cycle: {warmCycle ? 'ON' : 'OFF'}
           </button>
           <button
             onClick={toggleDelayedStart}
