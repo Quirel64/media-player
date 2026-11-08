@@ -102,14 +102,16 @@ export function setLockReviveDelay(ms: number): void {
   addLog(`flag lock-revive-delay → ${ms}ms (takes effect on next hidden)`)
 }
 
-// Experiment 5: handler-application hygiene. Current registrations happen at
-// boot, every track change, the play-start edge, mode toggles, and the hidden
-// flip. The snapshot model (lock UI read at lock time) makes the per-track
-// re-apply a candidate: when ON, identical mode re-applies and their null-set
-// cleanups are skipped; boot/mode-toggle/play-start/flip still apply. Default OFF.
+// Experiment 5 → now DEFAULT: handler-application hygiene. Under the proven
+// snapshot model the per-track-change same-set re-apply + null-cleanup only
+// churned iOS's snapshot; device runs with this OFF the correct handler set
+// appeared only stochastically, with this ON 15/15 — AND dual-play locks
+// stopped wedging (the dead-zone saga's other proven "poison" was a cofactor
+// of churn). Boot, mode toggles, play-start edge and the hidden flip still
+// apply. A/B'd against lock-revive-on-hidden.
 const MINIMAL_KEY = 'minimal-handlers'
 export function isMinimalHandlers(): boolean {
-  return readFlag(MINIMAL_KEY, false)
+  return readFlag(MINIMAL_KEY, true)
 }
 
 export function setMinimalHandlers(on: boolean): void {
