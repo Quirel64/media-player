@@ -34,10 +34,14 @@ const INVERT_LOCK_ICON_TEST = false
 
 // Experiment 6 (echo-aware toggle) discriminators: performance.now() of OUR OWN
 // pause actions vs the last EXTERNAL native pause (element paused without our
-// request = interruption). A pause press within ECHO_WINDOW_MS of an external
-// pause is treated as the interruption echo, not a user press.
+// request = interruption). Verified on device: interruption echo pairs arrive
+// INSIDE the same second as our own pause (sub-600ms), while a human resume
+// re-press lands ≥1s later — so a pause press within PAIR_WINDOW_MS of our own
+// pause is the echo pair, no native-pause evidence needed (at swap time the
+// external pause event is swallowed by the transition guard — proven blind).
 const ECHO_WINDOW_MS = 4000
 const OWN_PAUSE_ECHO_MS = 1500
+const PAIR_WINDOW_MS = 600
 
 function setRate(el: HTMLMediaElement, rate: number) {
   try { el.defaultPlaybackRate = rate; el.playbackRate = rate } catch {
@@ -537,14 +541,14 @@ export function useAudioEngine() {
       // so Experiment 2 (EventLog "Resilient toggle") renders it literal: an
       // extra pause while already-paused/pending is a no-op, never a resume.
       if (isLockResilientToggle()) {
-        // Echo-aware guard: same rule as remotePauseOrResume — a pause press
-        // within the echo window of an external native pause is ignored.
-        if (isEchoAwareToggle() && lastExternalPauseAtRef.current > 0) {
-          const sinceExternal = performance.now() - lastExternalPauseAtRef.current
-          if (sinceExternal < ECHO_WINDOW_MS) {
-            addLog(`pause while placeholder/pending ${Math.round(sinceExternal)}ms after external pause → echo ignored (echo-aware)`)
-            return
-          }
+        // Echo-aware guard: same rules as remotePauseOrResume — a pause press
+        // within the pair window of our own pause, or within 4s of an
+        // external native pause, is an interruption echo → ignore.
+        const sinceOwn = performance.now() - lastOwnPauseAtRef.current
+        const sinceExternal = lastExternalPauseAtRef.current > 0 ? performance.now() - lastExternalPauseAtRef.current : Infinity
+        if (isEchoAwareToggle() && (sinceOwn < PAIR_WINDOW_MS || sinceExternal < ECHO_WINDOW_MS)) {
+          addLog(`pause while placeholder/pending after own ${Math.round(sinceOwn)}ms / external ${Number.isFinite(sinceExternal) ? Math.round(sinceExternal) : '∞'}ms → echo ignored (echo-aware)`)
+          return
         }
         addLog('pause while placeholder/pending → resume'); pendingAnchorPosRef.current = null; void play(); return
       }
@@ -594,8 +598,18 @@ export function useAudioEngine() {
       // almost certainly the interruption echo (iOS echos its own pause press
       // to us) — ignore instead of re-asserting our track over the other
       // source. A play press is never gated: it is a genuine resume request.
-      if (press === 'pause' && isEchoAwareToggle() && lastExternalPauseAtRef.current > 0) {
-        const sinceExternal = performance.now() - lastExternalPauseAtRef.current
+      if (press === 'pause' && isEchoAwareToggle()) {
+        // Rapid-pair rule (primary, device-proven): interruption echo pairs
+        // land inside the same second as our own pause; a human resume
+        // re-press needs ≥1s (icon can't even repaint faster). Blind spot of
+        // the external gate: iOS natively pauses us mid-swap, which the
+        // transition guard swallows — the pair rule needs no evidence.
+        const sinceOwn = performance.now() - lastOwnPauseAtRef.current
+        if (sinceOwn < PAIR_WINDOW_MS) {
+          addLog(`pause press ${Math.round(sinceOwn)}ms after our own pause → echo pair ignored (echo-aware)`)
+          return
+        }
+        const sinceExternal = lastExternalPauseAtRef.current > 0 ? performance.now() - lastExternalPauseAtRef.current : Infinity
         if (sinceExternal < ECHO_WINDOW_MS) {
           addLog(`pause press ${Math.round(sinceExternal)}ms after external pause → echo ignored (echo-aware)`)
           return
@@ -887,7 +901,14 @@ export function useAudioEngine() {
       addLog(`native playing (${k}, same element)`)
     }
     const onPause = () => {
-      if (transitionRef.current) { addLog(`native pause ignored during transition (${sourceKindRef.current})`) ; return }
+      if (transitionRef.current) {
+        // Attributed as swap noise for now, but flagged: device logs show iOS's
+        // interruption pauses our element MID-SWAP (aborts the anchor play())
+        // — the external-pause detector is blind here by design, the pair rule
+        // covers it.
+        addLog(`native pause ignored during transition (${sourceKindRef.current})${isEchoAwareToggle() ? ' [echo-aware: possible external during our swap]' : ''}`)
+        return
+      }
       // Echo-aware detection: an element pause WITHOUT our request (no own
       // pause action within OWN_PAUSE_ECHO_MS) is an external native pause —
       // iOS's interruption pausing us. Own echoes (deferred media.pause(),

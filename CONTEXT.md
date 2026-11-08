@@ -380,6 +380,27 @@ over after 1–2 taps) but the lock-unpause on an inverted icon can take 3
 presses (`||`→`||`, `||`→`>`, `>`→plays). Unresolved: distinguishing a user
 press from an interruption echo (they are byte-identical to the page).
 
+**Interruption echo-combat (echo-aware v1/v2):** v1 (external native pause
+element-event within 4s) proved BLIND at lock time — device logs show iOS
+pauses our element MID-SWAP (`native pause ignored during transition` runs
+exactly there and even aborts the anchor play() with AbortError), so the
+transition guard swallows the very evidence needed. v2 adds the primary
+rapid-pair rule: interruption echo pairs land INSIDE the same second as our
+own pause (`:05`→`:05`), while a human resume re-press lands ≥1s later — so
+a `pause` press while anchored within ~600ms of our own pause action is
+ignored as the echo (`Rapid-pair` under `echo-aware-toggle`, default OFF;
+play presses never gated; user-center fast-double unaffected — it arrives
+coalesced as a play press). Windows flyout: take-over presses hit the
+pair-rule too (its repeated `pause` presses are >600ms apart, unmoved).
+
+**Lock-screen icon flip (resilient-era observation):** under resilient
+mapping the lock cycle is press=paused/icon `||`→`||`, press=playing/
+icon `||`→`>` — the icon renders one event behind iOS's own element state
+(same-element anchor is "playing silence" while functionally paused, so iOS
+paints `||`; the load-clear at resume makes it paint the stale paused state).
+A User Center pause re-syncs it. Functionally harmless under resilience
+(the third catch-up press the literal mapping needed is gone); cosmetic.
+
 **Deferred video start** (`video-delayed-start`) keeps the first ~12s
 lock-safe (session establishes on audio alone) then plays the mask in-app —
 opt-in motion mode; once it plays, lock safety reverts to the poisoned case.

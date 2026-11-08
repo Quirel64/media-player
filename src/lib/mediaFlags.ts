@@ -120,14 +120,14 @@ export function setMinimalHandlers(on: boolean): void {
 }
 
 // Experiment 6: echo-aware resilient toggle. The one hard problem left with
-// resilient ON: an interruption (e.g. YouTube taking over) pauses our element
-// NATIVELY without our request, then iOS delivers pause presses that under
-// resilience mean "resume" — re-asserting our track and causing the ping-pong.
-// Discriminator: a user press does NOT natively pause the element; an
-// interruption does. So a "pause" press while anchored is ignored ONLY if an
-// external (not-our-own) native pause happened within the last ~4s. Our own
-// anchor swap must NOT count as external (else Windows-flyout unpause breaks —
-// the flyout only ever emits "pause"). Default OFF.
+// resilient ON: an interruption (e.g. YouTube taking over) arrives as a rapid
+// pause press PAIR — first press pauses us legitimately, the echo press within
+// the same second re-asserts our track (ping-pong). v2 rules: (1) rapid-pair —
+// a pause press within ~600ms of our own pause is the echo (human re-presses
+// land ≥1s later); (2) external-evidence — a pause press within 4s of an
+// external native pause (device logs show the external event is usually
+// swallowed by the swap's transition guard, so rule 1 is the workhorse).
+// Play presses are never gated. Default OFF.
 const ECHO_AWARE_KEY = 'echo-aware-toggle'
 export function isEchoAwareToggle(): boolean {
   return readFlag(ECHO_AWARE_KEY, false)
@@ -135,5 +135,5 @@ export function isEchoAwareToggle(): boolean {
 
 export function setEchoAwareToggle(on: boolean): void {
   writeFlag(ECHO_AWARE_KEY, on)
-  addLog(`flag echo-aware-toggle → ${on ? 'ON' : 'OFF'} (resilient pause press ignored within 4s of an external native pause)`)
+  addLog(`flag echo-aware-toggle → ${on ? 'ON' : 'OFF'} (v2: rapid-pair <600ms + external evidence <4s gate pause-press resumes)`)
 }
