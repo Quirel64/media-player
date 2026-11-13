@@ -56,6 +56,10 @@ export default function App() {
       // localStorage across force-closes, so every diagnosis needs to know
       // which combination the session actually ran with.
       addLog(`flags: video-paused-mode=${isVideoPausedMode() ? 1 : 0} lock-resilient-toggle=${isLockResilientToggle() ? 1 : 0} lock-revive-on-hidden=${isLockReviveOnHidden() ? 1 : 0} (revive ${getLockReviveDelay()}ms) video-delayed-start=${isVideoDelayedStart() ? 1 : 0} minimal-handlers=${isMinimalHandlers() ? 1 : 0} echo-aware-toggle=${isEchoAwareToggle() ? 1 : 0} lock-warm-cycle=${isLockWarmCycle() ? 1 : 0} (warm ${getWarmCycleDelay()}ms) thumb-probe-play=${getProbeDuringPlayback() ? 1 : 0}`)
+      // ARENA ENGINE PORT (round-8 winning combo, pinned ON): the session
+      // layer now runs the arena posture regardless of the legacy flags above
+      // (which only remain for their still-active video/revive experiments).
+      addLog('arena port: playbackState=no-paused echoGate=ON videoTeardown=OFF audioSession=playback presses=engine-aware parkedNav=ON windowsFreezeHold=ON')
       // Fast path first: localStorage reads instantly even when a hot/throttled
       // device takes seconds to open IndexedDB (handlers then apply correctly
       // on the very first lock). IDB confirms afterwards; both stay in sync.
@@ -126,16 +130,22 @@ export default function App() {
     }
     document.addEventListener('visibilitychange', onVis)
     return () => document.removeEventListener('visibilitychange', onVis)
-  }, [reapplyHandlers])
+  }, [reviveHandlers])
 
-  // Play-start edge: boot-time registrations happen with no live session, and
-  // iOS can ignore the null-ing then (both sets stay registered = wrong
-  // buttons). Re-applying inside an ACTIVE session forces exactly one set.
+  // ARENA PORT (round 12): one-shot attach at the FIRST play per page load.
+  // The refresh hole: after a refresh the boot/first-load applies land before
+  // iOS has a session to register against, so the handler set is dropped —
+  // the first PLAY is the first gesture-adjacent moment iOS accepts a fresh
+  // set. Unlike the retired per-unpause edge apply (the triple-tap churn),
+  // this fires at most once per page load, so churn stays bounded.
   const isPlayingForEdge = usePlayerStore((s) => s.isPlaying)
-  const wasPlayingRef = useRef(false)
+  const firstPlayAppliedRef = useRef(false)
   useEffect(() => {
-    if (isPlayingForEdge && !wasPlayingRef.current) reapplyHandlers()
-    wasPlayingRef.current = isPlayingForEdge
+    if (isPlayingForEdge && !firstPlayAppliedRef.current) {
+      firstPlayAppliedRef.current = true
+      addLog('first-play one-shot handler apply (refresh attach)')
+      reapplyHandlers()
+    }
   }, [isPlayingForEdge, reapplyHandlers])
 
   // Flush libraryTracks to IDB on hide/pagehide — best-effort durability for iOS force-close.
