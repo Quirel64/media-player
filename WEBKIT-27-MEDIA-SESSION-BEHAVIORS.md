@@ -52,6 +52,12 @@ route ownership at the OS level.
 - A write that mismatches element reality feeds a native **reconcile loop**:
   iOS notices the mismatch and dispatches corrective actions back at the app
   (Rule 1, pattern 3) — the dispatch storm that wedged sessions.
+- **The arbiter can also act on the element directly**: to reconcile a stale
+  `playing` claim during an interruption, iOS resumed the app's element
+  *natively* — no action dispatch, no app code involved (proven 16:36 log:
+  `native playing` with every own `play()` initiator accounted for). The
+  pull-back is the steal; an app that re-asserts from its `onplaying` handler
+  completes it.
 - Hide-time writes fire exactly while the session is being handed off.
 
 **Consequence**: state writes are no longer "display hints"; they are claims
@@ -140,7 +146,7 @@ authority, the promise is not.
 |---|---|---|
 | Lock controls greyed / handlers dead | 1, 2 | engine-aware presses; write-once-on-settle; handler-apply hygiene |
 | Session/player dies after hidden churn | 3 | never rebuild while hidden; keep-alive element |
-| Player steals from / loses to other apps | 1, 2 | echo classification; no writes during handoff; pause→play pair filter |
+| Player steals from / loses to other apps | 1, 2 | echo classification; no writes during handoff; pause→play pair filter; concede on native pull-back (`onplaying` without own request) |
 | Silent after resume / NotAllowedError | 4 | zero-await URL cache; gesture classification; parked reloads |
 | Seeking while locked wedges | 2 | no hide-time writes |
 | Lock-screen scrubber/name/duration mismatch | 2, 6 | publish once on settle; element-state authority |
