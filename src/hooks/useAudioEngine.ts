@@ -65,6 +65,21 @@ const OWN_PAUSE_ECHO_MS = 1500
  *  lengthen it; if a real unpause gets swallowed right after an interruption,
  *  shorten it. */
 const ECHO_PRESS_WINDOW_MS = 10000
+/** Round 20: how long after an IGNORED pause press a play press is treated as
+ *  the second half of iOS's cross-app pause→play reconcile pair (dispatched to
+ *  our session when another app's playback begins — device-proven 14:11 clip).
+ *  The pair lands within the same second; 2s gives margin without swallowing a
+ *  deliberate pause→resume re-press. */
+const CROSS_APP_PAIR_MS = 2000
+/** Round 21b: how long after one of OUR play initiations an element play event
+ *  is still attributed to us — must cover promise starvation lag (device-proven:
+ *  a boot play() can start the element ~2s after the press). */
+const OWN_PLAY_ECHO_MS = 5000
+/** Round 22: an interruption echo burst always follows our own park within
+ *  ~1-2s (the park itself was the first echo being honored). A pause press
+ *  reaching the parked anchor inside this window is burst continuation, not a
+ *  user unpause — legit unpause presses come later (device: 60s). */
+const ECHO_BURST_MS = 4000
 /** Desktop/Windows freeze hold: element keeps playing muted at rate ~0. */
 const FROZEN_VOLUME = 0.001
 
@@ -140,6 +155,15 @@ export function useAudioEngine() {
   // external native pause event (no own action within OWN_PAUSE_ECHO_MS).
   const lastOwnPauseAtRef = useRef(0)
   const lastExternalPauseAtRef = useRef(0)
+  // Round 20: timestamp of the last pause press we IGNORED (echo gate /
+  // interrupted reality) — a play press arriving within CROSS_APP_PAIR_MS of
+  // it is iOS's cross-app pause→play pair, not user intent.
+  const lastIgnoredPausePressAtRef = useRef(0)
+  // Round 21b: timestamp of our last own play initiation — the onPlaying
+  // handler attributes play events within OWN_PLAY_ECHO_MS to us; anything
+  // later, hidden, and inside interruption context is the arbiter pulling the
+  // element back (external native play) and must be conceded.
+  const lastOwnPlayAtRef = useRef(0)
   // Experiment 7 guard: the synthetic pause→play warm pair must not flip
   // store state or feed the external-pause detector.
   const warmCycleRef = useRef(false)
@@ -387,6 +411,7 @@ export function useAudioEngine() {
       if ('mediaSession' in navigator) navigator.mediaSession.playbackState = getLockPlaybackState('track')
       addLog(`pre-publish track ${getLockPlaybackState('track')} dur=${preDuration.toFixed(1)} pos=${position.toFixed(2)} rate=1`)
     }
+    lastOwnPlayAtRef.current = performance.now()
     const playPromise = media.play()
     // Dual-play only when frames are ready (maybePlayVideo): a stalled video
     // registers a frozen timeline with iOS = lock-screen seek fighting.
@@ -514,6 +539,7 @@ export function useAudioEngine() {
       publishPosition(media.duration || trackDurationRef.current, media.currentTime, 1)
       try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing' } catch {}
       // Resume track audio that was paused for deferred
+      lastOwnPlayAtRef.current = performance.now()
       try { await media.play() } catch (e) { addLog(`cancel deferred play failed ${e}`) }
       const vResume = videoRef.current; if (vResume && vResume.src) { try { vResume.currentTime = frozenPosRef.current } catch {}; vResume.muted = true; vResume.play().catch(() => {}) }
       return
@@ -543,6 +569,7 @@ export function useAudioEngine() {
         publishPosition(media.duration || trackDurationRef.current, resumePos, 1)
         if ('mediaSession' in navigator) navigator.mediaSession.playbackState = getLockPlaybackState('track')
         addLog(`direct resume pre-publish ${getLockPlaybackState('track')} pos=${resumePos.toFixed(2)}`)
+        lastOwnPlayAtRef.current = performance.now()
         const directPlay = media.play()
         // Gated like swaps: a stalled video start wedges a frozen timeline.
         if (isVideoResume && vResume && vResume.src) { maybePlayVideo(resumePos) }
@@ -582,15 +609,48 @@ export function useAudioEngine() {
           }
         }
       }
-    } catch (e) { setPlaying(false); setOwner('idle'); addLog(`resume failed: ${e}`) }
+    } catch (e) {
+      setPlaying(false); setOwner('idle'); addLog(`resume failed: ${e}`)
+      // Round 22: an aborted/stalled resume can leave the element paused on
+      // the TRACK src with the anchor gone (the swap path destroys the anchor;
+      // device log 19:47: AbortError mid-swap = the guaranteed failure state —
+      // a paused non-playing element expires the iOS session in ~30s). While
+      // hidden, re-park the keep-alive anchor. Visible, leave it for the user
+      // (one press plays).
+      if (IS_APPLE_MOBILE && typeof document !== 'undefined' && document.hidden) {
+        const mFailed = mediaRef.current
+        if (mFailed && mFailed.paused) {
+          try {
+            ensureAnchor(trackDurationRef.current || mFailed.duration || 2)
+            void activateSource('anchor', anchorUrlRef.current, frozenPosRef.current)
+            addLog('resume failed while hidden → re-parked keep-alive anchor')
+          } catch { /* ignore */ }
+        }
+      }
+    }
     finally { transitionRef.current = false; flushQueued() }
-  }, [activateSource, currentTrack, flushQueued, setOwner, setPlaying, maybePlayVideo])
+  }, [activateSource, currentTrack, ensureAnchor, flushQueued, setOwner, setPlaying, maybePlayVideo])
 
   const pause = useCallback(async () => {
     const media = mediaRef.current
     if (!media) return
     playIntentRef.current = false
     if (sourceKindRef.current === 'anchor' || pendingAnchorPosRef.current !== null) {
+      // Round 22: echo-aware resume gate. This branch serves the legit
+      // unpause (16:26 device log: pause press 60s after the user's own
+      // pause). But iOS also dispatches pause actions HERE during
+      // interruption bursts — 19:34/19:47: an echo arrived 1-2s after our own
+      // park, this branch resumed blindly, iOS aborted the swap mid-flight
+      // (AbortError) and left the broken parked state (anchor destroyed,
+      // element paused on the track src, no keep-alive = the guaranteed
+      // failure state). A pause press arriving within the burst window of our
+      // OWN pause is interruption continuation, not user intent.
+      const sinceOwnPause = performance.now() - lastOwnPauseAtRef.current
+      if (lastOwnPauseAtRef.current > 0 && sinceOwnPause < ECHO_BURST_MS) {
+        lastIgnoredPausePressAtRef.current = performance.now()
+        addLog(`pause-press while parked ${Math.round(sinceOwnPause)}ms after our own pause — echo burst, ignored`)
+        return
+      }
       // ARENA PORT resilient semantics: a pause press reaching the anchor is
       // the user's resume intent (the placeholder plays silence; iOS shows ||;
       // the echo gate has already filtered the hidden echoes upstream).
@@ -640,7 +700,26 @@ export function useAudioEngine() {
     // ARENA PORT: BOTH center presses are engine-aware (resilient, pinned) —
     // the press KIND no longer decides the action; engine reality does.
     const media = mediaRef.current
-    if (press === 'play') { void play(); return }
+    if (press === 'play') {
+      // Round 20: cross-app play-echo filter. When another app's playback
+      // begins while ours is paused, iOS dispatches a pause→play PAIR to our
+      // session (device-proven 14:11 clip: the user pressed play in the
+      // YOUTUBE app; our session received pause + play the same second, and
+      // the unconditional resume made us steal the route back — YouTube
+      // lost). A play arriving right after an IGNORED pause press AND inside
+      // interruption context is that pair's second half, not user intent.
+      // A LONE play (no ignored pause in the window) stays a genuine resume —
+      // the round-8 single-tap contract is untouched.
+      const now = performance.now()
+      const pairEcho = now - lastIgnoredPausePressAtRef.current < CROSS_APP_PAIR_MS
+      const echoContext = lastExternalPauseAtRef.current > 0 && now - lastExternalPauseAtRef.current < ECHO_PRESS_WINDOW_MS
+      if (pairEcho && echoContext) {
+        addLog('cross-app play echo ignored (pause→play pair within interruption context)')
+        return
+      }
+      void play()
+      return
+    }
     // Windows freeze hold: the element is still PLAYING (muted, rate~0), so
     // Chromium derives its play/pause from the ELEMENT — overriding our
     // declared "paused" (the overlay shows || and routes the PLAY key as
@@ -666,6 +745,7 @@ export function useAudioEngine() {
       const sinceExternal = performance.now() - lastExternalPauseAtRef.current
       const echoContext = lastExternalPauseAtRef.current > 0 && sinceExternal < ECHO_PRESS_WINDOW_MS
       if (echoContext || (media && media.paused)) {
+        lastIgnoredPausePressAtRef.current = performance.now()
         addLog(`echo-gate: pause press while hidden+anchored IGNORED (echo${echoContext ? `: external pause ${Math.round(sinceExternal)}ms ago` : ': element natively paused'})`)
         return
       }
@@ -677,6 +757,12 @@ export function useAudioEngine() {
     // (a takeover killed our play). Re-anchoring a dead track would wedge —
     // concede to the other source.
     if (media && media.paused && sourceKindRef.current === 'track') {
+      // Round 20: a track element paused without our request IS external-pause
+      // evidence — stamp it NOW so a same-moment play echo (the pause→play
+      // pair) sees interruption context even before onPause has fired/logged
+      // (14:11 clip ordering: element already paused, detector logged later).
+      lastExternalPauseAtRef.current = performance.now()
+      lastIgnoredPausePressAtRef.current = lastExternalPauseAtRef.current
       addLog('remote pause ignored: element already paused (interrupted reality)')
       return
     }
@@ -716,7 +802,7 @@ export function useAudioEngine() {
   const handleTrackEnd = useCallback(() => {
     const { getNextTrackIndex, repeatMode } = usePlayerStore.getState()
     addLog(`ended repeat=${repeatMode}`)
-    if (repeatMode === 'one') { const m=mediaRef.current; if(m){ m.currentTime=0; frozenPosRef.current=0; setCurrentTime(0); setAudioSessionType(); m.play().catch(e=>addLog(`repeat-one failed: ${e}`)) } return }
+    if (repeatMode === 'one') { const m=mediaRef.current; if(m){ m.currentTime=0; frozenPosRef.current=0; setCurrentTime(0); setAudioSessionType(); lastOwnPlayAtRef.current = performance.now(); m.play().catch(e=>addLog(`repeat-one failed: ${e}`)) } return }
     const n = getNextTrackIndex()
     if (n !== null) { addLog(`auto-next ${n}`); nextGestureRef.current = true; setPlaying(true); setCurrentTrackIndex(n) }
     else { setPlaying(false); // freeze at end to keep session
@@ -1041,6 +1127,25 @@ export function useAudioEngine() {
     const onPlaying = () => {
       const k = sourceKindRef.current
       if (k==='track') {
+        // Round 21b: external native PLAY concession — the arbiter mirror of
+        // the external-pause detector. Device log 16:36:27: after an
+        // interruption, iOS resumed our element NATIVELY (no action dispatch,
+        // no code path — every own play() initiator is logged) to reconcile
+        // our stale 'playing' claim. That pull-back IS the steal, and the
+        // re-assert below is what makes it stick. If the element starts
+        // playing while hidden, we did not request it, and an interruption is
+        // in context — concede: pause, release the claim, never re-assert.
+        const now = performance.now()
+        const ownPlay = now - lastOwnPlayAtRef.current < OWN_PLAY_ECHO_MS
+        const externalContext = lastExternalPauseAtRef.current > 0 && now - lastExternalPauseAtRef.current < ECHO_PRESS_WINDOW_MS
+        if (!ownPlay && externalContext && document.visibilityState !== 'visible') {
+          addLog('external native play conceded (arbiter pulled the element back during interruption) — releasing claim')
+          try { media.pause() } catch { /* ignore */ }
+          setPlaying(false)
+          try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused' } catch {}
+          const vc = videoRef.current; if (vc && !vc.paused) try { vc.pause() } catch {}
+          return
+        }
         setOwner(k); setPlaying(true); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = getLockPlaybackState('track')
         publishPosition(media.duration || trackDurationRef.current, media.currentTime, 1)
         // Ensure video reflects playing track (fix: video stuck paused after lock resume)
