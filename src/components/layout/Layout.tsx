@@ -17,7 +17,7 @@ export function Layout({ sidebar, nowPlaying, content, player, activeTab, onTabC
   return (
     <div className="flex h-full flex-col bg-slate-950">
       <div className="flex flex-1 overflow-hidden">
-        {/* Desktop sidebar */}
+        {/* Desktop sidebar (activeTab/onTabChange already passed from App.tsx) */}
         <motion.aside
           initial={{ x: -260 }}
           animate={{ x: 0 }}

@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import type { Track } from '../lib/types'
-import { saveTracks, getAllTracks, savePlaylist, resetDB, deleteTrack, getPlaylist, getAllPlaylists, getAllFileBlobNames, getStorageEstimate, saveTrackFile, clearTrackFiles, deleteTrackFile, debugTrackFiles, deleteThumbnail, pruneThumbnails } from '../lib/idb'
+import { saveTracks, getAllTracks, savePlaylist, resetDB, deleteTrack, getPlaylist, getAllPlaylists, getAllFileBlobNames, getStorageEstimate, saveTrackFile, clearTrackFiles, deleteTrackFile, debugTrackFiles, deleteThumbnail, pruneThumbnails, getSetting } from '../lib/idb'
 import { removeCachedThumbnail, clearThumbnailCache } from '../lib/thumbnail'
 import { generateTrackId } from '../lib/shuffle'
 import { usePlayerStore } from '../stores/playerStore'
@@ -344,7 +344,22 @@ export function useFolderPicker() {
 
       // 4. Repair library snapshot: tracks[] = valid in createdAt order; items keep
       // stable IDs for surviving trackIds (no UUID churn), new IDs only for newcomers.
-      const ordered = [...valid].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
+      let ordered = [...valid].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
+      // Apply a previously saved custom library order (persisted reorder). Filter out
+      // any IDs whose tracks no longer exist, and append any tracks not in the saved
+      // order (e.g. newly added files) at the end.
+      const savedOrder = (await getSetting('libraryOrder')) as string[] | undefined
+      if (savedOrder && savedOrder.length > 0) {
+        const validIdSet = new Set(valid.map((t) => t.id))
+        const byId = new Map(valid.map((t) => [t.id, t] as const))
+        const savedValid = savedOrder.filter((id) => validIdSet.has(id)).map((id) => byId.get(id)!).filter(Boolean)
+        const savedIdSet = new Set(savedValid.map((t) => t.id))
+        const remainder = ordered.filter((t) => !savedIdSet.has(t.id))
+        if (savedValid.length > 0) {
+          ordered = [...savedValid, ...remainder]
+          addLog(`library: restored saved custom order (${savedValid.length} tracks)`)
+        }
+      }
       const orderedIds = ordered.map((t) => t.id).join(',')
       const prevIds = Array.isArray(lib?.tracks) ? lib!.tracks.map((t) => t.id).join(',') : null
       const existingItemByTrack = new Map<string, { id: string; addedAt: number }>()

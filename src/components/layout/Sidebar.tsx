@@ -1,15 +1,19 @@
 import { motion } from 'framer-motion'
 import { usePlayerStore } from '../../stores/playerStore'
+import type { TabId } from './BottomNav'
 
 interface SidebarProps {
   trackCount: number
   onPickFolder: () => void
   onPickFiles: () => void
   onClearAll: () => void
+  activeTab: TabId
+  onTabChange: (tab: TabId) => void
 }
 
-export function Sidebar({ trackCount, onPickFolder, onPickFiles, onClearAll }: SidebarProps) {
+export function Sidebar({ trackCount, onPickFolder, onPickFiles, onClearAll, activeTab, onTabChange }: SidebarProps) {
   const { lockScreenMode, toggleLockScreenMode } = usePlayerStore()
+  const isActive = (tab: TabId) => activeTab === tab
   return (
     <div className="flex h-full flex-col p-4">
       <div className="mb-6">
@@ -18,9 +22,9 @@ export function Sidebar({ trackCount, onPickFolder, onPickFiles, onClearAll }: S
       </div>
 
       <nav className="flex-1 space-y-1">
-        <SidebarItem label="Library" count={trackCount} active />
-        <SidebarItem label="Playlists" count={0} />
-        <SidebarItem label="Settings" />
+        <SidebarItem label="Library" count={trackCount} active={isActive('library')} onClick={() => onTabChange('library')} />
+        <SidebarItem label="Playlists" count={0} active={isActive('playlists')} onClick={() => onTabChange('playlists')} />
+        <SidebarItem label="Logs" icon="≡" active={isActive('logs')} onClick={() => onTabChange('logs')} />
       </nav>
 
       <div className="mb-4 rounded-lg border border-slate-800 bg-slate-800/50 p-3">
@@ -69,12 +73,13 @@ export function Sidebar({ trackCount, onPickFolder, onPickFiles, onClearAll }: S
 
 interface SidebarItemProps {
   label: string
+  icon?: string
   count?: number
   active?: boolean
   onClick?: () => void
 }
 
-function SidebarItem({ label, count, active, onClick }: SidebarItemProps) {
+function SidebarItem({ label, icon, count, active, onClick }: SidebarItemProps) {
   return (
     <motion.button
       whileHover={{ x: 2 }}
@@ -86,6 +91,7 @@ function SidebarItem({ label, count, active, onClick }: SidebarItemProps) {
           : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
       }`}
     >
+      {icon && <span className="mr-2">{icon}</span>}
       <span>{label}</span>
       {count !== undefined && count > 0 && (
         <span className="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">

@@ -16,8 +16,19 @@ export function NowPlaying({ currentTrack, videoContainerRef, collapsed, onToggl
   const { currentTime, duration } = usePlayerStore()
 
   const CollapseBtn = onToggleCollapsed ? (
-    <button onClick={onToggleCollapsed} className="rounded-full bg-slate-800 p-1.5 text-slate-400 hover:bg-slate-700 hover:text-white" title={collapsed ? 'Expand player' : 'Collapse player'}>
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">{collapsed ? <path d="M6 9l6 6 6-6" /> : <path d="M6 15l6-6 6 6" />}</svg>
+    <button
+      onClick={onToggleCollapsed}
+      className="rounded-lg bg-slate-800 p-2.5 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors"
+      title={collapsed ? 'Show video' : 'Hide video'}
+      aria-label={collapsed ? 'Show video' : 'Hide video'}
+    >
+      {/* Bigger, clearer video toggle: rectangle with play triangle.
+          Crossed out when video is hidden (collapsed). */}
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="2" y="3" width="20" height="18" rx="2" />
+        <polygon points="7,7 7,17 13,12" fill="currentColor" />
+        {collapsed && <line x1="2" y1="3" x2="22" y2="21" stroke="currentColor" strokeWidth="2.5" />}
+      </svg>
     </button>
   ) : null
 
@@ -27,13 +38,13 @@ export function NowPlaying({ currentTrack, videoContainerRef, collapsed, onToggl
         {/* Keep video container mounted even with no track so ref never swaps */}
         <div key="video-container" ref={videoContainerRef} className="hidden" />
         <div className="flex h-full items-center justify-center p-4">
-          <div className="flex w-full items-center justify-between">
-            <div className="text-center text-slate-600 flex-1">
-              <div className="mb-1 text-2xl">🎶</div>
-              <p className="text-xs">Select a track to play</p>
-            </div>
-            {CollapseBtn}
+          <div className="flex w-full items-center gap-3">
+          {CollapseBtn}
+          <div className="text-center text-slate-600 flex-1">
+            <div className="mb-1 text-2xl">🎶</div>
+            <p className="text-xs">Select a track to play</p>
           </div>
+        </div>
         </div>
       </div>
     )
@@ -45,12 +56,12 @@ export function NowPlaying({ currentTrack, videoContainerRef, collapsed, onToggl
         {/* Keep same key so React reuses the node and <video> stays mounted */}
         <div key="video-container" ref={videoContainerRef} className="hidden" />
         <div className="flex items-center gap-3 px-4 py-2">
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-white">{currentTrack.name}</p>
-            <p className="truncate text-xs text-slate-500">{currentTrack.artist} • {formatTime(currentTime)} / {formatTime(duration)}</p>
-          </div>
-          {CollapseBtn}
+        {CollapseBtn}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-white">{currentTrack.name}</p>
+          <p className="truncate text-xs text-slate-500">{currentTrack.artist} • {formatTime(currentTime)} / {formatTime(duration)}</p>
         </div>
+      </div>
       </div>
     )
   }
@@ -58,7 +69,7 @@ export function NowPlaying({ currentTrack, videoContainerRef, collapsed, onToggl
   if (currentTrack.mediaType === 'video') {
     return (
       <div className="flex flex-col gap-4 p-4" style={{ paddingTop: 'calc(1rem + env(safe-area-inset-top, 0px))' }}>
-        <div className="flex justify-end">{CollapseBtn}</div>
+        <div className="flex justify-start">{CollapseBtn}</div>
         <div
           key="video-container"
           ref={videoContainerRef}
@@ -95,7 +106,7 @@ export function NowPlaying({ currentTrack, videoContainerRef, collapsed, onToggl
       className="flex flex-col items-center gap-6 p-8 relative"
     >
       <div key="video-container" ref={videoContainerRef} className="hidden" />
-      <div className="absolute right-4 top-4">{CollapseBtn}</div>
+      <div className="absolute left-4 top-4">{CollapseBtn}</div>
       <motion.div
         className="flex h-48 w-48 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/30 to-accent/30 shadow-2xl"
         animate={{ rotate: currentTime > 0 ? [0, 0, 0] : 0 }}

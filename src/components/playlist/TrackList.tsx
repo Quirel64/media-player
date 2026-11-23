@@ -396,9 +396,9 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
   return (
     <div className="relative flex h-full flex-col">
       {!hideHeader && (
-        <div className="flex items-center justify-between border-b border-slate-800 px-6 py-4">
+        <div className="flex items-center justify-between border-b border-slate-800 px-6 py-3">
           <div>
-            <h2 className="text-lg font-semibold text-white">Library</h2>
+            <h2 className="text-base font-semibold text-white">Library</h2>
             <p className="text-sm text-slate-400">
               {selectMode
                 ? `${selectedIds.size} of ${tracks.length} selected`
@@ -410,13 +410,13 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
               <>
                 <button
                   onClick={selectedIds.size === tracks.length ? deselectAll : selectAll}
-                  className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-300 transition-colors hover:bg-slate-700"
+                  className="rounded-lg bg-slate-800 px-4 py-2 text-sm text-slate-300 transition-colors hover:bg-slate-700"
                 >
                   {selectedIds.size === tracks.length ? 'Deselect All' : 'Select All'}
                 </button>
                 <button
                   onClick={exitSelectMode}
-                  className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-300 transition-colors hover:bg-slate-700"
+                  className="rounded-lg bg-slate-800 px-4 py-2 text-sm text-slate-300 transition-colors hover:bg-slate-700"
                 >
                   Cancel
                 </button>
@@ -425,19 +425,19 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
               <>
                 <button
                   onClick={() => setSelectMode(true)}
-                  className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-300 transition-colors hover:bg-slate-700"
+                  className="rounded-lg bg-slate-800 px-4 py-2 text-sm text-slate-300 transition-colors hover:bg-slate-700"
                 >
                   Select
                 </button>
                 <button
                   onClick={onPickFolder}
-                  className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-300 transition-colors hover:bg-slate-700"
+                  className="rounded-lg bg-slate-800 px-4 py-2 text-sm text-slate-300 transition-colors hover:bg-slate-700"
                 >
                   + Folder
                 </button>
                 <button
                   onClick={onPickFiles}
-                  className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-300 transition-colors hover:bg-slate-700"
+                  className="rounded-lg bg-slate-800 px-4 py-2 text-sm text-slate-300 transition-colors hover:bg-slate-700"
                 >
                   + Files
                 </button>

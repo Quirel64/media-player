@@ -449,6 +449,8 @@ export default function App() {
           onPickFolder={handlePickFolder}
           onPickFiles={handlePickFiles}
           onClearAll={clearAll}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
         />
       }
       nowPlaying={renderNowPlaying()}

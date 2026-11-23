@@ -176,7 +176,7 @@ export function PlayBar({ currentTrack, onTogglePlay, onNext, onPrev, onSeek }: 
           {/* Lock screen mode toggle: skip10 (±10s) vs prevnext (<< >>) */}
           <button
             onClick={toggleLockScreenMode}
-            className="ml-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-wide transition-colors"
+            className="ml-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors"
             style={{
               borderColor: lockScreenMode === 'skip10' ? '#6366f1' : '#334155',
               color: lockScreenMode === 'skip10' ? '#818cf8' : '#94a3b8',
@@ -185,7 +185,7 @@ export function PlayBar({ currentTrack, onTogglePlay, onNext, onPrev, onSeek }: 
             }}
             title={lockScreenMode === 'skip10' ? 'Lock screen: ±10s skip (tap to switch to Prev/Next)' : 'Lock screen: Prev/Next track (tap to switch to ±10s)'}
           >
-            {lockScreenMode === 'skip10' ? '±10s' : '◀▶'}
+            {lockScreenMode === 'skip10' ? '±10s skip' : 'Prev / Next'}
           </button>
         </div>
 

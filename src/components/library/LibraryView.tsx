@@ -6,7 +6,7 @@ import { TrackList } from '../playlist/TrackList'
 import { PlayingIndicator } from '../ui/PlayingIndicator'
 import { usePlayerStore } from '../../stores/playerStore'
 import { queueKey, findQueueIndexByKey, orderByIds } from '../../lib/queue'
-import { getTrackFile } from '../../lib/idb'
+import { getTrackFile, saveSetting } from '../../lib/idb'
 import { getTrackThumbnail, getCachedThumbnails, loadPersistedThumbnails, canProbeNow } from '../../lib/thumbnail'
 
 interface Props {
@@ -180,7 +180,10 @@ export function LibraryView({ tracks, onSelectTrack, onPickFolder, onPickFiles, 
   const commitQueueOrder = (newIds: string[]) => {
     const reordered = orderByIds(orderedTracks, (t) => t.id, newIds)
     if (!reordered || reordered.every((t, i) => t.id === orderedTracks[i]?.id)) return
-    setOrderOverride(reordered.map((t) => t.id))
+    const nextOrder = reordered.map((t) => t.id)
+    setOrderOverride(nextOrder)
+    // Persist the custom library order so it survives reloads.
+    void saveSetting('libraryOrder', nextOrder).catch(() => {})
     if (!onReorderQueue) return
     const st = usePlayerStore.getState()
     const byTrackId = new Map(st.queue.map((q) => [q.id, q] as const))
@@ -287,48 +290,48 @@ export function LibraryView({ tracks, onSelectTrack, onPickFolder, onPickFiles, 
   return (
     <div className="flex h-full flex-col">
       {/* Header: title + toggle */}
-      <div className="flex-shrink-0 border-b border-slate-800 px-4 py-3">
+      <div className="flex-shrink-0 border-b border-slate-800 px-4 py-2">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-white">Library</h2>
+            <h2 className="text-base font-semibold text-white">Library</h2>
             <p className="text-xs text-slate-400">{tracks.length} tracks • {grouped.groups.length} groups • {grouped.loose.length} loose</p>
           </div>
           <div className="flex items-center gap-2">
             {selectMode && (
               <button
                 onClick={() => { if (mode === 'queue') toggleQueueSelectAll(); else toggleGridSelectAll() }}
-                className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300"
+                className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-300"
               >
                 {selectAllOn ? 'Clear' : 'Select All'}
               </button>
             )}
-            <button onClick={toggleSelectMode} className={`rounded-lg px-3 py-1.5 text-xs font-medium ${selectMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}>{selectMode ? 'Done' : 'Select'}</button>
+            <button onClick={toggleSelectMode} className={`rounded-lg px-4 py-2 text-sm font-medium ${selectMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}>{selectMode ? 'Done' : 'Select'}</button>
             {mode === 'queue' && libraryMembership && onReorderQueue && (
               <button
                 onClick={toggleOrderMode}
-                className={`rounded-lg px-3 py-1.5 text-xs font-medium ${orderMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}
+                className={`rounded-lg px-4 py-2 text-sm font-medium ${orderMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}
                 title="Reorder queue (session only — playback continues)"
               >
                 {orderMode ? 'Done' : 'Order'}
               </button>
             )}
             <div className="flex items-center gap-1 rounded-full bg-slate-800 p-1">
-              <button onClick={() => setMode('groups')} className={`rounded-full px-3 py-1 text-xs font-medium ${mode === 'groups' ? 'bg-primary text-white' : 'text-slate-400'}`}>Groups</button>
-              <button onClick={() => setMode('queue')} className={`rounded-full px-3 py-1 text-xs font-medium ${mode === 'queue' ? 'bg-primary text-white' : 'text-slate-400'}`}>Queue</button>
+              <button onClick={() => setMode('groups')} className={`rounded-full px-4 py-1.5 text-sm font-medium ${mode === 'groups' ? 'bg-primary text-white' : 'text-slate-400'}`}>Groups</button>
+              <button onClick={() => setMode('queue')} className={`rounded-full px-4 py-1.5 text-sm font-medium ${mode === 'queue' ? 'bg-primary text-white' : 'text-slate-400'}`}>Queue</button>
             </div>
           </div>
         </div>
         {mode === 'groups' && (
           <div className="mt-3 flex gap-2">
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search groups or tracks..." className="flex-1 rounded-lg bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-primary" />
-            <button onClick={onPickFolder} className="rounded-lg bg-slate-800 px-3 py-2 text-xs text-slate-300">+ Folder</button>
-            <button onClick={onPickFiles} className="rounded-lg bg-slate-800 px-3 py-2 text-xs text-slate-300">+ Files</button>
+            <button onClick={onPickFolder} className="rounded-lg bg-slate-800 px-4 py-2 text-sm text-slate-300">+ Folder</button>
+            <button onClick={onPickFiles} className="rounded-lg bg-slate-800 px-4 py-2 text-sm text-slate-300">+ Files</button>
           </div>
         )}
         {mode === 'queue' && (
           <div className="mt-3 flex gap-2">
-            <button onClick={onPickFolder} className="rounded-lg bg-slate-800 px-3 py-2 text-xs text-slate-300">+ Folder</button>
-            <button onClick={onPickFiles} className="rounded-lg bg-slate-800 px-3 py-2 text-xs text-slate-300">+ Files</button>
+            <button onClick={onPickFolder} className="rounded-lg bg-slate-800 px-4 py-2 text-sm text-slate-300">+ Folder</button>
+            <button onClick={onPickFiles} className="rounded-lg bg-slate-800 px-4 py-2 text-sm text-slate-300">+ Files</button>
           </div>
         )}
       </div>
