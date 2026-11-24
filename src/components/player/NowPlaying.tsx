@@ -23,10 +23,11 @@ export function NowPlaying({ currentTrack, videoContainerRef, collapsed, onToggl
       aria-label={collapsed ? 'Show video' : 'Hide video'}
     >
       {/* Bigger, clearer video toggle: rectangle with play triangle.
-          Crossed out when video is hidden (collapsed). */}
+          Crossed out when video is hidden (collapsed).
+          The triangle is centered inside the rect (rect center x=12). */}
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
         <rect x="2" y="3" width="20" height="18" rx="2" />
-        <polygon points="7,7 7,17 13,12" fill="currentColor" />
+        <polygon points="10,6 10,18 16,12" fill="currentColor" />
         {collapsed && <line x1="2" y1="3" x2="22" y2="21" stroke="currentColor" strokeWidth="2.5" />}
       </svg>
     </button>
@@ -83,7 +84,7 @@ export function NowPlaying({ currentTrack, videoContainerRef, collapsed, onToggl
             key={currentTrack.name}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-1 text-lg font-bold text-white"
+            className="mb-1 text-base font-bold text-white"
           >
             {currentTrack.name}
           </motion.h2>
@@ -120,7 +121,7 @@ export function NowPlaying({ currentTrack, videoContainerRef, collapsed, onToggl
           key={currentTrack.name}
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-1 text-xl font-bold text-white"
+          className="mb-1 text-lg font-bold text-white"
         >
           {currentTrack.name}
         </motion.h2>

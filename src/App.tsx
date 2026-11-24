@@ -90,7 +90,24 @@ export default function App() {
   // Keep libraryTracks in sync when queue is library (not playlist)
   useEffect(() => {
     const sync = async () => {
-      setLibraryTracks(await getAllTracks())
+      const tracks = await getAllTracks()
+      // Restore saved custom library order so reorders survive reloads.
+      const savedOrder = (await getSetting('libraryOrder')) as string[] | undefined
+      if (savedOrder && savedOrder.length > 0) {
+        const validIdSet = new Set(tracks.map((t) => t.id))
+        const byId = new Map(tracks.map((t) => [t.id, t] as const))
+        const savedValid = savedOrder
+          .filter((id) => validIdSet.has(id))
+          .map((id) => byId.get(id)!)
+          .filter(Boolean)
+        const savedIdSet = new Set(savedValid.map((t) => t.id))
+        const remainder = tracks.filter((t) => !savedIdSet.has(t.id))
+        if (savedValid.length > 0) {
+          setLibraryTracks([...savedValid, ...remainder])
+          return
+        }
+      }
+      setLibraryTracks(tracks)
     }
     void sync()
   }, [queue.length])

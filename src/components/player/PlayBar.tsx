@@ -97,6 +97,9 @@ export function PlayBar({ currentTrack, onTogglePlay, onNext, onPrev, onSeek }: 
       {/* Center controls */}
       <div className="flex flex-1 flex-col items-center gap-1 md:flex-none md:w-96">
         <div className="flex items-center gap-3">
+          {/* Spacer to balance the wider lockscreen toggle on the right,
+              keeping the play button visually centered in the bar. */}
+          <div className="w-8" />
           {hasMultipleTracks && (
             <button
               onClick={toggleShuffle}
@@ -176,7 +179,7 @@ export function PlayBar({ currentTrack, onTogglePlay, onNext, onPrev, onSeek }: 
           {/* Lock screen mode toggle: skip10 (±10s) vs prevnext (<< >>) */}
           <button
             onClick={toggleLockScreenMode}
-            className="ml-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors"
+            className="ml-3 rounded-lg border px-3 py-2 text-sm font-medium transition-colors"
             style={{
               borderColor: lockScreenMode === 'skip10' ? '#6366f1' : '#334155',
               color: lockScreenMode === 'skip10' ? '#818cf8' : '#94a3b8',
