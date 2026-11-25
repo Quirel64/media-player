@@ -49,6 +49,9 @@ body {
 input, textarea {
   -webkit-user-select: text;
   user-select: text;
+  /* Prevent iOS from zooming into inputs on focus (iOS zooms when
+     font-size < 16px). 16px keeps the text readable without triggering zoom. */
+  font-size: 16px;
 }
 
 /* Debug log must stay copyable despite the global no-select rule. */

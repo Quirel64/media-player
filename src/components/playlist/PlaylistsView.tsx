@@ -33,7 +33,7 @@ interface Props {
 // Hold-and-drag queue row in the single always-mounted Reorder tree: grip-only
 // dragging (dragListener={false}) so scroll works everywhere else; row holds
 // start on the same live controls. select-none stops iOS text selection.
-function DragPlaylistRow({ itemId, track, position, isPlaying, editMode, isSelected, onToggleSelect, showGrip, onHoldToOrder, dropStampRef, onPlay, onCommitMove, onDragBegin }: {
+function DragPlaylistRow({ itemId, track, position, isPlaying, editMode, isSelected, onToggleSelect, showGrip, onHoldToOrder, dropStampRef, onPlay, onCommitMove, onDragBegin, disableHold }: {
   itemId: string
   track: Track
   position: number
@@ -43,26 +43,31 @@ function DragPlaylistRow({ itemId, track, position, isPlaying, editMode, isSelec
   onToggleSelect: () => void
   showGrip: boolean
   onHoldToOrder?: () => void
+  // When true, hold-to-drag is completely disabled (no hold ring, no pointer
+  // handlers). Used in edit mode where dragging should never happen.
+  disableHold?: boolean
   dropStampRef: React.RefObject<number>
   onPlay: () => void
   onCommitMove: () => void
   onDragBegin: (id: string) => void
 }) {
   const controls = useDragControls()
-  const hold = useHoldToDrag({
-    shouldStart: () => !editMode && !!onHoldToOrder,
-    onStarting: () => onHoldToOrder?.(),
-    onFire: (e) => {
-      try {
-        controls.start(e)
-        // TEMP-TELEMETRY (hold-drag diagnosis — remove once green)
-        addLog('hold fire: drag live (playlist)')
-      } catch {
-        // TEMP-TELEMETRY (hold-drag diagnosis — remove once green)
-        addLog('hold fire: start threw (playlist)')
-      }
-    },
-  })
+  const hold = disableHold
+    ? { onPointerDown: undefined, onPointerMove: undefined, onPointerUp: undefined, onPointerCancel: undefined, holdArmed: false, dragging: false }
+    : useHoldToDrag({
+        shouldStart: () => !editMode && !!onHoldToOrder,
+        onStarting: () => onHoldToOrder?.(),
+        onFire: (e) => {
+          try {
+            controls.start(e)
+            // TEMP-TELEMETRY (hold-drag diagnosis — remove once green)
+            addLog('hold fire: drag live (playlist)')
+          } catch {
+            // TEMP-TELEMETRY (hold-drag diagnosis — remove once green)
+            addLog('hold fire: start threw (playlist)')
+          }
+        },
+      })
   const lifted = hold.dragging
   const rowRef = useRef<HTMLLIElement | null>(null)
   return (
@@ -84,10 +89,12 @@ function DragPlaylistRow({ itemId, track, position, isPlaying, editMode, isSelec
         if (editMode) onToggleSelect()
         else onPlay()
       }}
-      onPointerDown={hold.onPointerDown}
-      onPointerMove={hold.onPointerMove}
-      onPointerUp={hold.onPointerUp}
-      onPointerCancel={hold.onPointerCancel}
+      {...(hold.onPointerDown && {
+        onPointerDown: hold.onPointerDown,
+        onPointerMove: hold.onPointerMove,
+        onPointerUp: hold.onPointerUp,
+        onPointerCancel: hold.onPointerCancel,
+      })}
       className={`flex cursor-pointer select-none items-center gap-3 rounded-lg px-3 py-2 ${
         hold.dragging ? 'touch-none' : 'touch-pan-y'
       } ${
@@ -373,9 +380,6 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
               <button onClick={() => setShowAddTracks(true)} className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200" title="Add tracks from the library">+ Tracks</button>
             )}
             <button onClick={() => onForcePlayPlaylist(active.id, 0)} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white">Play</button>
-            {active.items.length === 0 && (
-              <button onClick={() => onDeletePlaylist(active.id)} className="rounded-lg bg-red-900/30 px-4 py-2 text-sm text-red-300 hover:bg-red-600/50">Delete playlist</button>
-            )}
           </div>
           <div className="mt-3 flex items-center justify-between">
             <div className="flex items-center gap-1 rounded-full bg-slate-800 p-1">
@@ -384,9 +388,9 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
             </div>
             <div className="flex items-center gap-2">
               {editMode && (
-                <button onClick={() => setSelectedItemIds(s => s.size === active!.items.length ? new Set() : new Set(active!.items.map(it => it.id)))} className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300">{selectedItemIds.size === active?.items.length ? 'Deselect All' : 'Select All'}</button>
+                <button onClick={() => setSelectedItemIds(s => s.size === active!.items.length ? new Set() : new Set(active!.items.map(it => it.id)))} className="rounded-lg bg-slate-800 px-4 py-2 text-sm text-slate-300">{selectedItemIds.size === active?.items.length ? 'Deselect All' : 'Select All'}</button>
               )}
-              {editMode && <span className="text-xs text-slate-400">{selectedItemIds.size} selected</span>}
+              {editMode && <span className="text-sm text-slate-400">{selectedItemIds.size} selected</span>}
             </div>
           </div>
         </div>
@@ -436,6 +440,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
                         onToggleSelect={() => toggleSelect(iid)}
                         showGrip={orderMode && gripsVisible}
                         onHoldToOrder={holdToOrder}
+                        disableHold={editMode}
                         dropStampRef={dropStampRef}
                         onPlay={() => onForcePlayPlaylist(active.id, idx)}
                         onCommitMove={commitDragMove}
@@ -450,10 +455,11 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
               </Reorder.Group>
             </div>
             {editMode && (
-              <AnimatePresence>
+              <AnimatePresence mode="popLayout">
                 <div className="absolute inset-x-0 bottom-0 z-10 border-t border-slate-800 bg-slate-900 px-4 py-3">
                   <div className="flex gap-2">
-                    <button onClick={handleRemoveSelected} disabled={selectedItemIds.size === 0} className="flex-1 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">Remove from playlist ({selectedItemIds.size})</button>
+                    <button onClick={handleRemoveSelected} disabled={selectedItemIds.size === 0} className="w-2/3 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">Remove from playlist ({selectedItemIds.size})</button>
+                    <button onClick={() => onDeletePlaylist(active.id)} className="w-1/3 rounded-lg bg-red-900/30 px-4 py-2 text-sm text-red-300 hover:bg-red-600/50">Delete playlist</button>
                   </div>
                 </div>
               </AnimatePresence>
@@ -489,10 +495,11 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
             </div>
           </div>
           {editMode && (
-            <AnimatePresence>
+            <AnimatePresence mode="popLayout">
               <div className="border-t border-slate-800 bg-slate-900 px-4 py-3">
                 <div className="flex gap-2">
-                  <button onClick={handleRemoveSelected} disabled={selectedItemIds.size === 0} className="flex-1 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">Remove from playlist ({selectedItemIds.size})</button>
+                  <button onClick={handleRemoveSelected} disabled={selectedItemIds.size === 0} className="w-2/3 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">Remove from playlist ({selectedItemIds.size})</button>
+                  <button onClick={() => onDeletePlaylist(active.id)} className="w-1/3 rounded-lg bg-red-900/30 px-4 py-2 text-sm text-red-300 hover:bg-red-600/50">Delete playlist</button>
                 </div>
               </div>
             </AnimatePresence>

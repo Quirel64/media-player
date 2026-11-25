@@ -37,13 +37,13 @@ export function NowPlaying({ currentTrack, videoContainerRef, collapsed, onToggl
         {/* Keep video container mounted even with no track so ref never swaps */}
         <div key="video-container" ref={videoContainerRef} className="hidden" />
         <div className="flex h-full items-center justify-center p-4">
-          <div className="flex w-full items-center justify-between gap-3">
-          <div className="text-center text-slate-600 flex-1">
-            <div className="mb-1 text-2xl">🎶</div>
-            <p className="text-xs">Select a track to play</p>
+          <div className="flex w-full items-center gap-3 px-4">
+            <div className="text-center text-slate-600 flex-1">
+              <div className="mb-1 text-2xl">🎶</div>
+              <p className="text-xs">Select a track to play</p>
+            </div>
+            {CollapseBtn}
           </div>
-          {CollapseBtn}
-        </div>
         </div>
       </div>
     )
@@ -54,7 +54,7 @@ export function NowPlaying({ currentTrack, videoContainerRef, collapsed, onToggl
       <div className="flex flex-col">
         {/* Keep same key so React reuses the node and <video> stays mounted */}
         <div key="video-container" ref={videoContainerRef} className="hidden" />
-        <div className="flex items-center justify-between gap-3 px-4 py-2">
+        <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm">
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-white">{currentTrack.name}</p>
             <p className="truncate text-xs text-slate-500">{currentTrack.artist} • {formatTime(currentTime)} / {formatTime(duration)}</p>
@@ -67,8 +67,25 @@ export function NowPlaying({ currentTrack, videoContainerRef, collapsed, onToggl
 
   if (currentTrack.mediaType === 'video') {
     return (
-      <div className="flex flex-col gap-4 p-4" style={{ paddingTop: 'calc(1rem + env(safe-area-inset-top, 0px))' }}>
-        <div className="flex justify-end">{CollapseBtn}</div>
+      <div className="flex flex-col gap-4 p-2">
+        {/* Header row with track name + collapse button integrated */}
+        <div className="flex items-center justify-between gap-3 px-3 py-2">
+          <div className="min-w-0 flex-1">
+            <motion.h2
+              key={currentTrack.name}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-0.5 text-base font-bold text-white"
+            >
+              {currentTrack.name}
+            </motion.h2>
+            <p className="text-xs text-slate-400">
+              {currentTrack.artist}
+              {currentTrack.album !== 'Unknown Album' && ` • ${currentTrack.album}`}
+            </p>
+          </div>
+          {CollapseBtn}
+        </div>
         <div
           key="video-container"
           ref={videoContainerRef}
@@ -78,18 +95,19 @@ export function NowPlaying({ currentTrack, videoContainerRef, collapsed, onToggl
           {/* Video element gets appended here by useAudioEngine */}
         </div>
         <div className="px-2">
-          <motion.h2
-            key={currentTrack.name}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-1 text-base font-bold text-white"
-          >
-            {currentTrack.name}
-          </motion.h2>
-          <p className="text-sm text-slate-400">
-            {currentTrack.artist}
-            {currentTrack.album !== 'Unknown Album' && ` • ${currentTrack.album}`}
-          </p>
+          <div className="w-full max-w-md">
+            <div className="relative h-1 w-full overflow-hidden rounded-full bg-slate-700">
+              <motion.div
+                className="absolute left-0 top-0 h-full bg-primary"
+                style={{ width: duration > 0 ? `${(currentTime / duration) * 100}%` : '0%' }}
+                transition={{ duration: 0.1 }}
+              />
+            </div>
+            <div className="mt-1 flex justify-between text-xs text-slate-500">
+              <span>{formatTime(currentTime)}</span>
+              <span>{formatTime(duration)}</span>
+            </div>
+          </div>
         </div>
       </div>
     )
@@ -101,10 +119,10 @@ export function NowPlaying({ currentTrack, videoContainerRef, collapsed, onToggl
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.3 }}
-      className="flex flex-col items-center gap-6 p-8 relative"
+      className="flex flex-col items-center gap-6 p-4 relative"
     >
       <div key="video-container" ref={videoContainerRef} className="hidden" />
-      <div className="absolute right-4 top-[env(safe-area-inset-top,4px)]">{CollapseBtn}</div>
+      {/* Collapse button integrated into the track header below */}
       <motion.div
         className="flex h-48 w-48 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/30 to-accent/30 shadow-2xl"
         animate={{ rotate: currentTime > 0 ? [0, 0, 0] : 0 }}
@@ -113,22 +131,26 @@ export function NowPlaying({ currentTrack, videoContainerRef, collapsed, onToggl
         <span className="text-6xl">🎵</span>
       </motion.div>
 
-      <div className="text-center">
-        <motion.h2
-          key={currentTrack.name}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-1 text-lg font-bold text-white"
-        >
-          {currentTrack.name}
-        </motion.h2>
-        <p className="text-sm text-slate-400">
-          {currentTrack.artist}
-          {currentTrack.album !== 'Unknown Album' && ` • ${currentTrack.album}`}
-        </p>
+      {/* Header row with track name + collapse button integrated */}
+      <div className="flex items-center justify-between gap-3 px-3 py-2 border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm">
+        <div className="min-w-0 flex-1">
+          <motion.h2
+            key={currentTrack.name}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-0.5 text-base font-bold text-white"
+          >
+            {currentTrack.name}
+          </motion.h2>
+          <p className="text-xs text-slate-400">
+            {currentTrack.artist}
+            {currentTrack.album !== 'Unknown Album' && ` • ${currentTrack.album}`}
+          </p>
+        </div>
+        {CollapseBtn}
       </div>
 
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-md px-3">
         <div className="relative h-1 w-full overflow-hidden rounded-full bg-slate-700">
           <motion.div
             className="absolute left-0 top-0 h-full bg-primary"

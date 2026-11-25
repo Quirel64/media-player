@@ -43,6 +43,10 @@ interface TrackListProps {
   // Grips are exclusive to button-entered Order mode (accessibility without
   // cluttering hold-entered drags, which need no handle).
   showGrips?: boolean
+  // When true, hold-to-drag is completely disabled on every row (no hold ring,
+  // no pointer handlers). Used where dragging should never happen (e.g. the
+  // AddTracksSheet opened from inside a playlist).
+  disableHold?: boolean
   // Controlled selection (S1): when provided, selection state lives in the
   // parent so Queue mode and Group detail share ONE set — no loose states.
   // Falls back to internal state when absent.
@@ -68,7 +72,7 @@ function formatSize(bytes: number): string {
 // Draggable row in the single always-mounted Reorder tree: grip-only dragging
 // (dragListener={false}) so scroll works everywhere else; row holds start on
 // the same live controls. select-none stops iOS text selection mid-drag.
-function DragTrackRow({ track, index, isCurrent, currentIsSource, selectMode, isSelected, onToggleSelect, showGrip, holdToOrder, dropStampRef, onPlay, onCommitMove, onDragBegin }: {
+function DragTrackRow({ track, index, isCurrent, currentIsSource, selectMode, isSelected, onToggleSelect, showGrip, holdToOrder, dropStampRef, onPlay, onCommitMove, onDragBegin, disableHold }: {
   track: Track
   index: number
   isCurrent: boolean
@@ -81,6 +85,9 @@ function DragTrackRow({ track, index, isCurrent, currentIsSource, selectMode, is
   // gesture starts on these already-live controls (no remount mid-gesture).
   // Undefined = holds do nothing here.
   holdToOrder?: () => void
+  // When true, hold-to-drag is completely disabled (no hold ring, no pointer
+  // handlers). Used where dragging should never happen (e.g. AddTracksSheet).
+  disableHold?: boolean
   // Stamp of the last drop commit: clicks inside it are the release itself.
   dropStampRef: React.RefObject<number>
   onPlay: () => void
@@ -91,20 +98,22 @@ function DragTrackRow({ track, index, isCurrent, currentIsSource, selectMode, is
   // Long-press anywhere on the row also grabs it (same controls as the grip).
   // touch-action flips to none only while held: the flip lands while the finger
   // is still stationary, so the first move belongs to the drag, not the scroller.
-  const hold = useHoldToDrag({
-    shouldStart: () => !selectMode && !!holdToOrder,
-    onStarting: () => holdToOrder?.(),
-    onFire: (e) => {
-      try {
-        controls.start(e)
-        // TEMP-TELEMETRY (hold-drag diagnosis — remove once green)
-        addLog('hold fire: drag live (library)')
-      } catch {
-        // TEMP-TELEMETRY (hold-drag diagnosis — remove once green)
-        addLog('hold fire: start threw (library)')
-      }
-    },
-  })
+  const hold = disableHold
+    ? { onPointerDown: undefined, onPointerMove: undefined, onPointerUp: undefined, onPointerCancel: undefined, holdArmed: false, dragging: false }
+    : useHoldToDrag({
+        shouldStart: () => !selectMode && !!holdToOrder,
+        onStarting: () => holdToOrder?.(),
+        onFire: (e) => {
+          try {
+            controls.start(e)
+            // TEMP-TELEMETRY (hold-drag diagnosis — remove once green)
+            addLog('hold fire: drag live (library)')
+          } catch {
+            // TEMP-TELEMETRY (hold-drag diagnosis — remove once green)
+            addLog('hold fire: start threw (library)')
+          }
+        },
+      })
   const lifted = hold.dragging
   // Row element for telemetry: framer's onDrag event has no currentTarget
   // (native pointer event), so we measure via ref instead.
@@ -128,10 +137,12 @@ function DragTrackRow({ track, index, isCurrent, currentIsSource, selectMode, is
         if (selectMode) onToggleSelect()
         else onPlay()
       }}
-      onPointerDown={hold.onPointerDown}
-      onPointerMove={hold.onPointerMove}
-      onPointerUp={hold.onPointerUp}
-      onPointerCancel={hold.onPointerCancel}
+      {...(hold.onPointerDown && {
+        onPointerDown: hold.onPointerDown,
+        onPointerMove: hold.onPointerMove,
+        onPointerUp: hold.onPointerUp,
+        onPointerCancel: hold.onPointerCancel,
+      })}
       className={`group flex cursor-pointer select-none items-center gap-4 rounded-lg px-4 py-3 ${
         hold.dragging ? 'touch-none' : 'touch-pan-y'
       } ${
@@ -196,7 +207,7 @@ function DragTrackRow({ track, index, isCurrent, currentIsSource, selectMode, is
   )
 }
 
-export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger, selectClearTrigger, reorderMode, onReorderCommit, onHoldToOrder, showGrips, onDropEnd, onReleaseWithoutDrop, externalSelectedIds, onSelectedIdsChange, currentIsSource }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
+export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFolder, onPickFiles, onRemoveTracks, onAddToPlaylist, hideHeader, externalSelectMode, onExternalSelectModeChange, selectAllTrigger, selectClearTrigger, reorderMode, onReorderCommit, onHoldToOrder, showGrips, disableHold, onDropEnd, onReleaseWithoutDrop, externalSelectedIds, onSelectedIdsChange, currentIsSource }: TrackListProps & { onAddToPlaylist?: (tracks: Track[]) => void }) {
   const [internalSelectMode, setInternalSelectMode] = useState(false)
   const selectMode = externalSelectMode !== undefined ? externalSelectMode : internalSelectMode
   const setSelectMode = (v: boolean | ((prev: boolean) => boolean)) => {
@@ -477,6 +488,7 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
                 onToggleSelect={() => toggleSelect(track.id)}
                 showGrip={!!reorderMode && showGrips !== false}
                 holdToOrder={holdToOrder}
+                disableHold={disableHold}
                 dropStampRef={dropStampRef}
                 onPlay={() => onSelectTrack(index)}
                 onCommitMove={commitDragMove}

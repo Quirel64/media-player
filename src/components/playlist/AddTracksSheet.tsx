@@ -78,6 +78,7 @@ export function AddTracksSheet({ open, playlistName, onClose, onAdd }: Props) {
             externalSelectMode
             externalSelectedIds={selectedIds}
             onSelectedIdsChange={setSelectedIds}
+            disableHold
           />
         )}
       </div>
