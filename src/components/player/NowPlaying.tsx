@@ -67,8 +67,19 @@ export function NowPlaying({ currentTrack, videoContainerRef, collapsed, onToggl
 
   if (currentTrack.mediaType === 'video') {
     return (
-      <div className="flex flex-col gap-4 p-2">
-        {/* Header row with track name + collapse button integrated */}
+      <div className="flex flex-col gap-2 p-2">
+        {/* Video first, then the title + toggle row. In a standalone iOS PWA the
+            status-bar blur covers the top of the screen, so keeping the header
+            BELOW the video keeps it visible and tappable. The redundant
+            duration bar was removed (the player bar already shows time). */}
+        <div
+          key="video-container"
+          ref={videoContainerRef}
+          className="relative flex w-full items-center justify-center overflow-hidden rounded-xl bg-black"
+          style={{ aspectRatio: '16/9', maxHeight: '40vh' }}
+        >
+          {/* Video element gets appended here by useAudioEngine */}
+        </div>
         <div className="flex items-center justify-between gap-3 px-3 py-2">
           <div className="min-w-0 flex-1">
             <motion.h2
@@ -85,29 +96,6 @@ export function NowPlaying({ currentTrack, videoContainerRef, collapsed, onToggl
             </p>
           </div>
           {CollapseBtn}
-        </div>
-        <div
-          key="video-container"
-          ref={videoContainerRef}
-          className="relative flex w-full items-center justify-center overflow-hidden rounded-xl bg-black"
-          style={{ aspectRatio: '16/9', maxHeight: '40vh' }}
-        >
-          {/* Video element gets appended here by useAudioEngine */}
-        </div>
-        <div className="px-2">
-          <div className="w-full max-w-md">
-            <div className="relative h-1 w-full overflow-hidden rounded-full bg-slate-700">
-              <motion.div
-                className="absolute left-0 top-0 h-full bg-primary"
-                style={{ width: duration > 0 ? `${(currentTime / duration) * 100}%` : '0%' }}
-                transition={{ duration: 0.1 }}
-              />
-            </div>
-            <div className="mt-1 flex justify-between text-xs text-slate-500">
-              <span>{formatTime(currentTime)}</span>
-              <span>{formatTime(duration)}</span>
-            </div>
-          </div>
         </div>
       </div>
     )

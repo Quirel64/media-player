@@ -368,7 +368,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
               <p className="text-xs text-slate-400">{active.items.length} tracks {active.items.length !== activeTracks.length ? `(${activeTracks.length} available)` : ''}</p>
             </div>
             <button onClick={() => { setEditMode(v => !v); setOrderMode(false) }} className={`rounded-lg px-4 py-2 text-sm font-medium ${editMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}>{editMode ? 'Done' : 'Edit'}</button>
-            {!emptyPlaylist && onReorderItems && (
+            {onReorderItems && (
               <button
                 onClick={() => { if (viewMode !== 'queue') setViewMode('queue'); setOrderMode(v => !v); setGripsVisible(true); setEditMode(false) }}
                 className={`rounded-lg px-4 py-2 text-sm font-medium ${orderMode ? 'bg-primary text-white' : 'bg-slate-800 text-slate-300'}`}
@@ -377,7 +377,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
                 {orderMode ? 'Done' : 'Order'}
               </button>
             )}
-            {!emptyPlaylist && onAddTracksToPlaylist && (
+            {onAddTracksToPlaylist && (
               <button onClick={() => setShowAddTracks(true)} className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200" title="Add tracks from the library">+ Tracks</button>
             )}
             <button onClick={() => onForcePlayPlaylist(active.id, 0)} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white" disabled={emptyPlaylist}>Play</button>
@@ -396,19 +396,6 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
           </div>
         </div>
 
-        {/* Edit mode action bar — shown even when the playlist is empty so the
-            user can still delete an empty playlist. */}
-        {editMode && (
-          <AnimatePresence mode="popLayout">
-            <div className="absolute inset-x-0 bottom-0 z-10 border-t border-slate-800 bg-slate-900 px-4 py-3">
-              <div className="flex gap-2">
-                <button onClick={handleRemoveSelected} disabled={selectedItemIds.size === 0 || emptyPlaylist} className="w-2/3 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">Remove from playlist ({selectedItemIds.size})</button>
-                <button onClick={() => onDeletePlaylist(active.id)} className="w-1/3 rounded-lg bg-red-900/30 px-4 py-2 text-sm text-red-300 hover:bg-red-600/50">Delete playlist</button>
-              </div>
-            </div>
-          </AnimatePresence>
-        )}
-
         {emptyPlaylist ? (
           <div className="flex flex-1 items-center justify-center p-8 text-center text-slate-500">
             <div>
@@ -420,7 +407,7 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
         ) : isQueue ? (
           <div className="relative flex flex-1 flex-col overflow-hidden">
             <div
-              className={`flex-1 overflow-y-auto p-2 pb-24 ${dragActive ? 'touch-none' : ''}`}
+              className={`flex-1 overflow-y-auto p-2 pb-4 ${dragActive ? 'touch-none' : ''}`}
               data-dragscroll
               ref={queueListRef}
               onPointerUp={() => {
@@ -470,10 +457,11 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
             </div>
           </div>
         ) : (
-          <div className="flex h-full flex-col overflow-hidden">
+          <div className="flex flex-1 flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto p-3">
-            <div className="grid grid-cols-2 gap-3">
-{activeTracks.map((t, idx) => {
+            <div className="relative grid grid-cols-2 gap-3">
+              <AnimatePresence initial={false} mode="popLayout">
+              {activeTracks.map((t, idx) => {
                 const thumb = thumbs[t.fileName]
                 const gridItemId = active.items[idx]?.id ?? t.id
                 const gridSelected = selectedItemIds.has(gridItemId)
@@ -481,11 +469,12 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
                   ? gridItemId === currentQueueKey
                   : currentTrackId === t.id
                 return (
-                  <AnimatePresence key={gridItemId}>
                     <motion.button
+                      key={gridItemId}
+                      layout
                       onClick={() => { if (editMode) toggleSelect(gridItemId); else onForcePlayPlaylist(active.id, idx) }}
                       className={`relative flex flex-col overflow-hidden rounded-lg bg-slate-900 text-left ${gridPlaying || (editMode && gridSelected) ? 'ring-2 ring-primary' : ''}`}
-                      initial={{ opacity: 1, scale: 1 }}
+                      initial={{ opacity: 0, scale: 0.95 }}
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0, scale: 0.95 }}
                       transition={{ duration: 0.2 }}
@@ -502,11 +491,22 @@ export function PlaylistsView({ playlists, onCreatePlaylist, onForcePlayPlaylist
                         <p className="truncate text-xs text-slate-400">{idx + 1} • {t.artist !== 'Unknown Artist' ? t.artist : t.folderName}</p>
                       </div>
                     </motion.button>
-                  </AnimatePresence>
                 )
               })}
+              </AnimatePresence>
             </div>
           </div>
+          </div>
+        )}
+        {/* Edit mode action bar — normal flow at the bottom of the detail view
+            so it sits just above the player bar instead of being pushed
+            off-screen. Shown for empty playlists too, so they can be deleted. */}
+        {editMode && (
+          <div className="flex-shrink-0 border-t border-slate-800 bg-slate-900 px-4 py-3">
+            <div className="flex gap-2">
+              <button onClick={handleRemoveSelected} disabled={selectedItemIds.size === 0 || emptyPlaylist} className="w-2/3 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">Remove from playlist ({selectedItemIds.size})</button>
+              <button onClick={() => onDeletePlaylist(active.id)} className="w-1/3 rounded-lg bg-red-900/30 px-4 py-2 text-sm text-red-300 hover:bg-red-600/50">Delete playlist</button>
+            </div>
           </div>
         )}
         {!editMode && active.items.length > 0 && isQueue && (
