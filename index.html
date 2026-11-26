@@ -6,7 +6,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#0f172a" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- Opaque (not black-translucent) status bar. Translucent + viewport-fit=cover
+         triggers a WebKit bug (bugs.webkit.org #313800) where the iOS status-bar
+         glass renders over page content and top controls become unreachable.
+         "black" keeps it dark to match the app while insetting content below it. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <meta name="description" content="Free open-source PWA media player. Play audio and video files offline with shuffle, volume control, and background playback." />
     <meta property="og:title" content="Media Player" />
     <meta property="og:description" content="Free open-source PWA media player for audio and video files with offline playback and background support." />
