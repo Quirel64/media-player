@@ -29,12 +29,12 @@ export function Layout({ sidebar, nowPlaying, content, player, activeTab, onTabC
 
         {/* Main content - nowPlaying fixed, content scrolls */}
         <main className="flex-1 flex flex-col overflow-hidden bg-slate-950">
-          {/* pt-safe-area pushes content below the iOS PWA status bar so the
-              header never sits behind it. */}
-          <div className="flex-shrink-0 border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm sticky top-0 z-10 pt-[env(safe-area-inset-top)]">
+          {/* pt-4 gives a regular top gap (helps iOS PWA where env() may return 0);
+              env(safe-area-inset-top) adds extra on devices that report it. */}
+          <div className="flex-shrink-0 border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm sticky top-0 z-10 pt-4 pt-[env(safe-area-inset-top)]">
             {nowPlaying}
           </div>
-          <div className="flex-1 overflow-y-auto pt-[env(safe-area-inset-top)]">
+          <div className="flex-1 overflow-y-auto pt-4 pt-[env(safe-area-inset-top)]">
             {content}
           </div>
         </main>

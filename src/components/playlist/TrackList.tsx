@@ -526,12 +526,14 @@ export function TrackList({ tracks, currentTrackIndex, onSelectTrack, onPickFold
                   Add to playlist ({selectedIds.size})
                 </button>
               )}
-              <button
-                onClick={deleteSelected}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-500 active:scale-[0.98]"
-              >
-                Delete ({selectedIds.size})
-              </button>
+              {onRemoveTracks && (
+                <button
+                  onClick={deleteSelected}
+                  className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-500 active:scale-[0.98]"
+                >
+                  Delete ({selectedIds.size})
+                </button>
+              )}
               <button
                 onClick={exitSelectMode}
                 className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-slate-700"
